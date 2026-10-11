@@ -1,0 +1,14 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o></pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script>
+<script>
+PB.buildDB(); const M=PB.MONS; const o=[];
+const by=n=>M.find(m=>m.name===n);
+o.push('count '+M.length);
+const dist=(f)=>{const a=M.map(f).sort((x,y)=>x-y);return [0,.1,.25,.5,.75,.9,.99,1].map(q=>a[Math.min(a.length-1,Math.floor(q*a.length))]).join(' ')};
+o.push('ovr dist (min,10,25,50,75,90,99,max): '+dist(m=>m.ovr));
+const pc={};M.forEach(m=>pc[m.pos[0]]=(pc[m.pos[0]]||0)+1);o.push('primary pos '+JSON.stringify(pc));
+['machamp','lucario','gardevoir','wailord','gyarados','kyogre','arceus','pikachu','caterpie','magikarp','mewtwo','arceus','snorlax','onix','wailord','charizard','dragonite','machamp','alakazam','blissey','shedinja','ninjask','gengar','scyther','lucario','eternatus','joltik','mew','kyogre','groudon','ditto','regieleki','garchomp','sableye','mimikyu','dugtrio'].forEach(n=>{const m=by(n);if(!m)return;o.push((m.dispName+'                ').slice(0,12)+' ovr '+m.ovr+' '+m.pos.join('/')+' '+m.archOff+' | '+m.archDef+' 3:'+m.r.three+' dk:'+m.r.dunk+' pass:'+m.r.pass+' hdl:'+m.r.handle+' spd:'+m.r.speed+' str:'+m.r.strength+' stam:'+m.r.stamina+' blk:'+m.r.block+' reb:'+m.r.dreb+' iD:'+m.r.intD+' pD:'+m.r.perD)});
+const topS=M.slice().sort((a,b)=>b.ovr-a.ovr).slice(0,25).map(m=>m.dispName+' '+m.ovr).join(', ');o.push("TOP25: "+topS);
+const leg=M.filter(m=>m.leg||m.myth);o.push('legend avg ovr '+PB.avg(leg.map(m=>m.ovr)).toFixed(1)+' nonlegend '+PB.avg(M.filter(m=>!m.leg&&!m.myth).map(m=>m.ovr)).toFixed(1));
+document.getElementById('o').textContent=o.join('\n');
+</script>

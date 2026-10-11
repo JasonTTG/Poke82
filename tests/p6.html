@@ -1,0 +1,57 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script>
+<script>
+PB.buildDB();PB.settings=PB.defaultSettings();
+window.report=function(){
+const out=[];const fail=[];const ck=(c,m)=>{if(!c){fail.push(m)}};
+const L=PB.League;
+for(const seed of [1,2,3,4,5,6]){
+  for(const mode of ['main','fantasy']){
+    const G=PB.newGame(seed*1000+(mode==='main'?1:2),mode,30,seed%30);G.settings=PB.settings;
+    if(mode==='main'){
+      // user also drafts with the AI chooser (6 rounds simulate the same code path as UI picks)
+      PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+    } else {
+      PB.Fantasy.start(G,seed%30); let g=0;while(!PB.Fantasy.done(G)&&g++<5000){PB.Fantasy.aiStep(G)}
+    }
+    ck(PB.Registry.verify(G)===null,mode+seed+' registry');
+    const all=[].concat(...G.teams.map(t=>t.roster));ck(new Set(all).size===360&&all.length===360,mode+seed+' unique 360');
+    // species-level uniqueness (no forms): each species id once
+    ck(G.teams.every(t=>PB.validateLineup(t).length===0),mode+seed+' lineups');
+    G.league=L.create(G,82);const lg=G.league;
+    // schedule integrity
+    const cnt=G.teams.map(()=>0);lg.sched.forEach(x=>{cnt[x.h]++;cnt[x.a]++});ck(cnt.every(c=>c===82),mode+seed+' 82 games each');
+    L.simAll(G);
+    ck(lg.phase==='done'&&lg.champion!=null,mode+seed+' finished');
+    const W=PB.sum(lg.rec.map(r=>r.w)),Ls=PB.sum(lg.rec.map(r=>r.l));ck(W===1230&&Ls===1230,mode+seed+' W/L totals '+W+'/'+Ls);
+    ck(lg.rec.every(r=>r.w+r.l===82),mode+seed+' 82 decided per team');
+    // playoffs: 15 series, each winner has exactly 4 wins
+    const series=[].concat(...lg.po.rounds);ck(series.length===15,mode+seed+' 15 series '+series.length);
+    ck(series.every(s=>(s.w[0]===4)!==(s.w[1]===4)&&Math.max(...s.w)===4&&Math.min(...s.w)<4),mode+seed+' series valid');
+    ck(PB.Registry.verify(G)===null,mode+seed+' registry post');
+    ck(lg.allStar&&lg.allStar.squads.East.starters.length===5&&lg.allStar.squads.West.reserves.length===7&&lg.allStar.game,mode+seed+' all-star');
+    ck(lg.awards&&lg.awards.mvp&&lg.awards.dpoy&&lg.awards.allLeague.length===3&&lg.awards.allLeague.every(t=>t.length===5)&&lg.awards.allDefense.every(t=>t.length===5)&&lg.awards.playoffMvp,mode+seed+' awards');
+    if(seed===1)out.push('awards sample: MVP '+PB.BYID[lg.awards.mvp].dispName+', DPOY '+PB.BYID[lg.awards.dpoy].dispName+', 6th '+(lg.awards.sixth?PB.BYID[lg.awards.sixth].dispName:'-')+', ASG '+lg.allStar.game.score);
+    const best=Math.max(...lg.rec.map(r=>r.w));out.push(mode+' seed '+seed+': best '+best+'-'+(82-best)+' champion '+G.teams[lg.champion].abbr+' (reg rank '+(L.sortTeams(G,G.teams.map(t=>t.id)).indexOf(lg.champion)+1)+')');
+  }
+}
+// determinism + save/load
+{
+  const mk=()=>{const G=PB.newGame(777,'main',30,3);G.settings=PB.settings;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);G.league=L.create(G,82);return G};
+  const A=mk(),B=mk();L.simToDay(A,60);L.simToDay(B,60);
+  ck(JSON.stringify(A.league.rec)===JSON.stringify(B.league.rec),'determinism same seed');
+  const sv=PB.Save.serialize(B);const C=PB.Save.deserialize(sv);PB.Save.relink(C);
+  L.simAll(A);L.simAll(C);
+  ck(A.league.champion===C.league.champion&&JSON.stringify(A.league.rec)===JSON.stringify(C.league.rec),'save/load resumes identically');
+  out.push('save size KB '+Math.round(sv.length/1024));
+  // starter/bench lineup validity for the user after load
+  ck(PB.validateLineup(C.teams[C.userTeam]).length===0,'loaded lineup valid');
+}
+// impossible league config is rejected
+try{PB.newGame(1,'main',100,0);fail.push('100 teams accepted')}catch(e){out.push('100-team league rejected: '+e.message)}
+// region/type roll never impossible
+{const G=PB.newGame(5,'main',30,0);G.settings=PB.settings;let bad=0,tot=0;for(let i=0;i<300;i++){const c=PB.rollCombo(G,G.rng);tot++;if(PB.eligible(G,c.gen,c.type).length<PB.DRAFT.candidates)bad++}out.push('300 rolls, impossible: '+bad)}
+return {fail,out};
+};
+const r=report();document.getElementById('o').textContent=(r.fail.length?'FAILURES:\n'+r.fail.join('\n')+'\n\n':'ALL CHECKS PASSED\n\n')+r.out.join('\n');
+</script>

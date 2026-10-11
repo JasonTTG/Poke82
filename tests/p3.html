@@ -1,0 +1,49 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o></pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/save.js"></script><script src="../js/fantasy.js"></script>
+<script>
+const o=[];
+window.run=function(seed){
+try{
+const out=[];
+PB.buildDB();
+const G=PB.newGame(seed||2024,'main',30,0);
+PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+let t0=performance.now();
+G.league=PB.League.create(G,82);
+out.push('schedule games '+G.league.sched.length+' days '+G.league.lastDay+' ms '+(performance.now()-t0).toFixed(0));
+const cnt=G.teams.map(()=>0),home=G.teams.map(()=>0);let b2b=0;
+const last=G.teams.map(()=>-9);
+G.league.sched.forEach(g=>{cnt[g.h]++;cnt[g.a]++;home[g.h]++;});
+out.push('games per team min/max '+Math.min(...cnt)+'/'+Math.max(...cnt)+' home min/max '+Math.min(...home)+'/'+Math.max(...home));
+// same-day conflicts
+const byDay={};let conflict=0;G.league.sched.forEach(g=>{const k=g.day;byDay[k]=byDay[k]||new Set();if(byDay[k].has(g.h)||byDay[k].has(g.a))conflict++;byDay[k].add(g.h);byDay[k].add(g.a);});
+out.push('same-day conflicts '+conflict);
+// gap stats
+const lastD=G.teams.map(()=>0);let gaps=[];G.league.sched.slice().sort((a,b)=>a.day-b.day).forEach(g=>{[g.h,g.a].forEach(t=>{if(lastD[t])gaps.push(g.day-lastD[t]);lastD[t]=g.day})});
+out.push('avg gap days '+PB.avg(gaps).toFixed(2)+' max gap '+Math.max(...gaps)+' b2b '+gaps.filter(x=>x===1).length);
+t0=performance.now();
+PB.League.simRegularSeason(G);
+out.push('regular season sim ms '+(performance.now()-t0).toFixed(0)+' phase '+G.league.phase);
+const lg=G.league;
+out.push('all done '+lg.sched.every(g=>g.done)+' total W '+PB.sum(lg.rec.map(r=>r.w))+' total L '+PB.sum(lg.rec.map(r=>r.l)));
+const east=PB.League.confStandings(G,'East').map(i=>G.teams[i].abbr+' '+lg.rec[i].w+'-'+lg.rec[i].l);
+out.push('East: '+east.join(', '));
+const west=PB.League.confStandings(G,'West').map(i=>G.teams[i].abbr+' '+lg.rec[i].w+'-'+lg.rec[i].l);
+out.push('West: '+west.join(', '));
+t0=performance.now();
+PB.League.simAll(G);
+out.push('playoffs ms '+(performance.now()-t0).toFixed(0)+' phase '+lg.phase+' champion '+(lg.champion!=null?G.teams[lg.champion].name:'none'));
+lg.po.rounds.forEach((r,i)=>out.push(' R'+(i+1)+': '+r.map(s=>G.teams[s.hi].abbr+'('+s.hiSeed+') '+s.w[0]+'-'+s.w[1]+' '+G.teams[s.lo].abbr+'('+s.loSeed+')').join(' | ')));
+out.push('ach '+JSON.stringify(lg.ach)+' awards '+JSON.stringify(lg.awards));
+const ld=PB.League.leaders(G,'ppg',5).map(r=>PB.BYID[r.id].dispName+' '+r.v.toFixed(1)).join(', ');out.push('ppg leaders: '+ld);
+const rb=PB.League.leaders(G,'rpg',3).map(r=>PB.BYID[r.id].dispName+' '+r.v.toFixed(1)).join(', ');out.push('rpg leaders: '+rb);
+// save roundtrip
+const sv=PB.Save.save(G,9);out.push('save '+JSON.stringify(sv));
+const G2=PB.Save.load(9);out.push('load ok champion same '+(G2.league.champion===lg.champion)+' rng same '+(G2.rng.s===G.rng.s));
+PB.Save.remove(9);
+const wins=lg.rec.map(r=>r.w).sort((a,b)=>b-a);out.push('wins top5 '+wins.slice(0,5)+' bottom3 '+wins.slice(-3));
+return out.join('\n');
+}catch(e){return 'ERR '+e.stack}
+};
+document.getElementById('o').textContent=run();
+</script>

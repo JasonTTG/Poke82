@@ -1,0 +1,42 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o></pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script>
+<script>
+const o=[];try{
+PB.buildDB();
+const G=PB.newGame(777,'main',30,0);
+PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+const T=G.teams;
+const rng=new PB.RNG(42);
+// stat consistency across many games
+let bad=0,N=300,tot={pts:0,fga:0,fgm:0,tpa:0,tpm:0,fta:0,ftm:0,reb:0,ast:0,stl:0,blk:0,tov:0,pf:0,ot:0,margin:0,homeWin:0};
+let minutes=[];let t0=performance.now();
+for(let n=0;n<N;n++){
+  const a=rng.int(0,29);let b=rng.int(0,29);while(b===a)b=rng.int(0,29);
+  const r=PB.simGame(T[a],T[b],{rng});
+  for(let s=0;s<2;s++){
+    let sumPts=0,secs=0;
+    for(const id in r.box[s]){const x=r.box[s][id];
+      const p=2*(x.fgm-x.tpm)+3*x.tpm+x.ftm;
+      if(p!==x.pts){bad++}
+      if(x.fgm>x.fga||x.tpm>x.tpa||x.ftm>x.fta||x.tpm>x.fgm){bad++}
+      sumPts+=x.pts;secs+=x.sec;
+      for(const k of ['fga','fgm','tpa','tpm','fta','ftm','oreb','dreb','ast','stl','blk','tov','pf'])tot[k]=(tot[k]||0)+x[k];
+    }
+    if(sumPts!==r.score[s]){bad+=100}
+    const expect=14400+1500*r.ot; if(Math.abs(secs-expect)>2){bad+=1000;if(bad<3000)o.push('secs '+secs+' vs '+expect)}
+    tot.pts+=r.score[s];
+  }
+  tot.ot+=r.ot?1:0;tot.margin+=Math.abs(r.score[0]-r.score[1]);tot.homeWin+=r.winner===0?1:0;
+}
+const g=N*2;
+o.push('games '+N+' ms/game '+((performance.now()-t0)/N).toFixed(1)+' inconsistencies '+bad);
+o.push('ppg '+(tot.pts/g).toFixed(1)+' FGA '+(tot.fga/g).toFixed(1)+' FG% '+(tot.fgm/tot.fga*100).toFixed(1)+' 3PA '+(tot.tpa/g).toFixed(1)+' 3P% '+(tot.tpm/tot.tpa*100).toFixed(1)+' FTA '+(tot.fta/g).toFixed(1)+' FT% '+(tot.ftm/tot.fta*100).toFixed(1));
+o.push('reb '+((tot.oreb+tot.dreb)/g).toFixed(1)+' oreb '+(tot.oreb/g).toFixed(1)+' ast '+(tot.ast/g).toFixed(1)+' stl '+(tot.stl/g).toFixed(1)+' blk '+(tot.blk/g).toFixed(1)+' tov '+(tot.tov/g).toFixed(1)+' pf '+(tot.pf/g).toFixed(1));
+o.push('OT% '+(tot.ot/N*100).toFixed(1)+' avg margin '+(tot.margin/N).toFixed(1)+' home win% '+(tot.homeWin/N*100).toFixed(1));
+// sample box
+const r=PB.simGame(T[0],T[1],{rng});
+o.push(T[0].name+' '+r.score[0]+' - '+r.score[1]+' '+T[1].name+' q:'+JSON.stringify(r.q));
+for(let s=0;s<2;s++){o.push('--'+T[s].abbr);for(const id in r.box[s]){const x=r.box[s][id];o.push((PB.BYID[id].dispName+'            ').slice(0,12)+' min '+(x.sec/60).toFixed(0)+' pts '+x.pts+' '+x.fgm+'/'+x.fga+' 3p '+x.tpm+'/'+x.tpa+' ft '+x.ftm+'/'+x.fta+' reb '+(x.oreb+x.dreb)+' ast '+x.ast+' stl '+x.stl+' blk '+x.blk+' to '+x.tov+' pf '+x.pf)}}
+}catch(e){o.push('ERR '+e.stack)}
+document.getElementById('o').textContent=o.join('\n');
+</script>

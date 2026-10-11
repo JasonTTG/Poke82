@@ -1,0 +1,52 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>Open the console and call stress(40,2), botGame(9,2), runMatch(mk(),5), bench()</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/save.js"></script><script src="../js/court.js"></script><script src="../js/court-ai.js"></script>
+<script>
+PB.buildDB();
+PB.settings=PB.defaultSettings();
+window.mk=function(seed){
+  const G=PB.newGame(seed||99,'main',30,0);G.settings=PB.settings;
+  PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+  return G;
+};
+window.runMatch=function(G,opp,opts){
+  opts=Object.assign({oppId:opp,quarterMin:4,auto:true,gameSpeed:1,rng:new PB.RNG(7)},opts||{});
+  const m=new PB.Match(G,opts);
+  let steps=0;const t0=performance.now();
+  while(!m.over&&steps<400000){m.update(1/30,null);steps++;}
+  return {m,steps,ms:performance.now()-t0};
+};
+window.summ=function(m){
+  const r=m.resultObj||m.g.result(m.ot);
+  const tot=[0,1].map(s=>{const t=PB.newStat();for(const id in r.box[s])PB.STAT_KEYS.forEach(k=>t[k]+=r.box[s][id][k]);return t});
+  return {score:r.score,ot:r.ot,q:r.q,tot};
+};
+// consistency stress: every AI-vs-AI game must finish with box scores that add up
+window.stress=function(N,qm){const G=mk(31);const out={games:N,notOver:0,otGames:0,errs:[],bad:0,secBad:0};for(let k=0;k<N;k++){try{const r=runMatch(G,1+k%29,{rng:new PB.RNG(100+k),quarterMin:qm,gameSpeed:1});const m=r.m;if(!m.over){out.notOver++;continue}
+ if(m.ot)out.otGames++;const res=m.resultObj;
+ for(let s=0;s<2;s++){let pts=0,secs=0;for(const id in res.box[s]){const x=res.box[s][id];if(2*(x.fgm-x.tpm)+3*x.tpm+x.ftm!==x.pts)out.bad++;pts+=x.pts;secs+=x.sec}
+  if(pts!==res.score[s])out.bad+=100;const exp=qm*60*5*4+(m.ot? m.g.otLen*5*m.ot:0); if(Math.abs(secs-exp)>1.5){out.secBad++;}}
+ }catch(e){out.errs.push(e.stack.split('\n').slice(0,3).join(' | '));}}
+return out};
+// scripted "human" (exercises the user-input code paths, not just the AI)
+window.botGame=function(seed,qm,opts,rel){rel=rel==null?0.80:rel;const G=mk(seed);const m=new PB.Match(G,Object.assign({oppId:6,quarterMin:qm||3,auto:false,rng:new PB.RNG(seed||5)},opts||{}));
+let frame=0,holdB=0;const errs=[];const mkInp=()=>({mx:0,my:0,rx:0,ry:0,rt:0,lt:0,held:{},pressed:{}});
+while(!m.over&&frame<200000){const inp=mkInp();const c=m.ctrl;
+ try{ if(c){const bx=PB.Court.ATTACK_X(0);
+  if(m.phase==='inbound'&&m.inbounder&&m.inbounder.s===0){inp.pressed.A=true;}
+  else if(m.poss===0){ if(m.ball.holder===c){const dx=bx-c.x,dy=25-c.y,d=Math.hypot(dx,dy);inp.mx=dx/d;inp.my=dy/d;inp.rt=1;
+      if(holdB>0){inp.held.X=true;holdB--;}
+      else if(d<24&&frame%50===0){inp.pressed.X=true;inp.held.X=true;holdB=80;}
+      else if(frame%97===0) inp.pressed.A=true;
+      if(m.meter){inp.held.X=m.meter.v<rel-0.012;if(!inp.held.X)holdB=0;}
+    } else { const dx=bx-c.x,dy=25-c.y;const d=Math.hypot(dx,dy);inp.mx=dx/d*0.5;inp.my=dy/d*0.5; if(frame%120===0)inp.pressed.Y=true; if(frame%200===0)inp.pressed.LB=true;}
+  } else { const t=m.ball.holder||m.ball;const dx=t.x-c.x,dy=t.y-c.y,d=Math.hypot(dx,dy)||1;inp.mx=dx/d;inp.my=dy/d;inp.rt=d>6?1:0;
+    if(frame%60===0&&d<4)inp.pressed.X=true; if(frame%150===0)inp.pressed.B=true; if(frame%113===0)inp.pressed.Y=true; if(frame%311===0)inp.pressed.A=true; if(frame%401===0)inp.pressed.LB=true; inp.held.LT=frame%300<60; inp.rx=Math.sin(frame/40);inp.ry=0.5;}
+  if(m.phase==='ft'&&m.ft&&m.ft.state==='meter'){ if(m.ft.meterV>rel-0.012)inp.pressed.X=true;} }
+ m.update(1/60,inp);}catch(e){errs.push(e.stack);break}
+ frame++;}
+const s=summ(m);return {frames:frame,over:m.over,score:s.score,errs,user:s.tot[0],opp:s.tot[1],grades:m.cnt}};
+// league-style efficiency benchmark per 48 minutes (AI vs AI)
+window.bench=function(N,qm){N=N||10;qm=qm||4;const G=mk();const agg={};let tt=PB.newStat();const ss={};for(let k=0;k<N;k++){const r=runMatch(G,5+k%20,{rng:new PB.RNG(7+k),quarterMin:qm});const s=summ(r.m);for(const kk in r.m.cnt)agg[kk]=(agg[kk]||0)+r.m.cnt[kk];for(const kk in r.m.sstat)ss[kk]=(ss[kk]||0)+r.m.sstat[kk];[0,1].forEach(i=>PB.STAT_KEYS.forEach(kk=>tt[kk]+=s.tot[i][kk]));}
+const g=N*2*qm/12;const o={};for(const k in tt)o[k]=+(tt[k]/g).toFixed(1);o.fg=(tt.fgm/tt.fga*100).toFixed(1);o.tp=(tt.tpm/tt.tpa*100).toFixed(1);
+return o};
+</script>

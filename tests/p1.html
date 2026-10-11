@@ -1,0 +1,32 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o></pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script>
+<script>
+const o=[];try{
+PB.buildDB();
+const t0=performance.now();
+const G=PB.newGame(12345,'main',30,0);
+const rng=G.rng;
+// user = auto drafted by AI logic too
+PB.aiDraftRounds(G,rng,G.teams.map(t=>t.id),0);
+o.push('draft+lineups ms '+(performance.now()-t0).toFixed(0));
+o.push('verify: '+PB.Registry.verify(G));
+o.push('all rosters 12: '+G.teams.every(t=>t.roster.length===12)+' validate: '+G.teams.map(PB.validateLineup).filter(e=>e.length).length+' bad');
+const ov=G.teams.map(t=>PB.teamOvr(t)).sort((a,b)=>b-a);
+o.push('team ovr best->worst '+ov.map(x=>x.toFixed(1)).join(' '));
+// pick quality by slot
+const bySlot=Array.from({length:12},()=>[]);G.teams.forEach(t=>t.roster.forEach((id,i)=>bySlot[i].push(PB.BYID[id].ovr)));
+o.push('avg ovr by pick: '+bySlot.map(a=>PB.avg(a).toFixed(0)).join(' '));
+const legBy=Array.from({length:12},()=>0);G.teams.forEach(t=>t.roster.forEach((id,i)=>{const m=PB.BYID[id];if(m.leg||m.myth)legBy[i]++}));
+o.push('legendaries by pick: '+legBy.join(' '));
+const t=G.teams[0];o.push(t.name+' ('+t.identity+') '+PB.fmtName(t.name));
+o.push('starters: '+t.starters.map((id,i)=>PB.POS[i]+' '+PB.BYID[id].dispName+' '+PB.BYID[id].ovr+'['+PB.BYID[id].pos.join('/')+']').join(', '));
+o.push('bench: '+t.bench.map(id=>PB.BYID[id].dispName+' '+PB.BYID[id].ovr).join(', '));
+o.push('needs(first 3): '+JSON.stringify(PB.needs(t.roster.slice(0,3))));
+// dup attempt must throw
+try{PB.Registry.claim(G,t.roster[0],1);o.push('DUP NOT BLOCKED!')}catch(e){o.push('dup blocked ok: '+e.message)}
+// roll impossible combos reroll check
+let rr=0;for(let i=0;i<300;i++){rr+=PB.rollCombo(G,rng).rerolls}
+o.push('avg rerolls '+(rr/300).toFixed(2));
+}catch(e){o.push('ERR '+e.stack)}
+document.getElementById('o').textContent=o.join('\n');
+</script>

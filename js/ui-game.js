@@ -1,0 +1,853 @@
+// Playable game screen: pregame, 2.5D perspective renderer (camera behind the play or broadcast),
+// broadcast scoreboard, pause/substitutions, results.
+(function (PB) {
+  const UI = PB.UI, esc = UI.esc, A = UI.actions;
+  const W = 94, H = 50;
+  const wrap = () => document.getElementById('gamewrap');
+  const cv = () => document.getElementById('court');
+  let startLatch = false;
+  let match = null, running = false, paused = false, ctx = null, raf = 0, last = 0, cur = null;
+  const spriteCache = {};
+  function sprite(m) {
+    let e = spriteCache[m.id];
+    if (!e) {
+      e = spriteCache[m.id] = new Image();
+      e.onload = () => { e.bounds = opaqueBounds(e); e.big = upscale(e, e.bounds); };
+      e.onerror = () => { e.onerror = null; e.src = m.remote; };
+      e.src = m.sprite;
+    }
+    return e;
+  }
+  function upscale(img, bd) {
+    try {
+      const k = 4, c = document.createElement('canvas'); c.width = bd.w * k; c.height = bd.h * k;
+      const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+      g.drawImage(img, bd.x, bd.y, bd.w, bd.h, 0, 0, c.width, c.height);
+      return c;
+    } catch (err) { return null; }
+  }
+  // draw a sprite with its feet at (x, y) and visible height dh (pixels)
+  function drawSprite(g, mon, x, y, dh, flip) {
+    const img = sprite(mon);
+    if (!(img.complete && img.naturalWidth)) return false;
+    if (!img.bounds) img.bounds = opaqueBounds(img);
+    if (img.big === undefined) img.big = upscale(img, img.bounds);
+    const bd = img.bounds, dw = dh * bd.w / bd.h;
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    if (flip) { g.save(); g.translate(x, y); g.scale(-1, 1); x = 0; y = 0; }
+    if (img.big) g.drawImage(img.big, x - dw / 2, y - dh, dw, dh);
+    else g.drawImage(img, bd.x, bd.y, bd.w, bd.h, x - dw / 2, y - dh, dw, dh);
+    if (flip) g.restore();
+    return true;
+  }
+  // visible (non-transparent) box of a sprite so feet sit on the floor and sizes are consistent
+  function opaqueBounds(img) {
+    const w = img.naturalWidth, h = img.naturalHeight;
+    try {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, w, h).data;
+      let x0 = w, y0 = h, x1 = -1, y1 = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 < 0) return { x: 0, y: 0, w, h };
+      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    } catch (err) { return { x: 0, y: 0, w, h }; }
+  }
+
+  // ---------- pregame ----------
+  UI.pregame = function (G, ug, opts) {
+    opts = opts || {};
+    const T = G.teams[G.userTeam];
+    const oppId = ug.h === G.userTeam ? ug.a : ug.h;
+    const O = G.teams[oppId];
+    const s = PB.settings;
+    const showO = s.showOverall;
+    UI.modal(`<h2>${esc(T.name)} ${ug.h === G.userTeam ? 'vs' : '@'} ${esc(O.name)}</h2>
+      ${showO ? `<div><b>OVR</b> ${PB.teamOvr(T).toFixed(1)} vs ${PB.teamOvr(O).toFixed(1)}</div>` : ''}
+      <div class="row wrap" style="margin:10px 0">${O.starters.map(id => `<div class="center" style="width:70px">${UI.spr(PB.BYID[id], 56)}<div style="font-size:11px">${esc(PB.BYID[id].dispName)}</div>${showO ? `<b>${PB.BYID[id].ovr}</b>` : ''}</div>`).join('')}</div>
+      <label>Quarter length: <b id="pq">${s.quarterMin}</b> min <input type="range" min="1" max="12" value="${s.quarterMin}" id="pqr" oninput="document.getElementById('pq').textContent=this.value"></label>
+      <label style="margin-left:14px">Camera <select id="pcam"><option value="behind" ${s.camera !== 'broadcast' ? 'selected' : ''}>2K (behind the play)</option><option value="broadcast" ${s.camera === 'broadcast' ? 'selected' : ''}>Broadcast (sideline)</option></select></label>
+      <div class="row wrap" style="margin-top:12px"><button class="gold" data-act="tipOff" data-opp="${oppId}" autofocus>Tip off</button><button data-act="closeModal">Cancel</button></div>`);
+    cur = { G, ug, opts, oppId };
+  };
+  A.tipOff = () => {
+    PB.settings.quarterMin = +document.getElementById('pqr').value;
+    PB.settings.camera = document.getElementById('pcam').value;
+    PB.Save.settingsSave(PB.settings);
+    UI.closeModal();
+    startGame(cur.G, cur.ug, cur.oppId, PB.settings.quarterMin, cur.opts);
+  };
+
+  UI.exhibition = function () {
+    const seed = (Math.random() * 4294967296) >>> 0;
+    const G = PB.newGame(seed, 'main', 30, 0);
+    G.settings = Object.assign(PB.defaultSettings(), PB.settings);
+    PB.aiDraftRounds(G, G.rng, G.teams.map(t => t.id), 0);
+    PB.G = G;
+    const opp = 1 + (seed % 29);
+    cur = { G, ug: { h: 0, a: opp, day: 0, exhibition: true }, opts: { exhibition: true }, oppId: opp };
+    UI.pregame(G, cur.ug, cur.opts);
+  };
+  A.exhibition = () => UI.exhibition();
+
+  // ---------- game start / stop ----------
+  function startGame(G, ug, oppId, qMin, opts) {
+    paused = false;
+    PB.Input.mode = 'game';
+    match = new PB.Match(G, { oppId, quarterMin: qMin, userHome: ug.h === G.userTeam, gameSpeed: PB.settings.gameSpeed || 1, rng: new PB.RNG(((Math.random() * 4294967296) >>> 0)) });
+    match.ugame = ug; match.exhibition = !!(opts && opts.exhibition);
+    cam.fx = 47; cam.fy = 25; cam.init = false; cam.yaw = 0;
+    // court players' sprites load first, fans after
+    for (const t of match.teams) for (const id of t.roster) sprite(PB.BYID[id]);
+    buildCrowd();
+    wrap().classList.add('open');
+    document.getElementById('app').style.visibility = 'hidden';
+    ctx = cv().getContext('2d');
+    resize();
+    window.addEventListener('resize', resize);
+    running = true; last = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+  function stopGame() {
+    running = false; cancelAnimationFrame(raf);
+    window.removeEventListener('resize', resize);
+    wrap().classList.remove('open');
+    document.getElementById('app').style.visibility = '';
+    PB.Input.mode = 'menu';
+  }
+  function resize() {
+    const c = cv(); const dpr = Math.min(2, window.devicePixelRatio || 1);
+    c.width = Math.floor(window.innerWidth * dpr); c.height = Math.floor(window.innerHeight * dpr);
+  }
+
+  // ---------- camera ----------
+  const cam = { fx: 47, fy: 25, init: false, yaw: 0 };
+  const V = {
+    sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+    dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+    cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+    norm: a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+  };
+  function updateCamera(w, h, dt) {
+    const m = match;
+    const ball = m.ball;
+    let tx = ball.x, ty = ball.y;
+    // which way the offense attacks: camera always sits behind the team with the ball
+    let off = m.poss;
+    if (m.phase === 'ft' && m.ft) { off = m.ft.side; tx = PB.Court.ATTACK_X(off) - PB.Court.DIR(off) * 15; ty = 25; }
+    // possession change: wait until it's real, then swivel around the ball (short-radius turn, no fade)
+    const targetDir = PB.Court.DIR(off);
+    if (!cam.init) { cam.dir = targetDir; cam.turn = null; }
+    if (targetDir !== cam.dir && !cam.turn) { cam.pend = (cam.pend || 0) + dt; if (cam.pend > 0.3 || m.phase === 'inbound' || m.phase === 'ft') { cam.turn = { u: 0, from: cam.dir }; cam.turnSide = (cam.fy < 25 ? 1 : -1) * cam.dir; cam.dir = targetDir; cam.pend = 0; } }
+    else if (targetDir === cam.dir) cam.pend = 0;
+    const k = cam.init ? Math.min(1, dt * 2.6) : 1;
+    cam.init = true;
+    cam.fx += (tx - cam.fx) * k; cam.fy += (ty - cam.fy) * k;
+    // settled 2K view for an offense attacking in direction `dirx`
+    const settled = dirx => {
+      const base = dirx > 0 ? 0 : W;
+      const ballA = PB.clamp((cam.fx - base) * dirx, -2, 92);
+      // trail closer in the backcourt, farther (framing the half court) in the frontcourt
+      const deep = 1 - PB.clamp((ballA - 4) / 14, 0, 1);              // 1 = ball at/behind own baseline (inbound)
+      const trail = (18 + 12 * PB.clamp((ballA - 15) / 35, 0, 1)) * (1 - deep) + 27 * deep;
+      const camA = Math.max(-29, Math.min(ballA - trail, 50));
+      const tgtA = (ballA + (88.75 - ballA) * 0.55) * (1 - deep) + (ballA + 30) * deep;
+      const cy = 25 + (cam.fy - 25) * 0.3, ty2 = 25 + (cam.fy - 25) * 0.5;
+      return { C: [base + camA * dirx, cy, 24], T: [base + tgtA * dirx, ty2, 0] };
+    };
+    let C, T, F;
+    if (PB.settings.camera === 'broadcast') {
+      const fx = PB.clamp(cam.fx, 20, 74);
+      C = [fx, -40, 33]; T = [fx, 25 + (cam.fy - 25) * 0.25, 0]; F = h * 1.22;
+      cam.turn = null;
+    } else {
+      F = h * 0.98;
+      const to = settled(cam.dir);
+      if (cam.turn) {
+        // swivel: orbit the ball from the old offense's side to the new one, interpolating angle and radius
+        // (radius tightens mid-turn) so the camera turns around the play instead of flying across the court
+        cam.turn.u = Math.min(1, cam.turn.u + dt / 1.1);
+        const u = cam.turn.u, e = u * u * (3 - 2 * u);
+        const from = settled(cam.turn.from);
+        const P = [cam.fx, cam.fy];
+        const polar = q => ({ a: Math.atan2(q[1] - P[1], q[0] - P[0]), r: Math.hypot(q[0] - P[0], q[1] - P[1]) });
+        const c0 = polar(from.C), c1 = polar(to.C), t0 = polar(from.T), t1 = polar(to.T);
+        const lerpA = (a0, a1) => { let d = a1 - a0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; if (Math.abs(Math.abs(d) - Math.PI) < 0.3) d = Math.PI * (cam.turnSide || 1); return a0 + d * e; };
+        const squeeze = 1 - 0.5 * Math.sin(Math.PI * e);
+        const ca = lerpA(c0.a, c1.a), cr = (c0.r + (c1.r - c0.r) * e) * squeeze;
+        const ta = lerpA(t0.a, t1.a), tr = t0.r + (t1.r - t0.r) * e;
+        C = [P[0] + Math.cos(ca) * cr, P[1] + Math.sin(ca) * cr, 24 - 3 * Math.sin(Math.PI * e)];
+        T = [P[0] + Math.cos(ta) * tr, P[1] + Math.sin(ta) * tr, 0];
+        if (u >= 1) cam.turn = null;
+      } else { C = to.C; T = to.T; }
+    }
+    const f = V.norm(V.sub(T, C));
+    const r = V.norm(V.cross(f, [0, 0, 1]));
+    const u = V.cross(r, f);
+    cam.C = C; cam.f = f; cam.r = r; cam.u = u; cam.F = F; cam.cx = w / 2; cam.cy = h * 0.42;
+    const fl = Math.hypot(f[0], f[1]) || 1;
+    cam.fwd = [f[0] / fl, f[1] / fl]; cam.right = [r[0], r[1]];
+  }
+  const NEAR = 1.0;
+  function toCam(x, y, z) { const d = [x - cam.C[0], y - cam.C[1], z - cam.C[2]]; return [V.dot(d, cam.r), V.dot(d, cam.u), V.dot(d, cam.f)]; }
+  function projC(c) { return [cam.cx + c[0] / c[2] * cam.F, cam.cy - c[1] / c[2] * cam.F]; }
+  function proj(x, y, z) { const c = toCam(x, y, z); if (c[2] < NEAR) return null; const p = projC(c); p.push(c[2]); return p; }
+  function clipPoly(cs) {
+    const out = [];
+    for (let i = 0; i < cs.length; i++) {
+      const a = cs[i], b = cs[(i + 1) % cs.length];
+      const ain = a[2] >= NEAR, bin = b[2] >= NEAR;
+      if (ain) out.push(a);
+      if (ain !== bin) { const t = (NEAR - a[2]) / (b[2] - a[2]); out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, NEAR]); }
+    }
+    return out;
+  }
+  function polyPath(g, pts3) {
+    const cs = clipPoly(pts3.map(p => toCam(p[0], p[1], p[2] || 0)));
+    if (cs.length < 3) return false;
+    g.beginPath();
+    cs.forEach((c, i) => { const p = projC(c); if (i) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); });
+    g.closePath(); return true;
+  }
+  function fillPoly(g, pts3, fill) { if (polyPath(g, pts3)) { g.fillStyle = fill; g.fill(); } }
+  function strokeLine(g, pts3, color, wFt, closed) {
+    g.strokeStyle = color; g.lineCap = 'round';
+    const n = pts3.length, segs = closed ? n : n - 1;
+    for (let i = 0; i < segs; i++) {
+      const a = toCam(...pts3[i]), b = toCam(...pts3[(i + 1) % n]);
+      if (a[2] < NEAR && b[2] < NEAR) continue;
+      let A2 = a, B2 = b;
+      if (a[2] < NEAR) { const t = (NEAR - a[2]) / (b[2] - a[2]); A2 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, NEAR]; }
+      if (b[2] < NEAR) { const t = (NEAR - b[2]) / (a[2] - b[2]); B2 = [b[0] + (a[0] - b[0]) * t, b[1] + (a[1] - b[1]) * t, NEAR]; }
+      const pa = projC(A2), pb = projC(B2);
+      g.lineWidth = Math.max(1, wFt * cam.F / ((A2[2] + B2[2]) / 2));
+      g.beginPath(); g.moveTo(pa[0], pa[1]); g.lineTo(pb[0], pb[1]); g.stroke();
+    }
+  }
+  const arc = (cx, cy, r, a0, a1, n, z) => { const out = []; for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r, z || 0.02]); } return out; };
+
+  // court geometry (world feet), built once
+  const LINES = (function () {
+    const L = [];
+    L.push({ p: [[0, 0, .02], [W, 0, .02], [W, H, .02], [0, H, .02]], closed: true });
+    L.push({ p: [[47, 0, .02], [47, H, .02]] });
+    L.push({ p: arc(47, 25, 6, 0, Math.PI * 2, 40), closed: true });
+    L.push({ p: arc(47, 25, 2, 0, Math.PI * 2, 20), closed: true });
+    for (const left of [true, false]) {
+      const X = x => left ? x : W - x, bx = left ? 5.25 : W - 5.25, s = left ? 1 : -1;
+      L.push({ p: [[X(0), 17, .02], [X(19), 17, .02], [X(19), 33, .02], [X(0), 33, .02]] });
+      L.push({ p: arc(X(19), 25, 6, 0, Math.PI * 2, 36), closed: true });
+      L.push({ p: arc(bx, 25, 4, left ? -Math.PI / 2 : Math.PI / 2, left ? Math.PI / 2 : Math.PI * 1.5, 16) });
+      const ang = Math.acos((14 - 5.25) / 23.75);
+      L.push({ p: [[X(0), 3, .02], [X(14), 3, .02]] }); L.push({ p: [[X(0), 47, .02], [X(14), 47, .02]] });
+      L.push({ p: left ? arc(bx, 25, 23.75, -ang, ang, 40) : arc(bx, 25, 23.75, Math.PI - ang, Math.PI + ang, 40) });
+      // lane hash marks
+      for (const hx of [7, 8, 11, 14]) { L.push({ p: [[X(hx), 17, .02], [X(hx), 16.2, .02]] }); L.push({ p: [[X(hx), 33, .02], [X(hx), 33.8, .02]] }); }
+    }
+    return L;
+  })();
+
+  // crowd: random fans on four sloped stands
+  let CROWD = [];
+  // crowd: Pokemon fans fill the lower bowl (they react to big plays); colored fans fill the upper deck
+  const crowd = { hype: 0 };
+  // the seating bowl is a closed rounded-rectangle ring (superellipse) around the court, so there are no gaps
+  // at the corners: lower bowl, a fascia wall, the upper deck, then a back wall up to the roof
+  const RING_N = 72;
+  function ringPt(i, A, B, z) {
+    const t = i / RING_N * Math.PI * 2, c = Math.cos(t), sn = Math.sin(t), e = 2 / 6;
+    return [47 + A * Math.sign(c) * Math.pow(Math.abs(c), e), 25 + B * Math.sign(sn) * Math.pow(Math.abs(sn), e), z];
+  }
+  const BOWL = { lowIn: [57, 32, 0], lowOut: [84, 58, 19], fasciaTop: [84, 58, 24], upIn: [86, 60, 24], upOut: [104, 78, 42], roof: [104, 78, 62] };
+  function buildCrowd() {
+    const r = new PB.RNG(1234); CROWD = [];
+    const hues = ['#e0e0e0', '#c94a4a', '#3b6fd8', '#f0c040', '#3a3a3a', '#7a4fbf', '#2a9d6a', '#d97a2b', '#ffffff', '#555f75'];
+    const skins = ['#c99a78', '#8d5a3b', '#e6c3a0', '#5c3a26', '#b07a52'];
+    const rows = (inn, out, nRows, upper) => {
+      for (let row = 0; row < nRows; row++) {
+        const u = (row + 0.5) / nRows;
+        const A = inn[0] + (out[0] - inn[0]) * u, B = inn[1] + (out[1] - inn[1]) * u, z = inn[2] + (out[2] - inn[2]) * u;
+        // seats are spaced evenly by arc length (the ring's angle parameter bunches points near the corners)
+        const SAMP = 1440, pts = [], cum = [0];
+        for (let i = 0; i <= SAMP; i++) pts.push(ringPt(i / SAMP * RING_N, A, B, z + 0.9));
+        for (let i = 1; i <= SAMP; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+        const per = cum[SAMP], seat = 2.4, n = Math.floor(per / seat), off = r.next() * seat;
+        let j = 1;
+        for (let k = 0; k < n; k++) {
+          const want = off + k * seat;
+          while (j < SAMP && cum[j] < want) j++;
+          if (r.chance(0.08)) continue;                     // empty seats
+          const f = (want - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1);
+          const p = [pts[j - 1][0] + (pts[j][0] - pts[j - 1][0]) * f, pts[j - 1][1] + (pts[j][1] - pts[j - 1][1]) * f, z + 0.9];
+          CROWD.push({ x: p[0], y: p[1], z: p[2], col: r.pick(hues), skin: r.pick(skins), a: 0.7 + r.next() * 0.3, ph: r.next() * 6.28, upper });
+        }
+      }
+    };
+    rows(BOWL.lowIn, BOWL.lowOut, 12, false);
+    rows(BOWL.upIn, BOWL.upOut, 8, true);
+    crowd.hype = 0;
+  }
+  // big plays get the building going (home buckets get the loudest reaction)
+  function hypeCrowd(kind, side) {
+    const homeSide = match.userHome ? 0 : 1;
+    const amt = kind === 'dunk' ? 1 : kind === 'three' ? 0.9 : kind === 'block' ? 0.8 : kind === 'steal' ? 0.6 : 0.3;
+    crowd.hype = Math.min(1, Math.max(crowd.hype, amt * (side === homeSide ? 1 : 0.55)));
+  }
+
+  // box with back-face culling (convex, so no sorting needed); returns visible faces
+  function drawBox(g, x0, x1, y0, y1, z0, z1, top, side, front) {
+    const faces = [
+      { n: [0, 0, 1], p: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], c: top },
+      { n: [-1, 0, 0], p: [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]], c: side },
+      { n: [1, 0, 0], p: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]], c: side },
+      { n: [0, -1, 0], p: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], c: front || side },
+      { n: [0, 1, 0], p: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], c: front || side },
+      { n: [0, 0, -1], p: [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], c: side },
+    ];
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+    const vis = [];
+    for (const f of faces) {
+      const fc = [cx + f.n[0] * (x1 - x0) / 2, cy + f.n[1] * (y1 - y0) / 2, cz + f.n[2] * (z1 - z0) / 2];
+      const v = [cam.C[0] - fc[0], cam.C[1] - fc[1], cam.C[2] - fc[2]];
+      if (v[0] * f.n[0] + v[1] * f.n[1] + v[2] * f.n[2] > 0) { fillPoly(g, f.p, f.c); vis.push(f); }
+    }
+    return vis;
+  }
+  // text painted onto a world-space quad (origin, end of the u edge, end of the v edge); affine approximation
+  function quadText(g, o3, u3, v3, lines) {
+    const o = proj(...o3), u = proj(...u3), v = proj(...v3);
+    if (!o || !u || !v) return;
+    const lu = Math.hypot(u3[0] - o3[0], u3[1] - o3[1], u3[2] - o3[2]), lv = Math.hypot(v3[0] - o3[0], v3[1] - o3[1], v3[2] - o3[2]);
+    g.save();
+    g.setTransform((u[0] - o[0]) / lu, (u[1] - o[1]) / lu, (v[0] - o[0]) / lv, (v[1] - o[1]) / lv, o[0], o[1]);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    lines.forEach((ln, i) => { g.font = `900 ${ln.size}px Segoe UI, sans-serif`; g.fillStyle = ln.color || '#ffffff'; g.fillText(ln.t, lu / 2, lv * (i + 1) / (lines.length + 1)); });
+    g.restore();
+  }
+
+  function drawArena(g, m, w, h, home, homeCol) {
+    const bg = g.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#04060b'); bg.addColorStop(0.5, '#080b14'); bg.addColorStop(1, '#0a0e18');
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    for (const lx of [0.15, 0.38, 0.62, 0.85]) { const rg = g.createRadialGradient(w * lx, 0, 0, w * lx, 0, h * 0.45); rg.addColorStop(0, 'rgba(255,244,214,.20)'); rg.addColorStop(1, 'rgba(255,244,214,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, h * 0.5); }
+    const bcast = PB.settings.camera === 'broadcast';
+    // a band between two rings (inner -> outer); near-side sections are skipped on the broadcast camera
+    const band = (inn, out, colA, colB, aisle) => {
+      for (let i = 0; i < RING_N; i++) {
+        const p0 = ringPt(i, inn[0], inn[1], inn[2]), p1 = ringPt(i + 1, inn[0], inn[1], inn[2]);
+        const q1 = ringPt(i + 1, out[0], out[1], out[2]), q0 = ringPt(i, out[0], out[1], out[2]);
+        if (bcast && (p0[1] + p1[1]) / 2 < 0) continue;
+        fillPoly(g, [p0, p1, q1, q0], i % 2 ? colA : colB);
+        if (aisle && i % 9 === 0) strokeLine(g, [p0, q0], 'rgba(255,255,255,.10)', 0.5);
+      }
+    };
+    // back wall + roof edge (draw farthest surfaces first)
+    band([BOWL.upOut[0], BOWL.upOut[1], BOWL.upOut[2]], [BOWL.roof[0], BOWL.roof[1], BOWL.roof[2]], '#0b0f19', '#0d121d');
+    band(BOWL.upIn, BOWL.upOut, '#121a2a', '#141c2d', true);                    // upper deck seating
+    band([BOWL.lowOut[0], BOWL.lowOut[1], 19], [BOWL.fasciaTop[0], BOWL.fasciaTop[1], 24], homeCol[0], shade(homeCol[0], -0.15));   // LED fascia
+    // lip connecting fascia top to the upper deck front
+    band([BOWL.fasciaTop[0], BOWL.fasciaTop[1], 24], [BOWL.upIn[0], BOWL.upIn[1], 24], '#0a0e18', '#0a0e18');
+    band(BOWL.lowIn, BOWL.lowOut, '#182035', '#1a2339', true);                  // lower bowl seating
+    // lower-bowl front wall down to the apron (hides the gap between seats and floor)
+    band([BOWL.lowIn[0], BOWL.lowIn[1], 0], [BOWL.lowIn[0], BOWL.lowIn[1], 1.2], '#0d1424', '#0d1424');
+    // roof: lighting truss over the court
+    const truss = [[18, 4, 58], [76, 4, 58], [76, 46, 58], [18, 46, 58]];
+    strokeLine(g, truss, '#2a3346', 0.6, true);
+    strokeLine(g, [[18, 25, 58], [76, 25, 58]], '#2a3346', 0.5);
+    for (let x = 22; x <= 72; x += 6) for (const y of [4, 46]) { const q = proj(x, y, 57.4); if (q) { const r = Math.max(1.5, 0.9 * cam.F / q[2]); const gl = g.createRadialGradient(q[0], q[1], 0, q[0], q[1], r * 3); gl.addColorStop(0, 'rgba(255,248,225,.95)'); gl.addColorStop(1, 'rgba(255,248,225,0)'); g.fillStyle = gl; g.fillRect(q[0] - r * 3, q[1] - r * 3, r * 6, r * 6); } }
+    // banners hanging from the roof behind each baseline
+    for (const bx of [-30, 124]) for (let i = 0; i < 5; i++) {
+      const y = 5 + i * 10, col = i % 2 ? homeCol[0] : (homeCol[1] === '#ffffff' ? '#e8e8e8' : homeCol[1]);
+      fillPoly(g, [[bx, y, 44], [bx, y + 6, 44], [bx, y + 6, 52], [bx, y, 52]], col);
+      fillPoly(g, [[bx, y + 0.6, 45.2], [bx, y + 5.4, 45.2], [bx, y + 5.4, 45.8], [bx, y + 0.6, 45.8]], 'rgba(0,0,0,.25)');
+    }
+    // generic fans (cheap: two rects each), they jump on big plays
+    crowd.hype = Math.max(0, crowd.hype - frameDt * 0.45);
+    const t = m.t;
+    for (const p of CROWD) {
+      if (bcast && p.y < 0) continue;
+      const jump = crowd.hype * (p.upper ? 0.8 : 1.3) * Math.abs(Math.sin(p.ph + t * 10)) + 0.05 * Math.sin(p.ph + t * 1.7);
+      const q = proj(p.x, p.y, p.z + jump); if (!q || q[2] < 10) continue;
+      const sz = Math.max(1, 0.6 * cam.F / q[2]);
+      g.globalAlpha = p.a;
+      g.fillStyle = p.col; g.fillRect(q[0] - sz * 0.6, q[1] - sz * 0.9, sz * 1.2, sz * 1.3);
+      g.fillStyle = p.skin; g.fillRect(q[0] - sz * 0.35, q[1] - sz * 1.6, sz * 0.7, sz * 0.7);
+    }
+    g.globalAlpha = 1;
+    // jumbotron over center court
+    {
+      const vis = drawBox(g, 40, 54, 19, 31, 40, 48, '#11151f', '#1b2233', '#1b2233');
+      const cl = Math.max(0, m.clock), mm = Math.floor(cl / 60), ss = Math.floor(cl - mm * 60);
+      const hyped = crowd.hype > 0.5;
+      const lines = hyped ? [{ t: 'WHAT A PLAY!', size: 1.8 }] : [{ t: m.teams[0].abbr + '  ' + m.sc(0) + '  –  ' + m.sc(1) + '  ' + m.teams[1].abbr, size: 1.4 }, { t: (m.q <= 4 ? 'Q' + m.q : 'OT') + '   ' + mm + ':' + String(ss).padStart(2, '0'), size: 1.2, color: '#ffd23f' }];
+      for (const f of vis) {
+        if (f.n[2] !== 0) continue;
+        const P = f.p, ins = (pa, pb, k) => [pa[0] + (pb[0] - pa[0]) * k, pa[1] + (pb[1] - pa[1]) * k];
+        const s0 = ins(P[0], P[1], 0.06), s1 = ins(P[0], P[1], 0.94);
+        fillPoly(g, [[s0[0], s0[1], 41], [s1[0], s1[1], 41], [s1[0], s1[1], 47], [s0[0], s0[1], 47]], hyped ? homeCol[0] : '#0b2a4a');
+        const sx = (s1[0] - s0[0]) * cam.r[0] + (s1[1] - s0[1]) * cam.r[1];
+        const Lp = sx >= 0 ? s0 : s1, Rp = sx >= 0 ? s1 : s0;
+        quadText(g, [Lp[0], Lp[1], 47], [Rp[0], Rp[1], 47], [Lp[0], Lp[1], 41], lines);
+      }
+      strokeLine(g, [[44, 25, 48], [44, 25, 62]], '#222a3a', 0.25); strokeLine(g, [[50, 25, 48], [50, 25, 62]], '#222a3a', 0.25);
+    }
+    // apron in a darker home color, LED boards along both sidelines
+    fillPoly(g, [[-7, -5, 0], [101, -5, 0], [101, 55, 0], [-7, 55, 0]], shade(homeCol[0], -0.45));
+    for (const y of [-4.6, 54.6]) {
+      fillPoly(g, [[-6, y, 0], [100, y, 0], [100, y, 2.2], [-6, y, 2.2]], '#0d1a35');
+      fillPoly(g, [[-6, y, 0.4], [100, y, 0.4], [100, y, 1.8], [-6, y, 1.8]], homeCol[0]);
+    }
+  }
+
+  // courtside props that can overlap players (depth-sorted with them): scorer's table and both benches,
+  // with each team's actual bench Pokemon sitting there
+  function courtsideItems(m, items) {
+    const homeCol = PB.teamColors(m.teams[m.userHome ? 0 : 1]);
+    const tp = proj(47, -3.6, 1);
+    if (tp) items.push({ d: tp[2], kind: 'prop', draw: g => {
+      const vis = drawBox(g, 40, 54, -4.4, -2.6, 0, 2.6, '#1a2030', '#121826', '#0b1220');
+      for (const f of vis) if (f.n[1] === 1) {
+        fillPoly(g, [[40.4, -2.6, 0.5], [53.6, -2.6, 0.5], [53.6, -2.6, 2.1], [40.4, -2.6, 2.1]], homeCol[0]);
+        const sx = cam.r[0] > 0 ? 1 : -1;
+        quadText(g, [sx > 0 ? 40.4 : 53.6, -2.6, 2.1], [sx > 0 ? 53.6 : 40.4, -2.6, 2.1], [sx > 0 ? 40.4 : 53.6, -2.6, 0.5], [{ t: 'POKÉHOOPS', size: 1.1 }]);
+      }
+    } });
+    [0, 1].forEach(s => {
+      const x0 = s === 0 ? 22 : 58, sd = m.gs(s);
+      const bp = proj(x0 + 7, -4.2, 0); if (!bp) return;
+      items.push({ d: bp[2] + 0.1, kind: 'prop', draw: g => {
+        drawBox(g, x0, x0 + 14, -5.2, -3.6, 0, 1.6, '#2a3348', '#1c2333', '#1c2333');
+        sd.bench.slice(0, 7).forEach((pl, i) => {
+          const q = proj(x0 + 1 + i * 2, -4.4, 1.2); if (!q) return;
+          const dh = (2.4 + 2.2 * pl.mon.r.sH) * cam.F / q[2];
+          const hop = crowd.hype * 0.5 * Math.abs(Math.sin(m.t * 9 + i)) * cam.F / q[2];
+          drawSprite(g, pl.mon, q[0], q[1] - hop, dh, false);
+        });
+      } });
+    });
+  }
+
+
+  // ---------- input (screen-relative sticks) ----------
+  function inputState() {
+    const I = PB.Input;
+    I.poll();
+    const held = {}, pressed = {};
+    for (const b of I.BTN) { held[b] = I.held(b); pressed[b] = I.pressed(b); }
+    // stick: right = screen right, up = into the screen
+    const map = (sx, sy) => {
+      if (!cam.fwd) return [sx, sy];
+      return [cam.right[0] * sx - cam.fwd[0] * sy, cam.right[1] * sx - cam.fwd[1] * sy];
+    };
+    const [mx, my] = map(I.lx, I.ly), [rx, ry] = map(I.rx, I.ry);
+    return { mx, my, rx, ry, held, pressed, rt: I.rt, lt: I.lt };
+  }
+  function frame(now) {
+    if (!running) return;
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!paused) {
+      const inp = inputState();
+      // the Start/Esc press that closed the pause menu must be released before it can pause again
+      if (startLatch && !inp.held.START) startLatch = false;
+      if (inp.pressed.START && !startLatch) pause();
+      else {
+        let rem = dt, first = true;
+        while (rem > 1e-4) {
+          const d = Math.min(1 / 60, rem); rem -= d;
+          if (!match.over) match.update(d, first ? inp : Object.assign({}, inp, { pressed: {} }));
+          first = false;
+        }
+      }
+    }
+    if (match.sfx.length) for (const n of match.sfx.splice(0)) { if (typeof n === 'object') { hypeCrowd(n.kind, n.side); PB.Audio.play('cheer'); continue; } PB.Audio.play(n); }
+    render(dt);
+    if (match.over && !match._ended) { match._ended = true; showFinal(); }
+    raf = requestAnimationFrame(frame);
+  }
+
+  // ---------- pause menu ----------
+  // pause-menu controls view: both keyboard and controller bindings, remappable mid-match
+  const PADN = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L-Stick', 'R-Stick', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'Guide'];
+  const CTRL_ROWS = [['A', 'Pass', 'Switch player'], ['B', 'Bounce pass', 'Take charge'], ['X', 'Shoot (hold, release at the top)', 'Steal'], ['Y', 'Lob', 'Block / rebound'],
+    ['RB', 'Icon pass (+ A/B/X/Y)', 'Next defender'], ['LB', 'Call screen', 'Change defense'], ['LT', 'Post up', 'Defensive stance'], ['RT', 'Sprint', 'Sprint'], ['START', 'Pause', 'Pause']];
+  function controlsView() {
+    const I = PB.Input;
+    const kb = a => (I.keyMap[a] || []).map(I.keyLabel).join(' / ') || '—';
+    return `<div class="row between"><h2 style="margin:0">Controls</h2><button data-act="pauseView" data-v="main" autofocus>Back</button></div>
+      <table class="t" style="margin-top:8px"><thead><tr><th>Button</th><th>Offense</th><th>Defense</th><th>Keyboard</th><th>Controller</th></tr></thead><tbody>
+      ${CTRL_ROWS.map(([a, o, d]) => `<tr><td><b>${a}</b></td><td>${o}</td><td>${d}</td>
+        <td><button class="small" data-act="gRebindKey" data-a="${a}">${esc(kb(a))}</button></td>
+        <td><button class="small" data-act="gRebindPad" data-a="${a}">${PADN[I.padMap[a]] || 'Button ' + I.padMap[a]}</button></td></tr>`).join('')}
+      <tr><td><b>Move</b></td><td colspan="2">Move player</td><td>W A S D</td><td>Left stick</td></tr>
+      <tr><td><b>Moves</b></td><td>Dribble moves</td><td>Help position</td><td>Arrow keys</td><td>Right stick</td></tr>
+      </tbody></table>
+      <div class="row" style="margin-top:10px"><button class="small" data-act="gResetControls">Reset to defaults</button></div>`;
+  }
+  A.pauseView = (el, d) => { UI._pauseView = d.v; pause(); };
+  A.gRebindKey = (el, d) => { el.textContent = 'press a key…'; PB.Input.rebind = { kind: 'key', action: d.a, cb: () => pause() }; };
+  A.gRebindPad = (el, d) => { PB.Input._rbWait = true; el.textContent = 'press a button…'; PB.Input.rebind = { kind: 'pad', action: d.a, cb: () => pause() }; };
+  A.gResetControls = () => { PB.Input.resetConfig(); pause(); };
+
+  function pause() {
+    paused = true; PB.Input.mode = 'menu';
+    if (UI._pauseView === 'controls') {
+      // B/Esc goes back to the pause menu; Start resumes the game
+      UI.modal(controlsView(), { onClose: () => { UI._pauseView = 'main'; setTimeout(pause, 0); } });
+      UI.onStart = () => { UI._modalBack = null; UI.closeModal(); resume(); };
+      return;
+    }
+    const sd = match.gs(0);
+    const showO = PB.settings.showOverall;
+    const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · ${pl.st.pf} PF · ${Math.round(pl.st.sec / 60)}m</span><div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
+    UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>
+      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button><button data-act="autoFinish">Sim to end</button><button data-act="quitGame">Forfeit</button></div>
+      <div class="row wrap" style="margin:8px 0"><label>Offense <select data-change="gSetStrat" data-k="off">${Object.entries(PB.OFF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.off === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>Defense <select data-change="gSetStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+      <div class="layout2" style="--side:1fr"><div><h3>On court</h3><div class="slots">${rows(sd.court)}</div></div><div><h3>Bench</h3><div class="slots">${rows(sd.bench)}</div></div></div>
+`, { onClose: resume });
+    UI.onStart = () => UI.closeModal();
+    UI._subSel = null;
+  }
+  // closing the pause menu any way (button, B/Esc, Start) resumes play
+  function resume() {
+    if (!paused || !match || match.over) return;
+    paused = false; PB.Input.mode = 'game'; last = performance.now(); UI.onStart = null; startLatch = true; UI._pauseView = 'main';
+  }
+  A.resumeGame = () => { UI.closeModal(); resume(); };
+  A.toggleAutoSub = () => { const sd = match.gs(0); sd.auto = !sd.auto; pause(); };
+  A.toggleCam = () => { PB.settings.camera = PB.settings.camera === 'broadcast' ? 'behind' : 'broadcast'; PB.Save.settingsSave(PB.settings); cam.init = false; pause(); };
+  A.gSetStrat = (el, d) => { match.gs(0).strat[d.k] = el.value; };
+  A.subPick = (el, d) => {
+    const sd = match.gs(0); const pl = sd.players[d.id];
+    const sel = UI._subSel;
+    if (!sel) { UI._subSel = { pl }; el.classList.add('sel'); return; }
+    if (sel.pl === pl) { UI._subSel = null; el.classList.remove('sel'); return; }
+    const a = sel.pl, b = pl;
+    const court = sd.court.includes(a) ? a : sd.court.includes(b) ? b : null, bench = sd.bench.includes(a) ? a : sd.bench.includes(b) ? b : null;
+    if (court && bench) {
+      if (bench.dq) { PB.toast('Fouled out'); UI._subSel = null; return; }
+      match.forceSub(0, sd.court.indexOf(court), bench);
+      UI._subSel = null; pause();
+    } else UI._subSel = { pl };
+  };
+  A.autoFinish = () => {
+    UI.closeModal();
+    match.auto = true; match.ctrl = null; paused = false; PB.Input.mode = 'game';
+    for (let i = 0; i < 400000 && !match.over; i++) match.update(1 / 30, null);
+  };
+  A.quitGame = () => {
+    if (!confirm('Forfeit this game? It counts as a loss.')) return;
+    UI.closeModal();
+    const m = match;
+    stopGame();
+    if (m.exhibition) { UI.go('menu', {}, true); return; }
+    const res = m.g.result(0);
+    const ui = m.gi[0];
+    if (res.score[ui] >= res.score[1 - ui]) res.score[1 - ui] = res.score[ui] + 1;
+    res.winner = res.score[0] > res.score[1] ? 0 : 1;
+    if (!m.g.qScores[0].length) res.q = [[res.score[0]], [res.score[1]]];
+    UI.finishPlayed(PB.G, m.ugame, res);
+  };
+
+  // ---------- final ----------
+  function showFinal() {
+    const m = match, res = m.resultObj, ui = m.gi[0];
+    const won = res.score[ui] > res.score[1 - ui];
+    paused = true; PB.Input.mode = 'menu';
+    UI.modal(`<div class="center"><h2 class="${won ? 'good' : 'bad'}">${won ? 'WIN' : 'LOSS'}</h2>
+      <div style="font-size:30px;font-weight:800">${esc(m.teams[0].abbr)} ${m.sc(0)} – ${m.sc(1)} ${esc(m.teams[1].abbr)}${m.ot ? ' (OT)' : ''}</div>
+      <div class="row center" style="margin-top:14px"><button class="gold" data-act="finishGame" autofocus>Continue</button></div></div>`, { onClose: () => A.finishGame() });
+  }
+  A.finishGame = () => {
+    const m = match;
+    if (!m || m._finished) return; m._finished = true;
+    UI.closeModal(); stopGame();
+    const G = PB.G;
+    if (m.exhibition) {
+      UI.go('menu', {}, true);
+      const res = m.resultObj;
+      const b = { day: 0, h: m.userHome ? m.teams[0].id : m.teams[1].id, a: m.userHome ? m.teams[1].id : m.teams[0].id, sc: res.score, q: res.q, ot: res.ot, box: [0, 1].map(s => { const o = {}; for (const id in res.box[s]) { const x = res.box[s][id]; if (x.sec > 0) o[id] = PB.STAT_KEYS.map(k => x[k]); } return o; }) };
+      UI.boxModal(b);
+    } else UI.finishPlayed(G, m.ugame, m.resultObj);
+  };
+
+  // ---------- rendering ----------
+  let frameDt = 1 / 60;
+  function render(dt) {
+    frameDt = paused ? 0 : Math.min(0.05, dt || 1 / 60) * (match ? match.speed : 1);
+    const c = cv(), g = ctx, m = match;
+    const w = c.width, h = c.height;
+    updateCamera(w, h, dt || 1 / 60);
+    const home = m.teams[m.userHome ? 0 : 1];
+    const homeCol = PB.teamColors(home);
+    drawArena(g, m, w, h, home, homeCol);
+    // floor
+    if (polyPath(g, [[0, 0, 0], [W, 0, 0], [W, H, 0], [0, H, 0]])) {
+      const p0 = proj(47, 25, 0) || [w / 2, h / 2];
+      const fl = g.createRadialGradient(p0[0], p0[1], 10, p0[0], p0[1], w * 0.9);
+      fl.addColorStop(0, '#e6b277'); fl.addColorStop(0.6, '#d29a5c'); fl.addColorStop(1, '#a8723f');
+      g.fillStyle = fl; g.fill();
+    }
+    // planks
+    for (let y = 1.5; y < H; y += 1.5) strokeLine(g, [[0, y, .01], [W, y, .01]], 'rgba(110,60,25,.16)', 0.06);
+    // paint + center circle
+    for (const left of [true, false]) {
+      const X = x => left ? x : W - x;
+      fillPoly(g, [[X(0), 17, .01], [X(19), 17, .01], [X(19), 33, .01], [X(0), 33, .01]], homeCol[0]);
+    }
+    fillPoly(g, arc(47, 25, 6, 0, Math.PI * 2, 40), homeCol[0]);
+    // center logo text (affine-mapped onto the floor)
+    {
+      const o = proj(47, 25, 0), ex = proj(47 + cam.right[0], 25 + cam.right[1], 0), ey = proj(47 - cam.fwd[0], 25 - cam.fwd[1], 0);
+      if (o && ex && ey) {
+        g.save(); g.setTransform(ex[0] - o[0], ex[1] - o[1], ey[0] - o[0], ey[1] - o[1], o[0], o[1]);
+        g.fillStyle = homeCol[1]; g.font = '900 1.9px Segoe UI, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillText(home.abbr, 0, 0); g.restore();
+      }
+    }
+    for (const l of LINES) strokeLine(g, l.p, 'rgba(255,255,255,.92)', 0.17, l.closed);
+    // shadows + floor rings (drawn before bodies)
+    const items = [];
+    for (let s = 0; s < 2; s++) for (const b of m.bodies[s]) {
+      const p = proj(b.x, b.y, 0); if (!p) continue;
+      items.push({ d: p[2], kind: 'body', b, p });
+      const sh = arc(b.x, b.y, Math.max(0.9, b.r * 0.6) * (1 - b.z * 0.05), 0, Math.PI * 2, 14, 0.02);
+      fillPoly(g, sh, 'rgba(0,0,0,.33)');
+      const col = b.s === 0 ? (b.ctl ? '#ffd23f' : sideCols(m)[0][0]) : sideCols(m)[1][0];
+      strokeLine(g, arc(b.x, b.y, Math.max(1.0, b.r * 0.72), 0, Math.PI * 2, 18, 0.03), col, b.ctl ? 0.32 : 0.16, true);
+    }
+    const ball = m.ball;
+    fillPoly(g, arc(ball.x, ball.y, 0.6, 0, Math.PI * 2, 10, 0.02), 'rgba(0,0,0,.3)');
+    const bp = proj(ball.x, ball.y, ball.z);
+    if (bp) items.push({ d: bp[2] - 0.3, kind: 'ball', p: bp });
+    for (const bx of [5.25, W - 5.25]) { const p = proj(bx, 25, 10); if (p) items.push({ d: p[2] + 0.5, kind: 'hoop', bx }); }
+    courtsideItems(m, items);
+    items.sort((a, b) => b.d - a.d);
+    for (const it of items) {
+      if (it.kind === 'prop') it.draw(g);
+      else if (it.kind === 'body') drawBody(g, it.b, it.p, m);
+      else if (it.kind === 'ball') drawBall(g, it.p);
+      else drawHoop(g, it.bx, m);
+    }
+    overlays(g, m, w, h);
+    scoreboard(g, m, w, h);
+  }
+
+  function drawHoop(g, bx, m) {
+    // the hoop nearest the camera fades so it never hides the inbounder / play under it
+    const hp = proj(bx, 25, 10);
+    g.save(); if (hp && hp[2] < 36) g.globalAlpha = 0.25 + 0.75 * PB.clamp((hp[2] - 16) / 20, 0, 1);
+    drawHoopInner(g, bx, m);
+    g.restore();
+  }
+  function drawHoopInner(g, bx, m) {
+    const left = bx < 47, s = left ? 1 : -1;
+    const bb = left ? 4 : W - 4, base = left ? -3.5 : W + 3.5;
+    // stanchion
+    fillPoly(g, [[base - 1.2, 23.8, 0], [base + 1.2, 23.8, 0], [base + 1.2, 26.2, 0], [base - 1.2, 26.2, 0]], '#1a2233');
+    strokeLine(g, [[base, 25, 0], [base, 25, 12.5], [bb - s * 0.2, 25, 12.5]], '#2c3a55', 0.45);
+    strokeLine(g, [[base, 25, 5], [bb - s * 0.4, 25, 10.4]], '#2c3a55', 0.3);
+    // backboard
+    fillPoly(g, [[bb, 22, 9], [bb, 28, 9], [bb, 28, 12.5], [bb, 22, 12.5]], 'rgba(220,235,255,.35)');
+    strokeLine(g, [[bb, 22, 9], [bb, 28, 9], [bb, 28, 12.5], [bb, 22, 12.5]], '#f4f7ff', 0.12, true);
+    strokeLine(g, [[bb, 24, 10], [bb, 26, 10], [bb, 26, 11.5], [bb, 24, 11.5]], '#ff4d4d', 0.09, true);
+    // net (sways after a make)
+    const sway = m._netT && m.t - m._netT < 0.6 ? Math.sin((m.t - m._netT) * 30) * 0.15 * (1 - (m.t - m._netT) / 0.6) : 0;
+    const top = arc(bx, 25, 0.75, 0, Math.PI * 2, 12, 10), bot = arc(bx + sway, 25, 0.42, 0, Math.PI * 2, 12, 8.4 + sway);
+    for (let i = 0; i < 12; i++) strokeLine(g, [top[i], bot[(i + 1) % 12]], 'rgba(255,255,255,.75)', 0.04);
+    strokeLine(g, bot, 'rgba(255,255,255,.7)', 0.04, true);
+    strokeLine(g, [[bb, 25, 10], [bx - s * 0.75, 25, 10]], '#ff7a1a', 0.12);
+    strokeLine(g, top, '#ff7a1a', 0.14, true);
+  }
+
+  function bodyFt(b) { return 4.2 + 4.0 * b.mon.r.sH; }
+  function drawBody(g, b, pf, m) {
+    const hFt = bodyFt(b);
+    const p = proj(b.x, b.y, b.z) || pf;
+    const sz = hFt * cam.F / p[2];
+    const img = sprite(b.mon);
+    // facing: screen-space horizontal velocity
+    const sv = b.vx * cam.right[0] + b.vy * cam.right[1];
+    // facing flips only after a sustained sideways run (no flicker); lean is smoothed
+    const want = sv > 2.5 ? -1 : sv < -2.5 ? 1 : 0;      // front sprites face left by default
+    if (want && want !== b._sf) { b._sfT = (b._sfT || 0) + 1 / 60; if (b._sfT > 0.12 || b._sf == null) { b._sf = want; b._sfT = 0; } } else b._sfT = 0;
+    b._lean = (b._lean || 0) + (PB.clamp(-sv / 70, -0.14, 0.14) - (b._lean || 0)) * 0.15;
+    const sp = Math.hypot(b.vx, b.vy);
+    // step bounce: phase is accumulated per body (frequency follows speed) so speed changes never jump the phase
+    if (b._bobPh == null) b._bobPh = b.slot;
+    b._bobPh += frameDt * (7 + sp * 0.45);
+    b._bobAmp = (b._bobAmp || 0) + (Math.min(1, sp / 9) - (b._bobAmp || 0)) * Math.min(1, frameDt * 6);
+    const bob = Math.abs(Math.sin(b._bobPh)) * b._bobAmp * sz * 0.045;
+    g.save();
+    g.translate(p[0], p[1] - bob);
+    // lean into the run (momentum)
+    g.rotate(b._lean);
+    if (b.jump) g.scale(1, 1 + Math.min(0.12, b.z * 0.03));
+    if ((b._sf || 1) < 0) g.scale(-1, 1);
+    if (!drawSprite(g, b.mon, 0, 0, sz * 0.82, false)) { g.fillStyle = PB.TYPE_COLORS[b.mon.types[0]]; g.beginPath(); g.arc(0, -sz / 2, sz / 3, 0, Math.PI * 2); g.fill(); }
+    g.restore();
+    // labels
+    const fs = Math.max(11, Math.min(18, sz * 0.13));
+    if (b.ctl || m.ball.holder === b) {
+      g.font = `800 ${fs}px Segoe UI, sans-serif`; g.textAlign = 'center';
+      const ty = p[1] - sz * 0.86 - bob;
+      if (b.ctl) { g.fillStyle = '#ffd23f'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
+      g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(b.mon.dispName, p[0], ty - fs * 1.6);
+      g.fillStyle = b.ctl ? '#ffd23f' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
+    }
+    // stamina pip for user's team
+    if (b.s === 0) {
+      const en = b.pl.en / 100, bw = Math.max(20, sz * 0.38), bh = Math.max(3, sz * 0.03);
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw, bh);
+      g.fillStyle = en > 0.55 ? '#2fd47a' : en > 0.3 ? '#ffcb05' : '#ff5a5f'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw * en, bh);
+    }
+    b._scr = { x: p[0], y: p[1] - sz * 0.82, sz };
+  }
+  function drawBall(g, p) {
+    const r = Math.max(3, 0.62 * cam.F / p[2]);
+    const gr = g.createRadialGradient(p[0] - r * 0.35, p[1] - r * 0.35, r * 0.15, p[0], p[1], r);
+    gr.addColorStop(0, '#ffb36b'); gr.addColorStop(1, '#b8510a');
+    g.fillStyle = gr; g.beginPath(); g.arc(p[0], p[1], r, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(40,15,0,.85)'; g.lineWidth = Math.max(1, r * 0.12);
+    g.beginPath(); g.arc(p[0], p[1], r, 0, Math.PI * 2); g.moveTo(p[0] - r, p[1]); g.lineTo(p[0] + r, p[1]); g.moveTo(p[0], p[1] - r); g.quadraticCurveTo(p[0] + r * 0.6, p[1], p[0], p[1] + r); g.stroke();
+  }
+
+  function overlays(g, m, w, h) {
+    // shot meter (vertical, beside the shooter)
+    const mb = m.meter ? m.meter.body : (m.ft && m.ft.state === 'meter' ? m.ft.shooter : null);
+    const mv = m.meter ? m.meter.v : (m.ft && m.ft.state === 'meter' ? m.ft.meterV : 0);
+    if (mb && PB.settings.shotMeter !== false && mb._scr) {
+      const win = m.meterWindows(mb, !!m.ft);
+      const SW = PB.Match.consts.SWEET;
+      const bh = Math.max(70, mb._scr.sz * 0.75), bw = Math.max(9, bh * 0.12);
+      const x = mb._scr.x + mb._scr.sz * 0.42, y = mb._scr.y + mb._scr.sz * 0.1;
+      const Y = v => y + bh - Math.min(1.1, v) / 1.1 * bh;
+      g.fillStyle = 'rgba(0,0,0,.75)'; g.fillRect(x - 3, y - 3, bw + 6, bh + 6);
+      g.fillStyle = '#26324a'; g.fillRect(x, y, bw, bh);
+      g.fillStyle = '#7d6b14'; g.fillRect(x, Y(SW + win.yw), bw, Y(SW - win.yw) - Y(SW + win.yw));
+      g.fillStyle = '#2fd47a'; g.fillRect(x, Y(SW + win.gw), bw, Y(SW - win.gw) - Y(SW + win.gw));
+      const fillCol = Math.abs(mv - SW) <= win.gw ? '#2fd47a' : '#ffffff';
+      g.fillStyle = fillCol; g.globalAlpha = 0.85; g.fillRect(x + 2, Y(mv), bw - 4, y + bh - Y(mv)); g.globalAlpha = 1;
+    }
+    // timing feedback
+    if (m.feedback && m.t - m.feedback.t < 1.0 && m.feedback.b && m.feedback.b._scr) {
+      const fb = m.feedback, s = fb.b._scr;
+      g.globalAlpha = 1 - (m.t - fb.t);
+      g.font = `900 ${Math.max(14, s.sz * 0.16)}px Segoe UI, sans-serif`; g.textAlign = 'center';
+      g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,.8)'; g.strokeText(fb.text, s.x, s.y - s.sz * 0.25 - (m.t - fb.t) * 30);
+      g.fillStyle = fb.col; g.fillText(fb.text, s.x, s.y - s.sz * 0.25 - (m.t - fb.t) * 30);
+      g.globalAlpha = 1;
+    }
+    // icon passing
+    if (PB.Input.held('RB') && m.poss === 0 && m.ball.holder && m.ball.holder.s === 0 && m.ctrl === m.ball.holder) {
+      for (const it of m.iconTargets()) {
+        const s = it.b._scr; if (!s) continue;
+        const r = Math.max(12, s.sz * 0.12);
+        g.fillStyle = { A: '#2fd47a', B: '#ff5a5f', X: '#4aa3ff', Y: '#ffcb05' }[it.key];
+        g.beginPath(); g.arc(s.x, s.y - r * 1.6, r, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#111'; g.font = `900 ${r * 1.1}px Segoe UI`; g.textAlign = 'center'; g.fillText(it.key, s.x, s.y - r * 1.2);
+      }
+    }
+    // big event banner
+    if (m.flashT > 0 && m.flash) {
+      const a = Math.min(1, m.flashT * 1.6);
+      const fs = Math.round(h * 0.045);
+      g.font = `900 italic ${fs}px Segoe UI, sans-serif`; g.textAlign = 'center';
+      const tw = g.measureText(m.flash).width + fs * 1.6;
+      g.globalAlpha = a;
+      const y = h * 0.16;
+      const grd = g.createLinearGradient(w / 2 - tw / 2, 0, w / 2 + tw / 2, 0);
+      grd.addColorStop(0, 'rgba(10,16,30,0)'); grd.addColorStop(0.15, 'rgba(10,16,30,.85)'); grd.addColorStop(0.85, 'rgba(10,16,30,.85)'); grd.addColorStop(1, 'rgba(10,16,30,0)');
+      g.fillStyle = grd; g.fillRect(w / 2 - tw / 2, y - fs * 1.05, tw, fs * 1.5);
+      g.fillStyle = '#ffd23f'; g.fillRect(w / 2 - tw * 0.35, y + fs * 0.42, tw * 0.7, Math.max(2, fs * 0.06));
+      g.fillStyle = '#fff'; g.fillText(m.flash, w / 2, y);
+      g.globalAlpha = 1;
+    }
+    // free throw banner
+    if (m.ft) {
+      const fs = Math.round(h * 0.024);
+      g.font = `800 ${fs}px Segoe UI`; g.textAlign = 'center'; g.fillStyle = '#fff';
+      g.fillText('FREE THROW ' + (m.ft.i + 1) + ' OF ' + m.ft.n, w / 2, h * 0.24);
+    }
+  }
+
+  // broadcast-style score bug
+  function rr(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+  function scoreboard(g, m, w, h) {
+    const H0 = Math.round(Math.max(40, h * 0.06));
+    const unit = H0;
+    const teamW = unit * 3.0, clockW = unit * 2.6, scW = unit * 1.1;
+    const total = teamW * 2 + clockW + scW;
+    const x0 = (w - total) / 2, y0 = h - H0 - Math.max(30, h * 0.045);
+    // drop shadow + base
+    g.save(); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 18;
+    rr(g, x0, y0, total, H0, 6); g.fillStyle = '#0c1220'; g.fill(); g.restore();
+    // away first (left), then home
+    const order = m.userHome ? [1, 0] : [0, 1];
+    order.forEach((s, i) => {
+      const t = m.teams[s], col = sideCols(m)[s];
+      const x = x0 + i * teamW;
+      const grd = g.createLinearGradient(0, y0, 0, y0 + H0); grd.addColorStop(0, col[0]); grd.addColorStop(1, shade(col[0], -0.35));
+      g.save(); rr(g, x, y0, teamW, H0, i === 0 ? 6 : 0); g.clip();
+      g.fillStyle = grd; g.fillRect(x, y0, teamW, H0);
+      g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(x + teamW * 0.58, y0, teamW * 0.42, H0);
+      g.restore();
+      g.fillStyle = '#fff'; g.font = `900 ${unit * 0.42}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(t.abbr, x + unit * 0.22, y0 + H0 * 0.47);
+      g.font = `900 ${unit * 0.58}px Segoe UI, sans-serif`; g.textAlign = 'center';
+      g.fillText(String(m.sc(s)), x + teamW * 0.79, y0 + H0 * 0.52);
+      // bonus / fouls strip
+      const tf = m.teamFouls[s];
+      for (let k = 0; k < 5; k++) { g.fillStyle = k < tf ? (tf >= 5 ? '#ff5a5f' : '#ffd23f') : 'rgba(255,255,255,.2)'; g.fillRect(x + unit * 0.24 + k * unit * 0.17, y0 + H0 * 0.8, unit * 0.12, Math.max(2, H0 * 0.06)); }
+      if (tf >= 5) { g.font = `800 ${unit * 0.18}px Segoe UI`; g.textAlign = 'left'; g.fillStyle = '#ffd23f'; g.fillText('BONUS', x + unit * 1.15, y0 + H0 * 0.83); }
+      // possession arrow
+      if (m.poss === s && m.phase !== 'ft') { g.fillStyle = '#ffd23f'; const ax = x + teamW * 0.56, ay = y0 + H0 * 0.47; g.beginPath(); g.moveTo(ax - unit * 0.1, ay - unit * 0.1); g.lineTo(ax + unit * 0.02, ay); g.lineTo(ax - unit * 0.1, ay + unit * 0.1); g.closePath(); g.fill(); }
+    });
+    // clock block
+    const cx = x0 + teamW * 2;
+    g.fillStyle = '#16203a'; g.fillRect(cx, y0, clockW, H0);
+    const qn = m.q <= 4 ? ['1ST', '2ND', '3RD', '4TH'][m.q - 1] : 'OT' + (m.q > 5 ? m.q - 4 : '');
+    const cl = Math.max(0, m.clock), mm = Math.floor(cl / 60), ss = Math.floor(cl - mm * 60);
+    const clStr = cl < 60 ? cl.toFixed(1) : mm + ':' + String(ss).padStart(2, '0');
+    g.fillStyle = '#9fb0d0'; g.font = `800 ${unit * 0.26}px Segoe UI`; g.textAlign = 'center';
+    g.fillText(qn, cx + clockW * 0.22, y0 + H0 * 0.5);
+    g.fillStyle = '#fff'; g.font = `800 ${unit * 0.46}px ui-monospace, Consolas, monospace`;
+    g.fillText(clStr, cx + clockW * 0.64, y0 + H0 * 0.52);
+    // shot clock
+    const sx = cx + clockW;
+    rr(g, sx, y0, scW, H0, 6); g.fillStyle = '#05080f'; g.fill();
+    const sc = Math.max(0, m.shotClock);
+    g.fillStyle = sc < 5 && m.phase === 'live' ? '#ff4d4d' : '#ffd23f'; g.font = `900 ${unit * 0.46}px ui-monospace, Consolas, monospace`;
+    g.fillText(m.phase === 'ft' ? '–' : String(Math.ceil(sc)), sx + scW / 2, y0 + H0 * 0.52);
+    g.textBaseline = 'alphabetic';
+    // top accent line
+    g.fillStyle = '#ffd23f'; g.fillRect(x0 + 6, y0 - 3, total - 12, 3);
+    // event ticker above the bug
+    const ev = m.events.slice(-1)[0];
+    if (ev && m.t - ev.t < 4) {
+      g.font = `700 ${unit * 0.26}px Segoe UI`; g.textAlign = 'center';
+      const tw = g.measureText(ev.txt).width + unit * 0.6;
+      g.globalAlpha = Math.min(1, 4 - (m.t - ev.t));
+      rr(g, w / 2 - tw / 2, y0 - unit * 0.62, tw, unit * 0.48, 4); g.fillStyle = 'rgba(12,18,32,.85)'; g.fill();
+      g.fillStyle = '#e8edf5'; g.fillText(ev.txt, w / 2, y0 - unit * 0.28);
+      g.globalAlpha = 1;
+    }
+  }
+  function shade(hex, f) {
+    const n = parseInt(hex.slice(1), 16); let r = n >> 16, gg = (n >> 8) & 255, b = n & 255;
+    const t = f < 0 ? 0 : 255, p = Math.abs(f);
+    r = Math.round((t - r) * p + r); gg = Math.round((t - gg) * p + gg); b = Math.round((t - b) * p + b);
+    return '#' + ((1 << 24) + (r << 16) + (gg << 8) + b).toString(16).slice(1);
+  }
+
+  // distinct colors for the two teams on the floor (rings + score bug)
+  function hexDist(a, b) { const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16); return Math.hypot((x >> 16) - (y >> 16), ((x >> 8) & 255) - ((y >> 8) & 255), (x & 255) - (y & 255)); }
+  function sideCols(m) {
+    if (m._cols) return m._cols;
+    const a = PB.teamColors(m.teams[0]), b = PB.teamColors(m.teams[1]).slice();
+    if (hexDist(a[0], b[0]) < 140) { const alt = [b[1], '#3b82f6', '#2fd47a', '#f5f5f5'].find(c => hexDist(c, a[0]) >= 140 && c !== '#000000' && c !== '#ffffff') || '#f5f5f5'; b[0] = alt; }
+    return (m._cols = [a, b]);
+  }
+  UI.screens.game = { game: true, render: () => '' };
+  UI._debugMatch = () => match;
+  UI._debugCam = () => cam;
+})(window.PB);
