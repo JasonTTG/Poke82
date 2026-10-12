@@ -14,7 +14,7 @@
     save(G, slot) {
       slot = slot || 1;
       const str = PB.Save.serialize(G);
-      const meta = { t: Date.now(), mode: G.mode, team: G.teams[G.userTeam] && G.teams[G.userTeam].name, phase: G.league ? G.league.phase : (G.draft ? 'draft:' + G.draft.phase : 'new'), rec: G.league ? G.league.rec[G.userTeam].w + '-' + G.league.rec[G.userTeam].l : '' };
+      const meta = { t: Date.now(), mode: G.mode, year: G.fr && G.fr.year, team: G.teams[G.userTeam] && G.teams[G.userTeam].name, phase: G.league ? G.league.phase : (G.draft ? 'draft:' + G.draft.phase : 'new'), rec: G.league ? G.league.rec[G.userTeam].w + '-' + G.league.rec[G.userTeam].l : '' };
       try {
         localStorage.setItem(KEY(slot), str);
         localStorage.setItem(KEY(slot) + '_meta', JSON.stringify(meta));
@@ -38,6 +38,6 @@
       return G;
     },
     settingsSave(S) { try { localStorage.setItem('poke82_settings', JSON.stringify(S)); } catch (e) { } },
-    settingsLoad() { try { return Object.assign(PB.defaultSettings(), JSON.parse(localStorage.getItem('poke82_settings') || '{}')); } catch (e) { return PB.defaultSettings(); } },
+    settingsLoad() { try { const o = JSON.parse(localStorage.getItem('poke82_settings') || '{}'); if (!o.showV2) { o.showRatings = o.showPositions = o.showArchetypes = o.showOverall = true; o.showV2 = true; } return Object.assign(PB.defaultSettings(), o); } catch (e) { return PB.defaultSettings(); } },
   };
 })(window.PB);

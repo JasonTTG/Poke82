@@ -1,0 +1,17 @@
+<!doctype html><meta charset=utf-8><title>online two-client harness</title>
+<body style="margin:0;font:12px monospace;background:#111;color:#ddd">
+<div style="display:flex;height:70vh"><iframe id=a src="../index.html" style="flex:1;border:1px solid #444"></iframe><iframe id=b src="../index.html" style="flex:1;border:1px solid #444"></iframe></div>
+<pre id=o style="height:28vh;overflow:auto;margin:4px">harness ready</pre>
+<script>
+// Two real game clients (iframes) talk through the relay on this server. window.T exposes helpers for driving them.
+const A=document.getElementById('a'),B=document.getElementById('b');
+const log=m=>{const o=document.getElementById('o');o.textContent+='\n'+m;o.scrollTop=o.scrollHeight};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const ready=f=>new Promise(r=>{const t=setInterval(()=>{try{if(f.contentWindow.PB&&f.contentWindow.PB.UI&&f.contentWindow.PB.UI.cur){clearInterval(t);r()}}catch(e){}},100)});
+window.T={A:()=>A.contentWindow,B:()=>B.contentWindow,sleep,log,
+  async connect(w,name){w.PB.UI.go('online',{},true);w.document.getElementById('ol-name').value=name;await w.PB.UI.actions.olConnect();},
+  key(w,code,down){w.dispatchEvent(new w.KeyboardEvent(down?'keydown':'keyup',{code,bubbles:true}));},
+  async tap(w,code,ms){T.key(w,code,true);await sleep(ms||80);T.key(w,code,false);},
+};
+Promise.all([ready(A),ready(B)]).then(()=>log('both clients loaded'));
+</script>

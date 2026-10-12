@@ -37,8 +37,26 @@
     return pairs;
   };
 
-  L.makeSchedule = function (teams, rng, gamesTarget) {
-    const pairs = rng.shuffle(L.pairings(teams, rng, gamesTarget));
+  // franchise leagues are one table: circle-method round robins, repeated, plus a few extra rounds to hit the exact game count
+  L.frPairings = function (teams, rng, games) {
+    const arr = teams.map(t => t.id);
+    if (arr.length % 2) arr.push(-1);
+    const n = arr.length, rounds = [];
+    for (let r = 0; r < n - 1; r++) {
+      const m = []; for (let i = 0; i < n / 2; i++) m.push([arr[i], arr[n - 1 - i]]);
+      rounds.push(m);
+      arr.splice(1, 0, arr.pop());
+    }
+    const cyc = Math.floor(games / (n - 1)), rem = games - cyc * (n - 1);
+    const pairs = [];
+    const put = (a, b, flip) => { if (a < 0 || b < 0) return; pairs.push(flip ? { h: a, a: b } : { h: b, a: a }); };
+    for (let c = 0; c < cyc; c++) rounds.forEach((m, ri) => m.forEach(([a, b], pi) => put(a, b, (c + ri + pi) % 2)));
+    rng.shuffle(rounds.map((_, i) => i)).slice(0, rem).forEach(ri => rounds[ri].forEach(([a, b]) => put(a, b, rng.chance(0.5))));
+    return pairs;
+  };
+
+  L.makeSchedule = function (teams, rng, gamesTarget, single) {
+    const pairs = rng.shuffle(single ? L.frPairings(teams, rng, gamesTarget) : L.pairings(teams, rng, gamesTarget));
     const remaining = new Array(teams.length).fill(0);
     pairs.forEach(p => { remaining[p.h]++; remaining[p.a]++; });
     const total = pairs.length;
@@ -75,12 +93,13 @@
     const rng = new PB.RNG((G.seed ^ 0x9e3779b9) >>> 0);
     const lg = {
       season: 1, games: gamesTarget, phase: 'regular', day: 1, userDone: false,
-      sched: L.makeSchedule(G.teams, rng, gamesTarget),
+      sched: L.makeSchedule(G.teams, rng, gamesTarget, !!G.fr),
       rec: G.teams.map(() => ({ w: 0, l: 0, hw: 0, hl: 0, aw: 0, al: 0, cw: 0, cl: 0, dw: 0, dl: 0, pf: 0, pa: 0, strk: 0, last: [] })),
       pstats: {}, pstatsPO: {}, tstats: G.teams.map(() => PB.newStat()), tgp: G.teams.map(() => 0),
       userBoxes: [], po: null, champion: null, seed: (G.seed * 7 + 13) >>> 0, simSeq: 0,
-      awards: null, ach: null,
+      awards: null, ach: null, lastTeam: {},
     };
+    if (G.fr) { lg.single = true; lg.need = ((G.fr.cfg.seriesLen + 1) / 2) | 0; lg.poN = PB.Franchise.playoffN(G.teams.length, G.fr.cfg); }
     lg.lastDay = lg.sched[lg.sched.length - 1].day;
     return lg;
   };
@@ -112,9 +131,10 @@
       win.last.push(1); loss.last.push(0); if (win.last.length > 10) win.last.shift(); if (loss.last.length > 10) loss.last.shift();
     }
     const map = playoff ? lg.pstatsPO : lg.pstats;
+    lg.lastTeam = lg.lastTeam || {};
     for (let s = 0; s < 2; s++) {
       const tid = s === 0 ? h.id : a.id;
-      for (const id in result.box[s]) { const b = result.box[s][id]; if (b.sec > 0) addP(map, id, b); }
+      for (const id in result.box[s]) { const b = result.box[s][id]; if (b.sec > 0) { addP(map, id, b); lg.lastTeam[id] = tid; } }
       if (!playoff) { lg.tgp[tid]++; for (const id in result.box[s]) for (const k of PB.STAT_KEYS) lg.tstats[tid][k] += result.box[s][id][k]; }
     }
     if (h.user || a.user) {
@@ -122,7 +142,9 @@
       for (let s = 0; s < 2; s++) for (const id in result.box[s]) { const b = result.box[s][id]; if (b.sec > 0) box[s][id] = PB.STAT_KEYS.map(k => b[k]); }
       lg.userBoxes.push({ day: game.day, h: h.id, a: a.id, sc: result.score, q: result.q, ot: result.ot, po: !!playoff, box });
     }
+    if (G.fr) PB.Franchise.afterGame(G, game, result);
   };
+  L.teamOf = (G, id) => { const t = G.claimed[id]; if (t != null) return t; const lt = G.league && G.league.lastTeam && G.league.lastTeam[id]; return lt != null ? lt : 0; };
 
   // box stored for user games: array-form, readable by UI
   L.unpackBox = arr => { const o = {}; PB.STAT_KEYS.forEach((k, i) => o[k] = arr[i]); return o; };
@@ -139,7 +161,7 @@
     const rng = new PB.RNG((lg.seed + (lg.simSeq++) * 2654435761) >>> 0);
     const diff = [0, 0];
     if (h.user) diff[1] = settingsDiff(G); else if (a.user) diff[0] = settingsDiff(G);
-    const g = new PB.Game(h, a, { rng, diff, quarterMin: 12 });
+    const g = new PB.Game(PB.activeTeam(G, h), PB.activeTeam(G, a), { rng, diff, quarterMin: 12 });
     const res = g.run();
     L.record(G, game, res, playoff);
     return res;
@@ -160,6 +182,7 @@
       const pending = lg.sched.some(g => g.day === lg.day && !g.done);
       if (!pending) {
         lg.day++;
+        if (G.fr && lg.day % 7 === 0) PB.Franchise.aiWeekly(G);
         if (!lg.allStar && lg.day > Math.floor(lg.lastDay * 0.55)) L.allStarBreak(G);
         if (lg.day > lg.lastDay && lg.sched.every(g => g.done)) { L.seasonAwards(G); L.startPlayoffs(G); }
       }
@@ -180,8 +203,8 @@
 
   L.userGameToday = function (G) {
     const lg = G.league;
-    if (lg.phase === 'regular') return L.gamesOnDay(lg, lg.day).find(g => !g.done && (G.teams[g.h].user || G.teams[g.a].user)) || null;
-    if (lg.phase === 'playoffs') return L.poGamesToday(lg).find(g => G.teams[g.h].user || G.teams[g.a].user) || null;
+    if (lg.phase === 'regular') return L.gamesOnDay(lg, lg.day).find(g => !g.done && (g.h === G.userTeam || g.a === G.userTeam)) || null;
+    if (lg.phase === 'playoffs') return L.poGamesToday(lg).find(g => g.h === G.userTeam || g.a === G.userTeam) || null;
     return null;
   };
 
@@ -229,6 +252,7 @@
   L.startPlayoffs = function (G) {
     const lg = G.league;
     lg.phase = 'playoffs';
+    if (lg.single) return L.startPlayoffsSingle(G);
     const east = L.confStandings(G, 'East').slice(0, 8), west = L.confStandings(G, 'West').slice(0, 8);
     const seedsE = east, seedsW = west;
     const mk = (conf, seeds) => [[0, 7], [3, 4], [2, 5], [1, 6]].map(([a, b]) => ({ conf, hi: seeds[a], lo: seeds[b], hiSeed: a + 1, loSeed: b + 1, w: [0, 0], games: [] }));
@@ -241,12 +265,43 @@
     lg.po.day = lg.day;
   };
   const HOME_PATTERN = [1, 1, 0, 0, 1, 0, 1];   // 1 => higher seed hosts (2-2-1-1-1)
+  const PATTERNS = { 1: [1], 2: [1, 1, 0], 3: [1, 1, 0, 0, 1], 4: HOME_PATTERN };
+  // bracket seed order for a power-of-two field: 1v8, 4v5, 2v7, 3v6 ...
+  L.seedOrder = q => { let o = [1]; while (o.length < q) { const m2 = o.length * 2; o = [].concat(...o.map(x => [x, m2 + 1 - x])); } return o; };
+  L.startPlayoffsSingle = function (G) {
+    const lg = G.league, q = lg.poN;
+    const seeds = L.sortTeams(G, G.teams.map(t => t.id)).slice(0, q);
+    const ord = L.seedOrder(q), need = lg.need || 4;
+    const nRounds = Math.round(Math.log2(q));
+    const r1 = [];
+    for (let i = 0; i < q; i += 2) r1.push({ conf: nRounds === 1 ? 'Finals' : 'League', hi: seeds[ord[i] - 1], lo: seeds[ord[i + 1] - 1], hiSeed: ord[i], loSeed: ord[i + 1], w: [0, 0], games: [], need });
+    const rounds = []; for (let i = 0; i < nRounds; i++) rounds.push([]);
+    rounds[0] = r1;
+    lg.po = { round: 1, day: 0, rounds, gameNo: 1, seeds: { League: seeds }, single: true, q, need, nRounds };
+    lg.day = lg.lastDay + 2;
+    lg.po.day = lg.day;
+  };
+  L.poAdvanceSingle = function (G) {
+    const lg = G.league, po = lg.po, need = po.need;
+    const cur = po.rounds[po.round - 1];
+    if (!cur.every(s => s.w[0] === need || s.w[1] === need)) { lg.day++; return; }
+    const win = s => s.w[0] === need ? s.hi : s.lo;
+    if (po.round === po.nRounds) { lg.champion = win(cur[0]); lg.day++; L.finishSeason(G); return; }
+    const seeds = po.seeds.League, next = [];
+    for (let i = 0; i < cur.length; i += 2) {
+      const a = win(cur[i]), b = win(cur[i + 1]);
+      const hi = seeds.indexOf(a) < seeds.indexOf(b) ? a : b, lo = hi === a ? b : a;
+      next.push({ conf: po.round + 1 === po.nRounds ? 'Finals' : 'League', hi, lo, hiSeed: seeds.indexOf(hi) + 1, loSeed: seeds.indexOf(lo) + 1, w: [0, 0], games: [], need });
+    }
+    po.round++; po.rounds[po.round - 1] = next;
+    lg.day += 2;
+  };
   L.poSeriesGameInfo = (ser) => {
     const n = ser.w[0] + ser.w[1];
-    const hiHome = HOME_PATTERN[n] === 1;
+    const hiHome = (PATTERNS[ser.need || 4] || HOME_PATTERN)[n] === 1;
     return { h: hiHome ? ser.hi : ser.lo, a: hiHome ? ser.lo : ser.hi, n };
   };
-  L.poActiveSeries = lg => lg.po.rounds[lg.po.round - 1].filter(s => s.w[0] < 4 && s.w[1] < 4);
+  L.poActiveSeries = lg => lg.po.rounds[lg.po.round - 1].filter(s => s.w[0] < (s.need || 4) && s.w[1] < (s.need || 4));
   L.poGamesToday = function (lg) {
     if (!lg.po || lg.phase !== 'playoffs') return [];
     return L.poActiveSeries(lg).filter(s => s.lastDay !== lg.day).map(s => {
@@ -269,6 +324,7 @@
   // advance playoff rounds: round winners seed the next round within each conference
   L.poAdvance = function (G) {
     const lg = G.league, po = lg.po;
+    if (po.single) return L.poAdvanceSingle(G);
     const cur = po.rounds[po.round - 1];
     const done = cur.every(s => s.w[0] === 4 || s.w[1] === 4);
     if (!done) { lg.day++; return; }
@@ -309,11 +365,12 @@
       bestRecord: rec.w === best,
       champion: lg.champion === ut,
       undefeatedChampion: rec.w === lg.games && rec.l === 0 && lg.champion === ut && poLosses === 0,
-      madePlayoffs: lg.po.seeds.East.concat(lg.po.seeds.West).includes(ut),
+      madePlayoffs: (lg.po.seeds.League || lg.po.seeds.East.concat(lg.po.seeds.West)).includes(ut),
       wins: rec.w, losses: rec.l, poRecordLosses: poLosses,
     };
     if (!lg.awards) L.seasonAwards(G);
     L.playoffMvp(G);
+    if (G.fr) PB.Franchise.onSeasonEnd(G);
   };
 
   // ----- stats views --------------------------------------------------------
@@ -341,7 +398,7 @@
   L.honor = function (lg, id, label) { lg.honors = lg.honors || {}; (lg.honors[id] = lg.honors[id] || []).push(label); };
   function eligible(G, frac) {
     const lg = G.league;
-    return Object.keys(lg.pstats).map(id => ({ id: +id, s: lg.pstats[id], t: G.claimed[id] })).filter(r => r.s.gp >= Math.max(1, (lg.tgp[r.t] || 0) * frac));
+    return Object.keys(lg.pstats).map(id => ({ id: +id, s: lg.pstats[id], t: L.teamOf(G, +id) })).filter(r => r.s.gp >= Math.max(1, (lg.tgp[r.t] || 0) * frac));
   }
   const winPct = (lg, t) => { const r = lg.rec[t]; return (r.w + r.l) ? r.w / (r.w + r.l) : 0.5; };
   const mvpScore = (lg, r) => gscore(r.s) * (0.65 + 0.7 * winPct(lg, r.t)) * Math.min(1, r.s.gp / Math.max(1, lg.tgp[r.t] * 0.8));
@@ -367,6 +424,17 @@
     const lg = G.league;
     const rows = eligible(G, 0.4).map(r => Object.assign(r, { v: mvpScore(lg, r) })).sort((a, b) => b.v - a.v);
     const squads = {};
+    if (lg.single) {
+      // no conferences: captains alternate picks
+      const SA = [], SB = [];
+      rows.slice(0, 26).forEach((r, i) => ((i % 4 === 0 || i % 4 === 3) ? SA : SB).push(r));
+      [['East', SA], ['West', SB]].forEach(([conf, pool]) => {
+        const starters = positional(pool, 1)[0];
+        const reserves = pool.filter(r => !starters.includes(r.id)).slice(0, 7).map(r => r.id);
+        squads[conf] = { starters, reserves };
+        for (const id of starters.concat(reserves)) L.honor(lg, id, 'All-Star' + (starters.includes(id) ? ' (starter)' : ''));
+      });
+    } else
     for (const conf of ['East', 'West']) {
       const pool = rows.filter(r => G.teams[r.t].conf === conf);
       const starters = positional(pool, 1)[0];
@@ -386,7 +454,7 @@
       game = { score: res.score, winner: win ? 'West' : 'East', mvp };
       if (mvp) L.honor(lg, mvp, 'All-Star Game MVP');
     } catch (e) { console.error(e); }
-    lg.allStar = { day: lg.day, squads, game };
+    lg.allStar = { day: lg.day, squads, game, names: lg.single ? { East: 'Team Red', West: 'Team Blue' } : { East: 'East', West: 'West' } };
     lg.news = { t: 'allstar', day: lg.day };
   };
   L.seasonAwards = function (G) {

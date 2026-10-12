@@ -13,6 +13,23 @@ python tools/serve.py        # http://localhost:8082
 
 `index.html` can also be opened from a local web server of your choice (ES modules are not used, plain scripts).
 
+## Franchise mode
+A league that grows one region at a time. It starts with the unevolved Pokémon of the starting regions (default Kanto + Johto,
+122 Pokémon) handed out fairly to 6 teams. Each season:
+- the schedule and playoff field scale with the league (default: 6 teams play 37 games and 4 make the playoffs; 16 teams play 82 and 8 make it),
+- injuries happen (rare to frequent, or off): hurt Pokémon sit out and the healthiest lineup plays,
+- Pokémon earn development from minutes and training (★ focus on the roster tab) and **evolve in the offseason** (branching lines let you choose),
+- a new region's unevolved Pokémon form the **draft class**; expansion teams join when the grown pool can fill them (up to the team cap, default 16),
+- then free agency (undrafted and released Pokémon) and trades (the AI answers offers and shops your players around),
+- the franchise ends when there is no region left to draft.
+Everything is configurable on the setup screen: starting region(s), starting teams, team cap, roster limit, games, playoff size, series length, draft rounds, injuries, evolution speed, trade deadline.
+
+## Online play
+Choose **Play Online**, host a room and share the 4-letter code. Nothing to install or run: the host browser acts as the room, and a free public PeerJS matchmaking service (WebRTC, loaded from unpkg, internet needed) introduces the browsers. Strict networks can block peer-to-peer connections.
+- **Exhibition**: a live 5-on-5 between two people. Both browsers run the identical match (lockstep) and exchange controller input; either player can pause and substitute.
+- **Franchise league** and **Fantasy draft league**: several people each run a team. The host advances the calendar and ordered operations are applied on every client; human-vs-human games can be played live or simulated, and trades between people are offers the other person accepts. The host can save and resume a league (browser storage or a file).
+To put the game online for free, upload this folder to any static host (GitHub Pages, Cloudflare Pages, Netlify) and share the link.
+
 ## Data
 `tools/fetch_data.py` pulls all 1025 species from PokéAPI (stats, types, height, weight, generation, legendary/mythical,
 evolution info, sprite) into `data/pokemon.js` and `sprites/*.png` and caches raw responses in `tools/cache/`.
@@ -28,6 +45,8 @@ guarantees species uniqueness. Re-run the script to refresh.
 | `js/fantasy.js` | shared-pool snake draft |
 | `js/sim.js` | possession simulation + `PB.Rules` shared with the playable game |
 | `js/league.js` | schedule, standings, stats, playoffs, achievements |
+| `js/franchise.js` | franchise mode: growth, draft, evolution, injuries, free agency, trades |
+| `js/ops.js`, `js/net.js` | shared-state operations and the online (WebSocket) client |
 | `js/court.js`, `js/court-ai.js` | playable engine (physics, rules, AI) |
 | `js/ui-*.js`, `css/` | menus, draft, hub, game screen/HUD |
 | `js/input.js` | keyboard + Gamepad API, menu focus navigation, remapping |
@@ -45,4 +64,5 @@ Camera: "2K" (behind the play, default) or "Broadcast" (sideline).
 
 ## Tests
 `tests/p0.html` ratings sanity, `p1.html` draft, `p2.html` sim consistency, `p3.html` season/playoffs/save,
-`p5.html` playable engine (`stress()`, `botGame()`, `bench()`), `p6.html` uniqueness/determinism/save-load regression.
+`p5.html` playable engine (`stress()`, `botGame()`, `bench()`), `p6.html` uniqueness/determinism/save-load regression,
+`p7.html` franchise (whole multi-season runs, trades, injuries, evolution, determinism), `p8.html` two real clients side by side for online testing (`T.connect`, `T.key`).

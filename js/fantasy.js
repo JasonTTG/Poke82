@@ -73,6 +73,10 @@
     let n = 0;
     while (!F.done(G) && F.current(G) !== G.userTeam && n++ < (max || 1e6)) F.aiStep(G);
   };
+  F.runToHuman = function (G, max) {
+    let n = 0;
+    while (!F.done(G) && !G.teams[F.current(G)].user && n++ < (max || 1e6)) F.aiStep(G);
+  };
   F.autoUser = function (G) {   // best-fit auto pick for the user's team
     const t = G.userTeam;
     F.make(G, t, F.aiChoice(G, t));

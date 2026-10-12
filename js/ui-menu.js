@@ -9,13 +9,15 @@
     render() {
       const showcase = [25, 150, 6, 94, 149, 448, 130, 143, 249, 384, 445, 59].map(id => PB.BYID[id]);
       const m1 = PB.Save.meta(1), m2 = PB.Save.meta(2);
-      const slot = (n, m) => m ? `<div class="menu-card" tabindex="0" data-act="loadSlot" data-slot="${n}"><h3>Continue — Slot ${n}</h3><div class="dim">${esc(m.team || '')} · ${m.mode === 'fantasy' ? 'Fantasy' : 'Main'} · ${esc(m.phase)} ${esc(m.rec || '')}<br>${new Date(m.t).toLocaleString()}</div></div>` : '';
+      const slot = (n, m) => m ? `<div class="menu-card" tabindex="0" data-act="loadSlot" data-slot="${n}"><h3>Continue — Slot ${n}</h3><div class="dim">${esc(m.team || '')} · ${m.mode === 'fantasy' ? 'Fantasy' : m.mode === 'franchise' ? 'Franchise' : 'Main'} · ${esc(m.phase)} ${esc(m.rec || '')}<br>${new Date(m.t).toLocaleString()}</div></div>` : '';
       return `<div class="hero">
         <h1>POKÉ<span>HOOPS</span> 82</h1>
         <div class="sprite-row">${showcase.map(m => UI.spr(m, 64)).join('')}</div>
         <div class="menu-grid">
           <div class="menu-card" tabindex="0" data-act="newMain" autofocus><h3>Random Draft</h3></div>
           <div class="menu-card" tabindex="0" data-act="newFantasy"><h3>Fantasy Draft</h3></div>
+          <div class="menu-card" tabindex="0" data-act="newFranchise"><h3>Franchise</h3></div>
+          <div class="menu-card" tabindex="0" data-act="goOnline"><h3>Play Online</h3></div>
           ${slot(1, m1)}${slot(2, m2)}
           <div class="menu-card" tabindex="0" data-act="exhibition"><h3>Exhibition</h3></div>
           <div class="menu-card" tabindex="0" data-act="goSettings"><h3>Settings</h3></div>
@@ -37,6 +39,8 @@
     } catch (e) { console.error(e); PB.toast('Load failed: ' + e.message, 4000); }
   };
   A.newMain = () => UI.go('new', { mode: 'main' });
+  A.newFranchise = () => UI.go('frnew');
+  A.goOnline = () => UI.go('online');
   A.newFantasy = () => UI.go('new', { mode: 'fantasy' });
 
   // ---------- new game ----------
@@ -102,7 +106,7 @@
           <label><input type="checkbox" ${s.shotMeter ? 'checked' : ''} data-change="setOptBool" data-k="shotMeter"> Shot timing meter</label>
           <label>Camera <select data-change="setOpt" data-k="camera"><option value="behind" ${s.camera !== 'broadcast' ? 'selected' : ''}>2K (behind the play)</option><option value="broadcast" ${s.camera === 'broadcast' ? 'selected' : ''}>Broadcast (sideline)</option></select></label>
           <label><input type="checkbox" ${document.fullscreenElement ? 'checked' : ''} data-change="toggleFs"> Fullscreen</label>
-          <h3 style="margin-top:8px">Show</h3>
+          <h3 style="margin-top:8px">Show (drafted Pokémon and league menus; always hidden for draft prospects)</h3>
           <label><input type="checkbox" ${s.showRatings ? 'checked' : ''} data-change="setOptBool" data-k="showRatings"> Basketball ratings</label>
           <label><input type="checkbox" ${s.showPositions ? 'checked' : ''} data-change="setOptBool" data-k="showPositions"> Positions</label>
           <label><input type="checkbox" ${s.showArchetypes ? 'checked' : ''} data-change="setOptBool" data-k="showArchetypes"> Archetypes</label>

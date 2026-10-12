@@ -473,7 +473,7 @@
       }
     }
     // user help call shifts a defender
-    if (m.helpCall && m.t - m.helpCall.t < 0.4) { tx += m.helpCall.x * 3.5; ty += m.helpCall.y * 3.5; }
+    { const hc = m.U[s].helpCall; if (hc && m.t - hc.t < 0.4) { tx += hc.x * 3.5; ty += hc.y * 3.5; } }
     // jump passing lanes sometimes (steal intent)
     b.intent = { tx: clamp(tx, 1, W - 1), ty: clamp(ty, 1, H - 1), sp: (m.eff(b, 'speed') > 40 ? 1.08 : 0.95) };
   }

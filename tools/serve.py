@@ -1,4 +1,5 @@
-"""Tiny static server with no-cache headers.  Usage: python tools/serve.py [port]  then open http://localhost:8082"""
+"""Tiny static server with no-cache headers (for local development).  Usage: python tools/serve.py [port]  then open http://localhost:8082
+Online play needs no server: it runs peer to peer in the browsers."""
 import http.server, sys, os
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 class H(http.server.SimpleHTTPRequestHandler):

@@ -1,0 +1,98 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script>
+<script>
+// Franchise mode regression: full multi-season runs, uniqueness, growth, trades, FA, injuries, evolution, save/load, determinism.
+PB.buildDB();PB.settings=PB.defaultSettings();
+const F=PB.Franchise,L=PB.League;
+window.report=function(opts){
+  opts=opts||{};
+  const out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
+  const t0=performance.now();
+  function runFranchise(seed,cfg,label){
+    const G=F.create(seed,cfg);G.settings=PB.settings;F.startLeague(G);
+    const tl=[];let seasons=0,guard=0,evos=0,trades=0,signs=0,injTot=0;
+    while(!F.isOver(G)&&guard++<12){
+      const lg=G.league;
+      ck(PB.Registry.verify(G)===null,label+' registry y'+G.fr.year);
+      // schedule integrity: every team plays exactly lg.games
+      const cnt={};G.teams.forEach(t=>cnt[t.id]=0);lg.sched.forEach(x=>{cnt[x.h]++;cnt[x.a]++});
+      ck(G.teams.every(t=>cnt[t.id]===lg.games),label+' y'+G.fr.year+' games per team '+JSON.stringify(Object.values(cnt))+' vs '+lg.games);
+      // user does a few roster moves mid-season
+      if(seasons===1){
+        const fas=F.freeAgents(G);const me=G.userTeam;
+        if(G.teams[me].roster.length<G.fr.cfg.rosterMax&&fas.length){F.sign(G,me,fas[0]);signs++}
+      }
+      let d=0;while(lg.phase!=='done'&&d++<2000)L.simDay(G,false);
+      ck(lg.phase==='done'&&lg.champion!=null,label+' season finished y'+G.fr.year);
+      const n=G.teams.length;
+      const W=PB.sum(lg.rec.map(r=>r.w)),Ls=PB.sum(lg.rec.map(r=>r.l));
+      ck(W===Ls&&W===n*lg.games/2,label+' W/L totals '+W+'/'+Ls+' expected '+(n*lg.games/2));
+      const nPO=lg.po.q;ck(lg.po.rounds.flat().length===nPO-1,label+' series count '+lg.po.rounds.flat().length+' q='+nPO);
+      ck(lg.po.rounds.flat().every(s=>(s.w[0]===s.need)!==(s.w[1]===s.need)),label+' series valid');
+      injTot+=Object.keys(G.fr.inj).length;
+      tl.push('y'+G.fr.year+' regions '+G.fr.gens.join(',')+' teams '+n+' games '+lg.games+' po '+nPO+' champ '+G.teams[lg.champion].abbr+' mvp '+(lg.awards&&PB.BYID[lg.awards.mvp].dispName));
+      ck(G.fr.stage==='review',label+' stage review');
+      F.beginOffseason(G);
+      if(F.isOver(G))break;
+      ck(G.fr.stage==='dev',label+' stage dev');
+      // user evolves whoever is ready (first option)
+      for(const x of F.canEvolveList(G,G.userTeam)){const o=x.opts.find(o=>o.ready);F.evolve(G,x.id,o.to);evos++}
+      F.startDraft(G);
+      ck(G.fr.stage==='draft',label+' stage draft');
+      const dr=G.fr.draft;
+      // user drafts the best available when on the clock, AI otherwise
+      let g2=0;while(!F.draftDone(G)&&g2++<5000){const t=F.draftCurrent(G);if(t===G.userTeam)F.draftPick(G,t,dr.prospects[0]);else F.draftStepAI(G)}
+      ck(G.fr.stage==='fa',label+' stage fa');
+      // trim user roster
+      const U=G.teams[G.userTeam];
+      while(U.roster.length>G.fr.cfg.rosterMax){const ids=U.roster.filter(id=>!U.starters.includes(id)&&!U.bench.includes(id));F.release(G,G.userTeam,ids[ids.length-1])}
+      // trades: a lopsided offer is accepted by the AI, a robbery is refused, AI offers are valid for both sides
+      {const other=G.teams.find(t=>t.id!==G.userTeam);const mine=U.roster.slice().sort((x,y)=>F.tval(G,y)-F.tval(G,x)),theirs=other.roster.slice().sort((x,y)=>F.tval(G,x)-F.tval(G,y));
+       const good=F.evalTrade(G,G.userTeam,other.id,[mine[0]],[theirs[0]]);ck(good.ok,label+' AI accepts a lopsided gift');
+       const rob=F.evalTrade(G,G.userTeam,other.id,[mine[mine.length-1]],[theirs[theirs.length-1]]);ck(!rob.ok,label+' AI refuses a robbery');
+       if(good.ok){F.trade(G,G.userTeam,other.id,[mine[0]],[theirs[0]]);trades++;ck(PB.Registry.verify(G)===null,label+' registry after trade');ck(G.claimed[theirs[0]]===G.userTeam&&G.claimed[mine[0]]===other.id,label+' players moved')}
+       for(const o of F.offersFor(G,G.userTeam)){ck(F.evalTrade(G,G.userTeam,o.team,o.ask,o.give).ok,label+' AI offer is acceptable to the AI');}
+       // release + sign round trip
+       const rel=U.roster.find(id=>!U.starters.includes(id)&&!U.bench.includes(id));if(rel!=null&&U.roster.length>12){F.release(G,G.userTeam,rel);ck(F.freeAgents(G).includes(rel),label+' released goes to FA');if(U.roster.length<G.fr.cfg.rosterMax){F.sign(G,G.userTeam,rel);signs++;ck(G.claimed[rel]===G.userTeam,label+' re-signed')}}}
+      F.startNextSeason(G);seasons++;
+      ck(G.teams.every(t=>t.roster.length>=12&&t.roster.length<=G.fr.cfg.rosterMax),label+' roster sizes '+G.teams.map(t=>t.roster.length).join(','));
+      ck(G.teams.every(t=>PB.validateLineup(t).length===0),label+' lineups valid: '+G.teams.map(t=>PB.validateLineup(t).join('|')).join(';'));
+      ck(G.teams.every(t=>t.roster.every(id=>G.claimed[id]===t.id)),label+' claims');
+    }
+    ck(F.isOver(G),label+' franchise ended');
+    out.push(label+': '+G.fr.history.length+' seasons; evolutions user='+evos+' total='+G.fr.evoLog.length+'; trades='+trades+' signs='+signs+'; final teams '+G.teams.length+'; FA left '+F.freeAgents(G).length);
+    tl.forEach(x=>out.push('  '+x));
+    return G;
+  }
+  const G1=runFranchise(11,{},'default');
+  ck(G1.fr.history.length===8,'default: 8 seasons (2 start regions + 7 classes) got '+G1.fr.history.length);
+  ck(G1.teams.length===16,'default grows to 16 teams, got '+G1.teams.length);
+  const G2=runFranchise(22,{startGen:5,startRegions:3,startTeams:8,teamCap:12,rosterMax:18,playoffTeams:4,games:40,seriesLen:5,injRate:3},'custom');
+  ck(G2.fr.history.length===7,'custom: 7 seasons got '+G2.fr.history.length);
+  ck(G2.teams.length<=12,'custom cap 12, got '+G2.teams.length);
+  // determinism + save/load mid-offseason
+  {
+    const mk=()=>{const G=F.create(77,{});G.settings=PB.settings;F.startLeague(G);let d=0;while(G.league.phase!=='done'&&d++<2000)L.simDay(G,false);F.beginOffseason(G);return G};
+    const A=mk(),B=mk();ck(JSON.stringify(A.league.rec)===JSON.stringify(B.league.rec),'franchise determinism');
+    ck(JSON.stringify(A.fr.inj)===JSON.stringify(B.fr.inj),'injury determinism');
+    const sv=PB.Save.serialize(B);const C=PB.Save.deserialize(sv);PB.Save.relink(C);
+    F.startDraft(A);F.startDraft(C);
+    ck(JSON.stringify(A.fr.draft.seq)===JSON.stringify(C.fr.draft.seq),'draft order identical after save/load');
+    F.draftAutoAll(A);F.draftAutoAll(C);
+    ck(JSON.stringify(A.teams.map(t=>t.roster))===JSON.stringify(C.teams.map(t=>t.roster)),'draft results identical after save/load');
+    out.push('franchise save size KB '+Math.round(sv.length/1024));
+  }
+  // injuries: lineup substitutes, never includes an injured mon when healthy ones exist
+  {
+    const G=F.create(5,{});G.settings=PB.settings;F.startLeague(G);const T=G.teams[0];
+    G.fr.inj[T.starters[0]]={g:5,k:'Test',n:5};G.fr.inj[T.starters[1]]={g:5,k:'Test',n:5};G.fr.inj[T.bench[0]]={g:5,k:'Test',n:5};
+    const A=PB.activeTeam(G,T);
+    const bad=A.starters.concat(A.bench).filter(id=>G.fr.inj[id]);
+    ck(bad.length===0,'active team contains injured: '+bad);
+    ck(A.starters.length===5&&A.bench.length===7&&new Set(A.starters.concat(A.bench)).size===12,'active lineup shape');
+  }
+  out.push('total ms '+Math.round(performance.now()-t0));
+  return {fail,out};
+};
+const r=report();document.getElementById('o').textContent=(r.fail.length?'FAILURES:\n'+r.fail.slice(0,40).join('\n')+'\n\n':'ALL CHECKS PASSED\n\n')+r.out.join('\n');
+</script>

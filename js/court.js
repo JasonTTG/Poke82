@@ -28,12 +28,12 @@
       opts = opts || {};
       this.G = G; this.opts = opts;
       this.rng = opts.rng || new PB.RNG((Math.random() * 4294967296) >>> 0);
-      const U = G.teams[G.userTeam];
-      const O = G.teams[opts.oppId];
+      const U = PB.activeTeam(G, G.teams[opts.userTeam != null ? opts.userTeam : G.userTeam]);
+      const O = PB.activeTeam(G, G.teams[opts.oppId]);
       this.userHome = opts.userHome !== false;
       this.gi = this.userHome ? [0, 1] : [1, 0];
       const diff = [0, 0];
-      const d = G.settings.difficulty;
+      const d = opts.noDiff ? 'normal' : G.settings.difficulty;
       const adj = d === 'easy' ? -0.02 : d === 'hard' ? 0.02 : d === 'legend' ? 0.045 : 0;
       diff[this.gi[1]] = adj;
       this.qMin = opts.quarterMin || 5;
@@ -42,6 +42,9 @@
       this.teams = [U, O];
       this.speed = opts.gameSpeed || 1;
       this.auto = !!opts.auto;                  // user's team also AI-controlled (testing)
+      this.humans = [!this.auto, !this.auto && !!opts.twoHumans];      // which sides have a person on the sticks
+      this.me = opts.me || 0;                   // the side this screen belongs to (UI only)
+      this.shotMeterOn = opts.shotMeter != null ? !!opts.shotMeter : PB.settings.shotMeter !== false;
       this.t = 0; this.q = 1; this.ot = 0;
       this.clock = this.g.qLen; this.shotClock = 24;
       this.phase = 'inbound';                   // 'inbound' | 'live' | 'ft' | 'dead' | 'over'
@@ -56,7 +59,8 @@
       this.pauseSubs = false;
       this.bodies = [[], []];
       this.ball = { x: 47, y: 25, z: 3, vx: 0, vy: 0, vz: 0, holder: null, state: 'held', flight: null };
-      this.ctrl = null; this.ctrlLock = 0;
+      this.U = [0, 1].map(() => ({ ctrl: null, ctrlLock: 0, _ctrlPoss: null, askBall: null, helpCall: null }));
+      this.us = 0;                              // the side whose person-controlled state the accessors below refer to
       this.stratOverride = null;
       this.sim = { clockRun: false };
       this.rebT = 0;
@@ -68,6 +72,9 @@
     gs(s) { return this.g.sides[this.gi[s]]; }
     sc(s) { return this.g.score[this.gi[s]]; }
     opp(s) { return 1 - s; }
+    isHuman(s) { return this.humans[s] && !this.auto; }
+    onSide(s, fn) { const o = this.us; this.us = s; try { return fn(); } finally { this.us = o; } }
+    clearLocks() { this.U[0].ctrlLock = 0; this.U[1].ctrlLock = 0; }
 
     _mkBody(s, slot) {
       const pl = this.gs(s).court[slot];
@@ -139,15 +146,16 @@
       this.ball.holder = null; this.ball.state = 'toss'; this.ball.flight = null;
       this.ball.x = 47; this.ball.y = 25; this.ball.z = 6; this.ball.vx = this.ball.vy = 0; this.ball.vz = 15;
       this.say('JUMP BALL', true);
-      if (!this.auto) { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = J[0]; J[0].ctl = true; }
+      for (let s = 0; s < 2; s++) if (this.isHuman(s)) this.onSide(s, () => { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = J[s]; J[s].ctl = true; });
     }
-    updateJumpBall(dt, inp) {
+    updateJumpBall(dt, inps) {
       const jb = this.jb, ball = this.ball;
       jb.t += dt;
       // user's jumper: jump on Y / X / A; AI jumps near the top of the toss
       for (let s = 0; s < 2; s++) {
         const j = jb.J[s];
-        const userSide = s === 0 && !this.auto;
+        const userSide = this.isHuman(s);
+        const inp = inps && inps[s];
         const press = userSide && inp && (inp.pressed.Y || inp.pressed.X || inp.pressed.A);
         if (!j.jump && !jb.tipped && ((userSide && press) || (!userSide && jb.t >= jb.aiJump[s]))) { j.jump = 1; j.jumpKind = 'tip'; j.vz = 9 + this.jumpH(j) * 1.6; j.tipJumpT = jb.t; }
       }
@@ -257,7 +265,7 @@
         g.subs(si);
         for (let slot = 0; slot < 5; slot++) {
           const sIdx = g.sides[si].court[slot];
-          if (before[slot] !== sIdx) { const s = this.gi.indexOf(si); this.rebind(s, slot); this.say((s === 0 ? 'SUB: ' : 'Opp SUB: ') + sIdx.mon.dispName + ' in'); }
+          if (before[slot] !== sIdx) { const s = this.gi.indexOf(si); this.rebind(s, slot); this.say((s === this.me ? 'SUB: ' : 'Opp SUB: ') + sIdx.mon.dispName + ' in'); }
         }
       }
     }
@@ -270,14 +278,18 @@
     // Offense: control follows the ball. Defense: the user keeps their defender (only A/RB switch),
     // except once at the moment the team goes on defense.
     pickCtrl(force) {
-      if (this.auto) { this.ctrl = null; return; }
+      if (this.auto) { this.U[0].ctrl = null; this.U[1].ctrl = null; return; }
+      for (let sd = 0; sd < 2; sd++) if (this.humans[sd]) this.onSide(sd, () => this._pickCtrl(force));
+    }
+    _pickCtrl(force) {
       if (this.ctrlLock > 0 && !force) return;
-      const mine = this.bodies[0];
+      const side = this.us, other = 1 - side;
+      const mine = this.bodies[side];
       const hb = this.ball.holder;
       let pick = null;
-      if (hb && hb.s === 0) pick = hb;
-      else if (this.ball.state === 'flight' && this.ball.flight && this.ball.flight.type === 'pass' && this.ball.flight.to && this.ball.flight.to.s === 0) pick = this.ball.flight.to;
-      else if (this.poss === 1 && this._ctrlPoss !== 1) {
+      if (hb && hb.s === side) pick = hb;
+      else if (this.ball.state === 'flight' && this.ball.flight && this.ball.flight.type === 'pass' && this.ball.flight.to && this.ball.flight.to.s === side) pick = this.ball.flight.to;
+      else if (this.poss === other && this._ctrlPoss !== other) {
         // just went on defense: take whoever guards the ball (or is nearest to it)
         const tgt = hb || this.ball;
         let best = 1e9;
@@ -291,17 +303,18 @@
     setCtrl(b) { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = b; b.ctl = true; this.ctrlLock = 0.45; }
 
     // ---------------------------------------------------------------- main update
-    update(dt0, inp) {
+    update(dt0, inp, inp1) {
+      const inps = [inp, inp1];
       if (this.over) return;
       const dt = Math.min(dt0, 1 / 30) * this.speed;
       this.t += dt;
       if (this.flashT > 0) this.flashT -= dt;
-      if (this.ctrlLock > 0) this.ctrlLock -= dt;
+      for (const u of this.U) if (u.ctrlLock > 0) u.ctrlLock -= dt;
       if (this.phase === 'dead') { this.deadT -= dt; if (this.deadT <= 0) { const f = this.afterDead; this.afterDead = null; f && f(); } return; }
-      if (this.phase === 'ft') { this.updateFT(dt, inp); this.energy(dt, false); return; }
-      if (this.phase === 'jump') { this.updateJumpBall(dt, inp); return; }
+      if (this.phase === 'ft') { this.updateFT(dt, inps); this.energy(dt, false); return; }
+      if (this.phase === 'jump') { this.updateJumpBall(dt, inps); return; }
       // user input -> user actions
-      this.userInput(dt, inp);
+      this.userInput(dt, inps);
       // AI intents
       PB.Match.planAI(this, dt);
       // integrate
@@ -343,14 +356,17 @@
     }
 
     // ---------------------------------------------------------------- user input handling
-    userInput(dt, inp) {
+    userInput(dt, inps) {
+      if (this.auto) return;
+      for (let sd = 0; sd < 2; sd++) if (this.humans[sd] && inps[sd]) this.onSide(sd, () => this._userInput(dt, inps[sd]));
+    }
+    _userInput(dt, inp) {
       const c = this.ctrl;
-      if (!inp || this.auto) return;
-      const side = 0;
+      const side = this.us;
       const hasBall = this.ball.holder === c;
-      const offense = this.poss === 0;
+      const offense = this.poss === side;
       // meter progress
-      if (this.meter) {
+      if (this.meter && this.meter.body.s === side) {
         // meter position tracks the jump: SWEET == apex of the shooter's jump
         this.meter.el += dt; this.meter.v = this.meter.el / this.meter.tApex * SWEET;
         if (!inp.held.X || this.meter.v >= 1.15) { this.releaseShot(this.meter.body, clamp(this.meter.v, 0, 1)); this.meter = null; }
@@ -368,7 +384,7 @@
       } else c.intent = { tx: c.x, ty: c.y, sp: 0, manual: true, mx: 0, my: 0 };
       const P = inp.pressed;
       if (this.phase === 'inbound') {
-        if (this.inboundSide === 0 && this.inbounder && this.inbounder.s === 0) {
+        if (this.inboundSide === side && this.inbounder && this.inbounder.s === side) {
           // user inbounds with A (directional) when ready
           if (P.A || P.B) { this.userPassAction(inp, true, P.B ? 'bounce' : 'chest'); }
         }
@@ -426,14 +442,13 @@
       this.ball.flight = { type: 'pass', from, to, kind, t0: this.t, dist: d, interceptChecked: false, bounce: kind === 'bounce' };
       this.lastTouch = from; this.lastPass = { from, to, t: this.t };
       from.immune = 0; from.passT = 0.25;
-      this.ctrlLock = 0;
-      if (from.s === 0 && !this.auto && to.s === 0) { this.setCtrl(to); this.ctrlLock = 0.1; }
+      if (this.isHuman(from.s) && to.s === from.s) this.onSide(from.s, () => { this.ctrlLock = 0; this.setCtrl(to); this.ctrlLock = 0.1; });
       return true;
     }
     userPassAction(inp, inbound, kind) {
       const c = inbound ? this.inbounder : this.ctrl;
       if (!c || this.ball.holder !== c) return;
-      const mates = this.bodies[0].filter(b => b !== c);
+      const mates = this.bodies[this.us].filter(b => b !== c);
       let tgt = null;
       const mag = Math.hypot(inp.mx, inp.my);
       if (mag > 0.4) {
@@ -458,18 +473,18 @@
     iconPassCheck(inp) {
       // while RB held, A/B/X/Y pass to icons (assigned left->right by court x in attack direction)
       const c = this.ctrl; if (!c || this.ball.holder !== c) return;
-      const mates = this.bodies[0].filter(b => b !== c).sort((a, b) => a.slot - b.slot);
+      const mates = this.bodies[this.us].filter(b => b !== c).sort((a, b) => a.slot - b.slot);
       const map = { A: 0, B: 1, X: 2, Y: 3 };
       for (const k of ['A', 'B', 'X', 'Y']) if (inp.pressed[k] && mates[map[k]]) { this.passTo(c, mates[map[k]], 'chest'); return; }
     }
     iconTargets() {
       const c = this.ctrl; if (!c) return [];
-      return this.bodies[0].filter(b => b !== c).sort((a, b) => a.slot - b.slot).map((b, i) => ({ b, key: ['A', 'B', 'X', 'Y'][i] }));
+      return this.bodies[this.us].filter(b => b !== c).sort((a, b) => a.slot - b.slot).map((b, i) => ({ b, key: ['A', 'B', 'X', 'Y'][i] }));
     }
     lobPass(c) {
       // alley-oop to the teammate nearest the rim
-      const mates = this.bodies[0].filter(b => b !== c);
-      const bx = ATTACK_X(0);
+      const mates = this.bodies[this.us].filter(b => b !== c);
+      const bx = ATTACK_X(this.us);
       let best = null, bd = 1e9;
       for (const m of mates) { const d = Math.hypot(m.x - bx, m.y - 25); if (d < bd) { bd = d; best = m; } }
       if (best) { best.ai.alley = this.t + 2.0; this.passTo(c, best, 'lob'); }
@@ -517,7 +532,7 @@
     }
     callScreen() {
       const c = this.ctrl; if (!c) return;
-      const mates = this.bodies[0].filter(b => b !== c && b !== this.ball.holder);
+      const mates = this.bodies[this.us].filter(b => b !== c && b !== this.ball.holder);
       let best = null, bs = -1e9;
       for (const m of mates) { const sc = this.eff(m, 'strength') * 0.5 + m.mon.r.sW * 20 - dist(m, c) * 1.2; if (sc > bs) { bs = sc; best = m; } }
       if (!best) return;
@@ -530,17 +545,17 @@
       // A on defense: switch to the defender nearest the ball
       const tgt = this.ball.holder || this.ball;
       let best = null, bd = 1e9;
-      for (const b of this.bodies[0]) { if (b === this.ctrl) continue; const d = Math.hypot(b.x - tgt.x, b.y - tgt.y); if (d < bd) { bd = d; best = b; } }
+      for (const b of this.bodies[this.us]) { if (b === this.ctrl) continue; const d = Math.hypot(b.x - tgt.x, b.y - tgt.y); if (d < bd) { bd = d; best = b; } }
       if (best) this.setCtrl(best);
     }
     cycleDefender(dir) {
-      const list = this.bodies[0].slice().sort((a, b) => a.slot - b.slot);
+      const list = this.bodies[this.us].slice().sort((a, b) => a.slot - b.slot);
       const i = list.indexOf(this.ctrl);
       this.setCtrl(list[(i + dir + 5) % 5]);
     }
     cycleDefScheme() {
       const keys = Object.keys(PB.DEF_STRATS);
-      const s = this.gs(0).strat; const i = keys.indexOf(s.def);
+      const s = this.gs(this.us).strat; const i = keys.indexOf(s.def);
       s.def = keys[(i + 1) % keys.length];
       this.say('Defense: ' + PB.DEF_STRATS[s.def], true);
     }
@@ -578,7 +593,7 @@
       const tApex = GATHER + vz / 32.2;
       b.gather = GATHER; b.gatherVz = vz; b.jumpKind = 'shot';
       b.shotUser = user;
-      if (user && PB.settings.shotMeter !== false && !this.auto) {
+      if (user && this.shotMeterOn && this.isHuman(b.s)) {
         this.meter = { body: b, v: 0, el: 0, tApex };
         b.shootT = 99;      // held until release
       } else {
@@ -701,7 +716,7 @@
       const g = 32.2; this.ball.vz = (RIM_Z - this.ball.z + 0.5 * g * T * T) / T;
       this.ball.flight = { type: 'shot', T, t0: this.t, tx, ty };
       this.lastTouch = b;
-      this.ctrlLock = 0;
+      this.clearLocks();
       this.pickShotCtrl();
       if (foulBy) { this.shot.foul = true; this.whistleShootingFoul(foulBy, b); }
       b.shotAim = null; b.release = false;
@@ -794,8 +809,8 @@
       this.doSubs();
       this.rebindFTShooter();
       this.arrangeFT();
-      this.ctrlLock = 0;
-      if (shooter.s === 0 && !this.auto) { this.ctrl && (this.ctrl.ctl = false); this.ctrl = shooter; shooter.ctl = true; }
+      this.clearLocks();
+      if (this.isHuman(shooter.s)) this.onSide(shooter.s, () => { this.ctrl && (this.ctrl.ctl = false); this.ctrl = shooter; shooter.ctl = true; });
       this.say(shooter.mon.dispName + ' to the line (' + n + ')');
     }
     rebindFTShooter() { }
@@ -816,13 +831,14 @@
       offOthers.slice(0, 4).forEach((o, i) => { const sp = [[bx - dir * 8.5, 18.2], [bx - dir * 8.5, 31.8], [bx - dir * 12.5, 18.2], [bx - dir * 12.5, 31.8]][i]; o.x = sp[0]; o.y = sp[1]; o.vx = o.vy = 0; });
       this.ball.x = sh.x; this.ball.y = sh.y; this.ball.z = 4.5;
     }
-    updateFT(dt, inp) {
+    updateFT(dt, inps) {
       const f = this.ft, sh = f.shooter;
-      const user = sh.s === 0 && !this.auto;
+      const inp = inps && inps[sh.s];
+      const user = this.isHuman(sh.s);
       if (f.state === 'wait') {
         f.t -= dt;
         if (f.t <= 0) {
-          if (user && PB.settings.shotMeter !== false) { f.state = 'meter'; f.meterV = 0; }
+          if (user && this.shotMeterOn) { f.state = 'meter'; f.meterV = 0; }
           else { f.state = 'aim'; f.t = 0.7; }
         }
       } else if (f.state === 'meter') {
@@ -846,7 +862,7 @@
     shootFT() {
       const f = this.ft, sh = f.shooter;
       sh.pl.st.fta++;
-      const user = sh.s === 0 && !this.auto && PB.settings.shotMeter !== false;
+      const user = this.isHuman(sh.s) && this.shotMeterOn;
       let p = Rules.ftProb(this.eff(sh, 'ft')) + this.g.form[this.gi[sh.s]] * 0.3;
       if (user && f.grade) p = this.applyTiming(clamp(p, 0.1, 0.95), f.grade, f.win, 0);
       f.grade = null;
@@ -878,7 +894,7 @@
         // line up for the rebound
         const bodies = this.allBodies();
         this.lastTouch = sh;
-        this.ctrlLock = 0; this.pickCtrl(true);
+        this.clearLocks(); this.pickCtrl(true);
       }
     }
 
@@ -1205,7 +1221,7 @@
       if (this.phase === 'inbound' || this.phase === 'jump') { this.beginLive(); }
       if (this.poss !== b.s && !intercept) this.changePoss(b.s, true);
       if (this.shot && !this.shot.done) { }
-      if (b.s === 0 && !this.auto) { this.ctrlLock = 0; this.setCtrl(b); this.ctrlLock = 0.2; }
+      if (this.isHuman(b.s)) this.onSide(b.s, () => { this.ctrlLock = 0; this.setCtrl(b); this.ctrlLock = 0.2; });
       b.ai.caught = this.t;
       if (b.s === this.poss) { const fcx = fx(b.s, b.x); if (fcx > 47) this.frontcourt[b.s] = true; }
     }
@@ -1270,7 +1286,7 @@
       if (this.shot === null && this.shotMissed) { this.shotMissed = false; }
       b.ai.caught = this.t; b.immune = 0.3;
       if (this.poss === b.s) { const fcx = fx(b.s, b.x); this.frontcourt[b.s] = this.frontcourt[b.s] || fcx > 47; }
-      this.ctrlLock = 0; if (b.s === 0) this.setCtrl(b);
+      if (this.humans[b.s]) this.onSide(b.s, () => { this.ctrlLock = 0; this.setCtrl(b); });
       // free throw miss foul-rebound edge handled elsewhere
       // putback: if the offense gets the ball near basket and body is tall, AI will handle
       this.lastPass = null;
@@ -1284,13 +1300,17 @@
         if (!this.ball.holder && this.ball.state === 'flight') return;
         return;
       }
-      const isUser = ib.s === 0 && !this.auto;
+      const isUser = this.isHuman(ib.s);
       if (this.inboundDelay <= 0 && !isUser) PB.Match.aiInbound(this, ib);
       else if (this.inboundDelay < -5 && isUser) PB.Match.aiInbound(this, ib);   // 5s inbound violation avoided
     }
     beginLive() { this.phase = 'live'; this.sim.clockRun = true; this.inboundSpot = null; this.inbounder = null; if (this.ball.holder && this.ball.holder.s !== this.poss) this.changePoss(this.ball.holder.s, true); }
   }
 
+  // ctrl, ctrlLock, ... belong to whichever human side `this.us` points at (see onSide)
+  for (const k of ['ctrl', 'ctrlLock', '_ctrlPoss', 'askBall', 'helpCall']) {
+    Object.defineProperty(Match.prototype, k, { get() { return this.U[this.us][k]; }, set(v) { this.U[this.us][k] = v; } });
+  }
   Match.PLAY_TUNE = { rim: 0.08, three: 0.025, mid: 0.025, post: 0.07 };   // calibration so AI-vs-AI efficiency matches the simulation
   PB.Match = Match;
   PB.Match.consts = { W, H, SHOT_METER_T, SWEET, BODY_H, PASS_SPEED, dist };

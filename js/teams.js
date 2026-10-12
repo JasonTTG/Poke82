@@ -22,6 +22,8 @@
   const PAL = [['#c8102e', '#ffffff'], ['#1d428a', '#ffc72c'], ['#007a33', '#ffffff'], ['#552583', '#fdb927'], ['#ce1141', '#000000'], ['#0e2240', '#fec524'], ['#00788c', '#f9a01b'], ['#e03a3e', '#c1d32f'], ['#006bb6', '#f58426'], ['#5a2d81', '#63727a'],
     ['#0077c0', '#c4ced4'], ['#860038', '#fdbb30'], ['#002b5c', '#e31837'], ['#00471b', '#eee1c6'], ['#c4ced4', '#000000'], ['#ef3b24', '#002d62'], ['#98002e', '#f9a01b'], ['#0c2340', '#236192'], ['#e56020', '#1d1160'], ['#00538c', '#b8c4ca'],
     ['#ba0c2f', '#041e42'], ['#002d62', '#fdbb30'], ['#5d76a9', '#12173f'], ['#ffc72c', '#1d428a'], ['#6f263d', '#236192'], ['#cd1141', '#2c5234'], ['#f74902', '#000000'], ['#2a7de1', '#ffffff'], ['#ad1d7c', '#00b2a9'], ['#3c8c3c', '#f2c94c']];
+  PB.CITIES = CITIES; PB.NICKS = NICKS;
+  PB.teamAbbr = city => (city.replace(/[^A-Za-z ]/g, '').split(' ').map(w => w[0]).join('') + city.replace(/[^A-Za-z]/g, '').slice(1, 3)).slice(0, 3).toUpperCase();
   PB.teamColors = t => PAL[(t && t.id != null ? t.id : 0) % PAL.length];
 
   PB.DIVISIONS = [
@@ -176,7 +178,47 @@
     })(0, []);
     team.starters = best.map(m => m.id);
     const rest = mons.filter(m => !team.starters.includes(m.id));
-    team.bench = PB.orderBench(team.starters.map(id => PB.BYID[id]), rest).map(m => m.id);
+    team.bench = PB.orderBench(team.starters.map(id => PB.BYID[id]), rest).map(m => m.id).slice(0, 7);
+  };
+
+  // keep starters/bench consistent with the roster after signings, trades, releases (reserves are whoever is left over)
+  PB.fixLineup = function (team) {
+    const inR = new Set(team.roster);
+    const used = new Set();
+    const st = [0, 1, 2, 3, 4].map(i => { const id = team.starters[i]; if (id != null && inR.has(id) && !used.has(id)) { used.add(id); return id; } return null; });
+    const bn = (team.bench || []).filter(id => inR.has(id) && !used.has(id) && (used.add(id), true));
+    const rest = team.roster.filter(id => !used.has(id)).map(id => PB.BYID[id]).sort((a, b) => b.ovr - a.ovr);
+    for (let i = 0; i < 5; i++) if (st[i] == null && rest.length) {
+      let bi = 0, bv = -1e9; rest.forEach((m, j) => { const v = m.ovr * (1 - PB.slotPenalty(m, i)); if (v > bv) { bv = v; bi = j; } });
+      st[i] = rest.splice(bi, 1)[0].id;
+    }
+    team.starters = st.filter(x => x != null);
+    while (bn.length < 7 && rest.length) bn.push(rest.shift().id);
+    team.bench = bn.slice(0, 7);
+  };
+  PB.reserves = team => { const a = new Set(team.starters.concat(team.bench)); return team.roster.filter(id => !a.has(id)); };
+
+  // the lineup that actually takes the floor: injured Pokemon are replaced by the best healthy option
+  PB.activeTeam = function (G, team) {
+    const inj = G && G.fr && G.fr.inj;
+    if (!inj) return team;
+    const out = id => inj[id] && inj[id].g > 0;
+    if (!team.roster.some(out)) return team;
+    const healthy = team.roster.filter(id => !out(id));
+    if (healthy.length < 5) return team;                       // nobody else to play: they play through it
+    const used = new Set(team.starters.filter(id => !out(id)));
+    const pool = team.bench.filter(id => !out(id) && !used.has(id));
+    const extra = healthy.filter(id => !used.has(id) && !pool.includes(id)).sort((a, b) => PB.BYID[b].ovr - PB.BYID[a].ovr);
+    const cand = pool.concat(extra);
+    const starters = team.starters.map((id, slot) => {
+      if (!out(id)) return id;
+      let bi = -1, bv = -1e9;
+      cand.forEach((c, j) => { const m = PB.BYID[c]; const v = m.ovr * (1 - PB.slotPenalty(m, slot)); if (v > bv) { bv = v; bi = j; } });
+      if (bi < 0) return id;
+      const c = cand.splice(bi, 1)[0]; used.add(c); return c;
+    });
+    const bench = cand.filter(id => !starters.includes(id)).slice(0, 7);
+    return Object.assign({}, team, { starters, bench });
   };
 
   // bench order: ovr with bonus for covering starter weaknesses
@@ -193,12 +235,12 @@
 
   PB.validateLineup = function (team) {
     const errs = [];
-    if (team.roster.length !== 12) errs.push('Roster must have 12 Pokemon (has ' + team.roster.length + ')');
+    if (team.roster.length < 12) errs.push('Roster needs at least 12 Pokemon (has ' + team.roster.length + ')');
     if (team.starters.length !== 5) errs.push('Need exactly 5 starters');
     const all = team.starters.concat(team.bench);
     if (new Set(all).size !== all.length) errs.push('Duplicate Pokemon in lineup');
     for (const id of all) if (!team.roster.includes(id)) errs.push('Lineup contains a Pokemon not on the roster');
-    if (all.length !== team.roster.length) errs.push('Lineup does not cover the full roster');
+    if (all.length !== Math.min(12, team.roster.length)) errs.push('Lineup needs 5 starters and 7 on the bench');
     return errs;
   };
 })(window.PB);

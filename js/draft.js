@@ -128,5 +128,5 @@
     return G;
   };
 
-  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.5, sfx: true, showHints: true, shotMeter: true, camera: 'behind', showRatings: false, showPositions: false, showArchetypes: false, showOverall: false });
+  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.5, sfx: true, showHints: true, shotMeter: true, camera: 'behind', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
 })(window.PB);

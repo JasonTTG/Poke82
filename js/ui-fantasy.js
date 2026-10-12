@@ -11,7 +11,7 @@
     if (flt.legend === 'LEG') list = list.filter(m => m.leg || m.myth);
     if (flt.legend === 'NON') list = list.filter(m => !m.leg && !m.myth);
     if (flt.q) { const q = flt.q.toLowerCase(); list = list.filter(m => m.name.includes(q)); }
-    const v = UI.vis();
+    const v = UI.vis(true);
     let key = flt.sort;
     if ((key === 'ovr' && !v.O) || (RKEYS.includes(key) && !v.R)) key = 'bst';
     const val = m => key === 'ovr' ? m.ovr : key === 'id' ? -m.id : BKEYS.includes(key) ? m[key] : (m.r[key] || 0);
@@ -21,7 +21,7 @@
   const BKEYS = ['bst', 'hp', 'atk', 'def', 'spa', 'spd', 'spe'];
   const RKEYS = ['three', 'dunk', 'pass', 'handle', 'speed', 'intD', 'perD', 'dreb', 'stamina'];
   function tableHtml(G) {
-    const v = UI.vis();
+    const v = UI.vis(true);
     const list = poolRows(G);
     const mine = F.current(G) === G.userTeam;
     const cols = v.R ? [['3PT', 'three'], ['DNK', 'dunk'], ['PAS', 'pass'], ['HDL', 'handle'], ['SPD', 'speed'], ['INT', 'intD'], ['PER', 'perD'], ['REB', 'dreb'], ['STA', 'stamina']]
@@ -35,7 +35,7 @@
     return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? '<th class="n">OVR</th>' : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l]) => `<th class="n">${l}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   function sortOptions() {
-    const v = UI.vis();
+    const v = UI.vis(true);
     const opts = [];
     if (v.O) opts.push(['ovr', 'Overall']);
     opts.push(['bst', 'Base stat total'], ['hp', 'HP'], ['atk', 'Attack'], ['def', 'Defense'], ['spa', 'Sp. Atk'], ['spd', 'Sp. Def'], ['spe', 'Speed']);
@@ -58,12 +58,12 @@
       const until = F.picksUntilUser(G);
       return `<div class="row between wrap" style="margin-bottom:10px">
         <div><h2 style="margin:0">Fantasy Draft — Round ${F.round(G) + 1} of 12, Pick ${D.pick % n + 1}</h2>
-        <div class="dim">Overall ${D.pick + 1}/${D.total} · snake order · ${mine ? '<b class="gold">YOU ARE ON THE CLOCK</b>' : 'on the clock: ' + UI.teamLabel(G, cur) + ' · your pick in ' + until + ' picks'}</div></div>
+        <div class="dim">Overall ${D.pick + 1}/${D.total} · snake order · ${mine ? '<b class="gold">YOU ARE ON THE CLOCK</b>' : 'on the clock: ' + UI.teamLabel(G, cur) + ' · your pick in ' + until + ' picks'}${PB.Net && PB.Net.onlineLeague() ? ' · <span class="tag good">ONLINE</span>' : ''}</div></div>
         <div class="row wrap"><button data-act="fToUser" ${mine ? 'disabled' : ''}>⏩ Sim to my pick</button><button data-act="fAuto" ${mine ? '' : 'disabled'}>✨ Auto-pick for me</button><button data-act="fSimAll">⏭ Auto-draft the rest</button></div></div>
         <div class="layout2" style="--side:380px">
           <div class="panel">
             <div class="row wrap" style="margin-bottom:8px">
-              ${UI.vis().P ? `<select data-change="fFilter" data-k="pos"><option value="ALL">All positions</option>${PB.POS.map(p => `<option ${flt.pos === p ? 'selected' : ''}>${p}</option>`).join('')}</select>` : ''}
+              ${false ? `<select data-change="fFilter" data-k="pos"><option value="ALL">All positions</option>${PB.POS.map(p => `<option ${flt.pos === p ? 'selected' : ''}>${p}</option>`).join('')}</select>` : ''}
               <select data-change="fFilter" data-k="type"><option value="ALL">All types</option>${PB.TYPES.map(t => `<option ${flt.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
               <select data-change="fFilter" data-k="legend"><option value="ALL">All</option><option value="LEG" ${flt.legend === 'LEG' ? 'selected' : ''}>Legendary/Mythical</option><option value="NON" ${flt.legend === 'NON' ? 'selected' : ''}>Non-legendary</option></select>
               <select data-change="fFilter" data-k="sort">${sortOptions().map(([v, l]) => `<option value="${v}" ${flt.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -84,19 +84,19 @@
   UI.fSearch = function (v) { flt.q = v; const G = PB.G; document.getElementById('ftable').innerHTML = tableHtml(G); };
   A.fFilter = (el, d) => { flt[d.k] = el.value; UI.refresh(); };
   A.fViewTeam = el => { viewTeam = +el.value; UI.refresh(); };
+  const done = err => { if (err) PB.toast(err, 3000); UI.refresh(); };
   A.fDraft = (el, d) => {
     const G = PB.G;
     if (UI.modalOpen()) UI.closeModal();
-    try { F.make(G, G.userTeam, +d.id); } catch (e) { PB.toast(e.message); return; }
-    afterUser(G);
+    PB.Ops.run('fPick', { tid: G.userTeam, id: +d.id }, done);
   };
-  function afterUser(G) {
-    F.runToUser(G);
-    UI.refresh();
-  }
-  A.fToUser = () => { F.runToUser(PB.G); UI.refresh(); };
-  A.fAuto = () => { const G = PB.G; if (F.current(G) !== G.userTeam) return; F.autoUser(G); afterUser(G); };
-  A.fSimAll = async () => { const G = PB.G; await UI.spin('Auto-drafting…', () => { while (!F.done(G)) { if (F.current(G) === G.userTeam) F.autoUser(G); else F.aiStep(G); } }); UI.refresh(); };
+  A.fToUser = () => PB.Ops.run('fToMe', {}, done);
+  A.fAuto = () => { const G = PB.G; if (F.current(G) !== G.userTeam) return; PB.Ops.run('fAuto', { tid: G.userTeam }, done); };
+  A.fSimAll = async () => {
+    if (PB.Net && PB.Net.onlineLeague() && !PB.Net.isHost()) { PB.toast('Only the host can auto-draft for everyone'); return; }
+    await UI.spin('Auto-drafting…', () => { });
+    PB.Ops.run('fRest', {}, done);
+  };
   A.fantasyToLineup = () => UI.go('lineup', { ctx: 'fantasyPost' });
   A.saveFantasy = () => { const r = PB.Save.save(PB.G, 1); PB.toast(r.ok ? 'Draft saved (slot 1)' : 'Save failed'); };
   S.fantasy.inspectActions = id => {

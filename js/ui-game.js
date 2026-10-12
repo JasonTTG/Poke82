@@ -96,6 +96,22 @@
     PB.Input.mode = 'game';
     match = new PB.Match(G, { oppId, quarterMin: qMin, userHome: ug.h === G.userTeam, gameSpeed: PB.settings.gameSpeed || 1, rng: new PB.RNG(((Math.random() * 4294967296) >>> 0)) });
     match.ugame = ug; match.exhibition = !!(opts && opts.exhibition);
+    beginScreen();
+  }
+  // two people, two computers: both run the same match from the same seed and exchange controller input every tick
+  const TICK = 1 / 60;
+  const NEUTRAL = { mx: 0, my: 0, rx: 0, ry: 0, rt: 0, lt: 0, held: {}, pressed: {}, acts: [] };
+  UI.startOnlineMatch = function (cfg) {
+    paused = false; PB.Input.mode = 'game';
+    match = new PB.Match(cfg.G, { oppId: cfg.oppId, userTeam: cfg.userTeam, quarterMin: cfg.qMin, userHome: cfg.userHome, gameSpeed: cfg.speed || 1, rng: new PB.RNG(cfg.seed), twoHumans: true, me: cfg.me, noDiff: true, shotMeter: cfg.shotMeter !== false });
+    match.ugame = cfg.ugame || null; match.exhibition = !!cfg.exhibition;
+    const D = 6;
+    const N = match.online = { cfg, D, gen: 0, sim: 0, acc: 0, q: [new Map(), new Map()], out: [], pressedAcc: {}, acts: [], cs: {}, rcs: {}, stallT: 0, paused: false, pauser: null, lastInp: null, ended: false };
+    for (let t = 0; t < D; t++) { N.q[0].set(t, NEUTRAL); N.q[1].set(t, NEUTRAL); }
+    startLatch = true;
+    beginScreen();
+  };
+  function beginScreen() {
     cam.fx = 47; cam.fy = 25; cam.init = false; cam.yaw = 0;
     // court players' sprites load first, fans after
     for (const t of match.teams) for (const id of t.roster) sprite(PB.BYID[id]);
@@ -444,7 +460,8 @@
   function frame(now) {
     if (!running) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (!paused) {
+    if (match.online) onlineFrame(dt);
+    else if (!paused) {
       const inp = inputState();
       // the Start/Esc press that closed the pause menu must be released before it can pause again
       if (startLatch && !inp.held.START) startLatch = false;
@@ -462,6 +479,90 @@
     render(dt);
     if (match.over && !match._ended) { match._ended = true; showFinal(); }
     raf = requestAnimationFrame(frame);
+  }
+
+  // ---------- online lockstep ----------
+  const BTNS = () => PB.Input.BTN;
+  function encodeFrame(inp, acts) {
+    const q = v => Math.round(v * 100);
+    let hm = 0, pm = 0; BTNS().forEach((b, i) => { if (inp.held[b]) hm |= 1 << i; if (inp.pressed[b]) pm |= 1 << i; });
+    return [q(inp.mx), q(inp.my), q(inp.rx), q(inp.ry), q(inp.rt), q(inp.lt), hm, pm, acts && acts.length ? acts : 0];
+  }
+  function decodeFrame(a) {
+    const held = {}, pressed = {};
+    BTNS().forEach((b, i) => { if (a[6] & (1 << i)) held[b] = true; if (a[7] & (1 << i)) pressed[b] = true; });
+    return { mx: a[0] / 100, my: a[1] / 100, rx: a[2] / 100, ry: a[3] / 100, rt: a[4] / 100, lt: a[5] / 100, held, pressed, acts: a[8] || [] };
+  }
+  function queueAct(a) { if (match && match.online) match.online.acts.push(a); }
+  function applyAct(s, a) {
+    const N = match.online;
+    switch (a[0]) {
+      case 'P': N.paused = true; N.pauser = s; if (s !== match.me) PB.toast(match.teams[s].abbr + ' paused the game'); break;
+      case 'R': N.paused = false; if (s !== match.me && paused) { UI._modalBack = null; UI.closeModal(); resume(); } break;
+      case 'S': { const sd = match.gs(s), pl = sd.players[a[2]]; if (pl && a[1] >= 0 && a[1] < 5 && sd.bench.includes(pl) && !pl.dq) match.forceSub(s, a[1], pl); break; }
+      case 'T': if ((a[1] === 'off' && PB.OFF_STRATS[a[2]]) || (a[1] === 'def' && PB.DEF_STRATS[a[2]])) match.gs(s).strat[a[1]] = a[2]; break;
+      case 'A': { const sd = match.gs(s); sd.auto = !sd.auto; break; }
+    }
+  }
+  PB.Net && PB.Net.on('mi', d => {
+    if (!match || !match.online) return;
+    const N = match.online, r = 1 - match.me;
+    for (const [t, a] of d.fr) N.q[r].set(t, decodeFrame(a));
+    N.lastRecv = performance.now();
+    if (d.cs) for (const k in d.cs) N.rcs[k] = d.cs[k];
+  });
+  PB.Net && PB.Net.on('mleave', () => { if (match && match.online && !match.over && !match._ended) onlineLeft('Your opponent left the match.'); });
+  PB.Net && PB.Net.on('peerLeft', () => { if (match && match.online && !match.over && !match._ended) onlineLeft('Your opponent disconnected.'); });
+  PB.Net && PB.Net.on('disconnected', () => { if (match && match.online && !match.over && !match._ended) onlineLeft('Lost the connection.'); });
+  function onlineLeft(msg) {
+    const m = match, N = m.online; if (N.ended) return; N.ended = true;
+    const cfg = N.cfg;
+    stopGame(); UI.closeModal();
+    PB.toast(msg + ' You win by forfeit.', 4000);
+    const res = m.g.result(0), me = m.gi[m.me], other = m.gi[1 - m.me];
+    if (res.score[me] <= res.score[other]) res.score[me] = res.score[other] + 1;
+    res.winner = res.score[0] > res.score[1] ? 0 : 1;
+    if (!m.g.qScores[0].length) res.q = [[res.score[0]], [res.score[1]]];
+    m._ended = m._finished = true;
+    cfg.onEnd && cfg.onEnd(res, m, true);
+  }
+  let netLast = 0;
+  function onlineFrame(dt) {
+    const m = match, N = m.online;
+    let inp = null;
+    if (!paused) {
+      inp = inputState();
+      if (startLatch && !inp.held.START) startLatch = false;
+      if (inp.pressed.START && !startLatch) { pause(); queueAct(['P']); inp = null; }
+    }
+    if (inp) { N.lastInp = inp; for (const b in inp.pressed) if (inp.pressed[b]) N.pressedAcc[b] = true; } else N.lastInp = null;
+    // generate local ticks at real time (a few ticks ahead of the simulation at most)
+    N.acc += dt;
+    while (N.acc >= TICK) {
+      if (N.gen - N.sim >= N.D + 10) { N.acc = Math.min(N.acc, TICK * 2); break; }
+      N.acc -= TICK;
+      const li = N.lastInp;
+      const f = encodeFrame(li ? { mx: li.mx, my: li.my, rx: li.rx, ry: li.ry, rt: li.rt, lt: li.lt, held: li.held, pressed: N.pressedAcc } : NEUTRAL, N.acts);
+      N.acts = []; N.pressedAcc = {};
+      const t = N.gen + N.D; N.gen++;
+      N.q[m.me].set(t, decodeFrame(f)); N.out.push([t, f]);
+    }
+    if (N.out.length) { const msg = { k: 'mi', fr: N.out }; if (Object.keys(N.cs).length) { msg.cs = N.cs; N.cs = {}; } PB.Net.to(N.cfg.peer, msg); N.out = []; }
+    // advance the shared simulation whenever both players' input for the next tick is here
+    let n = 0, moved = false;
+    while (n < 8 && !m.over && N.q[0].has(N.sim) && N.q[1].has(N.sim)) {
+      const f0 = N.q[0].get(N.sim), f1 = N.q[1].get(N.sim);
+      N.q[0].delete(N.sim); N.q[1].delete(N.sim);
+      for (let s = 0; s < 2; s++) for (const a of (s === 0 ? f0 : f1).acts) applyAct(s, a);
+      if (!N.paused) m.update(TICK, f0, f1);
+      N.sim++; n++; moved = true;
+      if (N.sim % 120 === 0) {
+        const cs = Math.round(m.t * 1000) + ':' + m.g.score[0] + '-' + m.g.score[1] + ':' + Math.round(m.ball.x * 100) + ',' + Math.round(m.ball.y * 100) + ':' + Math.round(m.bodies[0][0].x * 100);
+        N.cs[N.sim] = cs; if (N.rcs[N.sim] != null && N.rcs[N.sim] !== cs && !N.warned) { N.warned = true; PB.toast('The two games went out of sync — results may differ', 5000); console.warn('desync', N.sim, cs, N.rcs[N.sim]); }
+        if (N.rcs[N.sim] != null) delete N.rcs[N.sim];
+      }
+    }
+    N.stallT = moved || N.paused ? 0 : N.stallT + dt;
   }
 
   // ---------- pause menu ----------
@@ -495,11 +596,12 @@
       UI.onStart = () => { UI._modalBack = null; UI.closeModal(); resume(); };
       return;
     }
-    const sd = match.gs(0);
+    const sd = match.gs(match.me);
     const showO = PB.settings.showOverall;
+    const on = !!match.online;
     const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · ${pl.st.pf} PF · ${Math.round(pl.st.sec / 60)}m</span><div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
-    UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>
-      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button><button data-act="autoFinish">Sim to end</button><button data-act="quitGame">Forfeit</button></div>
+    UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>${on ? '<div class="dim" style="margin-bottom:6px">Online match — the game is paused for both players.</div>' : ''}
+      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button>${on ? '' : '<button data-act="autoFinish">Sim to end</button>'}<button data-act="quitGame">${on ? 'Leave match' : 'Forfeit'}</button></div>
       <div class="row wrap" style="margin:8px 0"><label>Offense <select data-change="gSetStrat" data-k="off">${Object.entries(PB.OFF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.off === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Defense <select data-change="gSetStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
       <div class="layout2" style="--side:1fr"><div><h3>On court</h3><div class="slots">${rows(sd.court)}</div></div><div><h3>Bench</h3><div class="slots">${rows(sd.bench)}</div></div></div>
@@ -510,14 +612,15 @@
   // closing the pause menu any way (button, B/Esc, Start) resumes play
   function resume() {
     if (!paused || !match || match.over) return;
+    if (match.online) queueAct(['R']);
     paused = false; PB.Input.mode = 'game'; last = performance.now(); UI.onStart = null; startLatch = true; UI._pauseView = 'main';
   }
   A.resumeGame = () => { UI.closeModal(); resume(); };
-  A.toggleAutoSub = () => { const sd = match.gs(0); sd.auto = !sd.auto; pause(); };
+  A.toggleAutoSub = () => { if (match.online) { queueAct(['A']); setTimeout(() => { if (paused) pause(); }, 260); return; } const sd = match.gs(0); sd.auto = !sd.auto; pause(); };
   A.toggleCam = () => { PB.settings.camera = PB.settings.camera === 'broadcast' ? 'behind' : 'broadcast'; PB.Save.settingsSave(PB.settings); cam.init = false; pause(); };
-  A.gSetStrat = (el, d) => { match.gs(0).strat[d.k] = el.value; };
+  A.gSetStrat = (el, d) => { if (match.online) queueAct(['T', d.k, el.value]); else match.gs(0).strat[d.k] = el.value; };
   A.subPick = (el, d) => {
-    const sd = match.gs(0); const pl = sd.players[d.id];
+    const sd = match.gs(match.me); const pl = sd.players[d.id];
     const sel = UI._subSel;
     if (!sel) { UI._subSel = { pl }; el.classList.add('sel'); return; }
     if (sel.pl === pl) { UI._subSel = null; el.classList.remove('sel'); return; }
@@ -525,6 +628,7 @@
     const court = sd.court.includes(a) ? a : sd.court.includes(b) ? b : null, bench = sd.bench.includes(a) ? a : sd.bench.includes(b) ? b : null;
     if (court && bench) {
       if (bench.dq) { PB.toast('Fouled out'); UI._subSel = null; return; }
+      if (match.online) { queueAct(['S', sd.court.indexOf(court), bench.id]); UI._subSel = null; setTimeout(() => { if (paused) pause(); }, 260); return; }
       match.forceSub(0, sd.court.indexOf(court), bench);
       UI._subSel = null; pause();
     } else UI._subSel = { pl };
@@ -535,9 +639,21 @@
     for (let i = 0; i < 400000 && !match.over; i++) match.update(1 / 30, null);
   };
   A.quitGame = () => {
-    if (!confirm('Forfeit this game? It counts as a loss.')) return;
+    if (!confirm(match.online ? 'Leave this online match? You forfeit.' : 'Forfeit this game? It counts as a loss.')) return;
     UI.closeModal();
     const m = match;
+    if (m.online) {
+      const N = m.online, cfg = N.cfg; N.ended = true;
+      PB.Net.to(cfg.peer, { k: 'mleave' });
+      stopGame();
+      const res = m.g.result(0), me = m.gi[m.me], other = m.gi[1 - m.me];
+      if (res.score[me] >= res.score[other]) res.score[other] = res.score[me] + 1;
+      res.winner = res.score[0] > res.score[1] ? 0 : 1;
+      if (!m.g.qScores[0].length) res.q = [[res.score[0]], [res.score[1]]];
+      m._ended = m._finished = true;
+      cfg.onEnd && cfg.onEnd(res, m, true);
+      return;
+    }
     stopGame();
     if (m.exhibition) { UI.go('menu', {}, true); return; }
     const res = m.g.result(0);
@@ -550,7 +666,7 @@
 
   // ---------- final ----------
   function showFinal() {
-    const m = match, res = m.resultObj, ui = m.gi[0];
+    const m = match, res = m.resultObj, ui = m.gi[m.me];
     const won = res.score[ui] > res.score[1 - ui];
     paused = true; PB.Input.mode = 'menu';
     UI.modal(`<div class="center"><h2 class="${won ? 'good' : 'bad'}">${won ? 'WIN' : 'LOSS'}</h2>
@@ -562,6 +678,7 @@
     if (!m || m._finished) return; m._finished = true;
     UI.closeModal(); stopGame();
     const G = PB.G;
+    if (m.online) { m.online.ended = true; m.online.cfg.onEnd && m.online.cfg.onEnd(m.resultObj, m, false); return; }
     if (m.exhibition) {
       UI.go('menu', {}, true);
       const res = m.resultObj;
@@ -612,7 +729,8 @@
       items.push({ d: p[2], kind: 'body', b, p });
       const sh = arc(b.x, b.y, Math.max(0.9, b.r * 0.6) * (1 - b.z * 0.05), 0, Math.PI * 2, 14, 0.02);
       fillPoly(g, sh, 'rgba(0,0,0,.33)');
-      const col = b.s === 0 ? (b.ctl ? '#ffd23f' : sideCols(m)[0][0]) : sideCols(m)[1][0];
+      const mine = b.ctl && b.s === m.me;
+      const col = mine ? '#ffd23f' : sideCols(m)[b.s][0];
       strokeLine(g, arc(b.x, b.y, Math.max(1.0, b.r * 0.72), 0, Math.PI * 2, 18, 0.03), col, b.ctl ? 0.32 : 0.16, true);
     }
     const ball = m.ball;
@@ -687,15 +805,16 @@
     g.restore();
     // labels
     const fs = Math.max(11, Math.min(18, sz * 0.13));
-    if (b.ctl || m.ball.holder === b) {
+    const mineCtl = b.ctl && b.s === m.me;
+    if (mineCtl || m.ball.holder === b || (b.ctl && m.online)) {
       g.font = `800 ${fs}px Segoe UI, sans-serif`; g.textAlign = 'center';
       const ty = p[1] - sz * 0.86 - bob;
-      if (b.ctl) { g.fillStyle = '#ffd23f'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
+      if (mineCtl) { g.fillStyle = '#ffd23f'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
       g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(b.mon.dispName, p[0], ty - fs * 1.6);
-      g.fillStyle = b.ctl ? '#ffd23f' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
+      g.fillStyle = mineCtl ? '#ffd23f' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
     }
     // stamina pip for user's team
-    if (b.s === 0) {
+    if (b.s === m.me) {
       const en = b.pl.en / 100, bw = Math.max(20, sz * 0.38), bh = Math.max(3, sz * 0.03);
       g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw, bh);
       g.fillStyle = en > 0.55 ? '#2fd47a' : en > 0.3 ? '#ffcb05' : '#ff5a5f'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw * en, bh);
@@ -715,7 +834,7 @@
     // shot meter (vertical, beside the shooter)
     const mb = m.meter ? m.meter.body : (m.ft && m.ft.state === 'meter' ? m.ft.shooter : null);
     const mv = m.meter ? m.meter.v : (m.ft && m.ft.state === 'meter' ? m.ft.meterV : 0);
-    if (mb && PB.settings.shotMeter !== false && mb._scr) {
+    if (mb && m.shotMeterOn && mb._scr && (!m.online || mb.s === m.me)) {
       const win = m.meterWindows(mb, !!m.ft);
       const SW = PB.Match.consts.SWEET;
       const bh = Math.max(70, mb._scr.sz * 0.75), bw = Math.max(9, bh * 0.12);
@@ -738,8 +857,8 @@
       g.globalAlpha = 1;
     }
     // icon passing
-    if (PB.Input.held('RB') && m.poss === 0 && m.ball.holder && m.ball.holder.s === 0 && m.ctrl === m.ball.holder) {
-      for (const it of m.iconTargets()) {
+    if (PB.Input.held('RB') && m.poss === m.me && m.ball.holder && m.ball.holder.s === m.me && m.onSide(m.me, () => m.ctrl) === m.ball.holder) {
+      for (const it of m.onSide(m.me, () => m.iconTargets())) {
         const s = it.b._scr; if (!s) continue;
         const r = Math.max(12, s.sz * 0.12);
         g.fillStyle = { A: '#2fd47a', B: '#ff5a5f', X: '#4aa3ff', Y: '#ffcb05' }[it.key];
@@ -761,6 +880,14 @@
       g.fillStyle = '#ffd23f'; g.fillRect(w / 2 - tw * 0.35, y + fs * 0.42, tw * 0.7, Math.max(2, fs * 0.06));
       g.fillStyle = '#fff'; g.fillText(m.flash, w / 2, y);
       g.globalAlpha = 1;
+    }
+    if (m.online) {
+      const N = m.online, fs0 = Math.round(h * 0.03);
+      if (N.paused || N.stallT > 0.7) {
+        g.font = `800 ${fs0}px Segoe UI`; g.textAlign = 'center'; g.fillStyle = 'rgba(0,0,0,.6)'; const txt = N.paused ? 'PAUSED' : 'Waiting for your opponent…';
+        const tw = g.measureText(txt).width + fs0;
+        g.fillRect(w / 2 - tw / 2, h * 0.3 - fs0, tw, fs0 * 1.6); g.fillStyle = '#ffd23f'; g.fillText(txt, w / 2, h * 0.3);
+      }
     }
     // free throw banner
     if (m.ft) {

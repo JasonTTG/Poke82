@@ -5,12 +5,19 @@
 
   const tabs = [['home', 'Home'], ['schedule', 'Schedule'], ['standings', 'Standings'], ['stats', 'Stats'], ['playoffs', 'Playoffs'], ['awards', 'Awards'], ['boxes', 'Box Scores'], ['roster', 'Roster'], ['save', 'Save / Load']];
 
+  UI.tabsFor = G => {
+    if (G.mode !== 'franchise') return tabs;
+    const lg = G.league, base = [['home', 'Home'], ['schedule', 'Schedule'], ['standings', 'Standings'], ['stats', 'Stats'], ['playoffs', 'Playoffs'], ['awards', 'Awards'], ['boxes', 'Box Scores'], ['roster', 'Roster'], ['fa', 'Free Agents'], ['trades', 'Trades']];
+    if (lg.phase === 'done') base.splice(1, 0, ['offseason', G.fr.stage === 'over' ? 'Final' : 'Offseason']);
+    base.push(['history', 'History'], ['save', 'Save / Load']);
+    return base;
+  };
   const recStr = r => r.w + '-' + r.l;
   const dayLabel = (lg, day) => lg.phase === 'regular' || day <= lg.lastDay ? L.dateStr(day) : 'Playoffs · ' + L.dateStr(day);
 
   function nextUserGame(G) {
     const lg = G.league;
-    if (lg.phase === 'regular') return lg.sched.filter(g => !g.done && (G.teams[g.h].user || G.teams[g.a].user)).sort((a, b) => a.day - b.day)[0] || null;
+    if (lg.phase === 'regular') return lg.sched.filter(g => !g.done && (g.h === G.userTeam || g.a === G.userTeam)).sort((a, b) => a.day - b.day)[0] || null;
     return null;
   }
 
@@ -19,9 +26,9 @@
     top(p) {
       const G = PB.G, lg = G.league, T = G.teams[G.userTeam], r = lg.rec[G.userTeam];
       return `<div class="logo">POKÉ<b>HOOPS</b> 82</div>
-        <div class="tabs">${tabs.map(([k, l]) => `<button class="${(p.tab || 'home') === k ? 'on' : ''}" data-act="hubTab" data-tab="${k}">${l}</button>`).join('')}</div>
+        <div class="tabs">${UI.tabsFor(G).map(([k, l]) => `<button class="${(p.tab || 'home') === k ? 'on' : ''}" data-act="hubTab" data-tab="${k}">${l}</button>`).join('')}</div>
         <div class="spacer"></div>
-        <span style="font-size:13px"><b class="gold">${esc(T.name)}</b> ${recStr(r)}</span>
+        <span style="font-size:13px">${G.mode === 'franchise' ? 'Season ' + G.fr.year + ' · ' : ''}<b class="gold">${esc(T.name)}</b> ${recStr(r)}</span>
         <button class="small" data-act="goSettings">⚙</button><button class="small" data-act="goMenu">Menu</button>`;
     },
     render(p) {
@@ -37,11 +44,11 @@
     const a = lg.ach, T = G.teams[G.userTeam], r = lg.rec[G.userTeam];
     const champ = lg.champion;
     const items = [
-      ['Achieved 82-0', a.perfect, `Regular season record ${r.w}-${r.l}`],
+      ['Achieved ' + lg.games + '-0', a.perfect, `Regular season record ${r.w}-${r.l}`],
       ['Best record in the league', a.bestRecord, ''],
       ['Made the playoffs', a.madePlayoffs, ''],
       ['Won the championship', a.champion, champ != null ? 'Champion: ' + G.teams[champ].name : ''],
-      ['Undefeated championship season (82-0 and a perfect run)', a.undefeatedChampion, a.perfect ? 'Playoff losses: ' + a.poRecordLosses : 'Requires an undefeated regular season'],
+      ['Undefeated championship season (' + lg.games + '-0 and a perfect run)', a.undefeatedChampion, a.perfect ? 'Playoff losses: ' + a.poRecordLosses : 'Requires an undefeated regular season'],
     ];
     const mvp = lg.awards ? PB.BYID[lg.awards.mvp] : null;
     return `<div class="panel" style="border-color:${a.undefeatedChampion ? 'var(--gold)' : 'var(--line)'}"><h2>${a.undefeatedChampion ? '🏆 PERFECTION! ' : ''}Season Complete</h2>
@@ -51,6 +58,7 @@
   }
 
   const TAB = {};
+  UI.hubTabs = TAB;
   TAB.home = function (G, lg) {
     const T = G.teams[G.userTeam], r = lg.rec[G.userTeam];
     if (lg.phase === 'done') return seasonSummary(G, lg);
@@ -59,7 +67,7 @@
     const confRank = L.confStandings(G, T.conf).indexOf(G.userTeam) + 1;
     const gp = r.w + r.l;
     const opp = ug ? G.teams[ug.h === G.userTeam ? ug.a : ug.h] : nxt ? G.teams[nxt.h === G.userTeam ? nxt.a : nxt.h] : null;
-    const last = lg.userBoxes.slice(-5).reverse();
+    const last = lg.userBoxes.filter(b => b.h === G.userTeam || b.a === G.userTeam).slice(-5).reverse();
     const po = lg.phase === 'playoffs';
     let userSer = null;
     if (po) userSer = lg.po.rounds[lg.po.round - 1].find(s => s.hi === G.userTeam || s.lo === G.userTeam);
@@ -112,7 +120,8 @@
 
   // ---------------- STANDINGS ----------------
   TAB.standings = function (G, lg) {
-    const hdr = `<thead><tr><th>#</th><th>Team</th><th class="n">W</th><th class="n">L</th><th class="n">PCT</th><th class="n">GB</th><th class="n">Home</th><th class="n">Away</th><th class="n">Conf</th><th class="n">Div</th><th class="n">PPG</th><th class="n">OPP</th><th class="n">DIFF</th><th class="n">STRK</th><th class="n">L10</th>${UI.vis().O ? '<th class="n">OVR</th>' : ''}</tr></thead>`;
+    const single = !!lg.single;
+    const hdr = `<thead><tr><th>#</th><th>Team</th><th class="n">W</th><th class="n">L</th><th class="n">PCT</th><th class="n">GB</th><th class="n">Home</th><th class="n">Away</th>${single ? '' : '<th class="n">Conf</th><th class="n">Div</th>'}<th class="n">PPG</th><th class="n">OPP</th><th class="n">DIFF</th><th class="n">STRK</th><th class="n">L10</th>${UI.vis().O ? '<th class="n">OVR</th>' : ''}</tr></thead>`;
     const table = (title, ids) => {
       const top = lg.rec[ids[0]];
       return `<div class="panel"><h3>${title}</h3><table class="t">${hdr}<tbody>${ids.map((id, i) => {
@@ -120,11 +129,16 @@
         const gb = ((top.w - r.w) + (r.l - top.l)) / 2;
         const l10 = r.last.reduce((a, b) => a + b, 0);
         return `<tr class="${t.user ? 'me' : ''}"><td class="dim">${i + 1}</td><td>${UI.teamLabel(G, id)}</td><td class="n">${r.w}</td><td class="n">${r.l}</td><td class="n">${gp ? (r.w / gp).toFixed(3).replace(/^0/, '') : '.000'}</td><td class="n">${i === 0 ? '-' : gb.toFixed(1)}</td>
-          <td class="n">${r.hw}-${r.hl}</td><td class="n">${r.aw}-${r.al}</td><td class="n">${r.cw}-${r.cl}</td><td class="n">${r.dw}-${r.dl}</td>
+          <td class="n">${r.hw}-${r.hl}</td><td class="n">${r.aw}-${r.al}</td>${single ? '' : `<td class="n">${r.cw}-${r.cl}</td><td class="n">${r.dw}-${r.dl}</td>`}
           <td class="n">${gp ? (r.pf / gp).toFixed(1) : '-'}</td><td class="n">${gp ? (r.pa / gp).toFixed(1) : '-'}</td><td class="n ${r.pf >= r.pa ? 'good' : 'bad'}">${gp ? ((r.pf - r.pa) / gp).toFixed(1) : '-'}</td>
           <td class="n">${r.strk > 0 ? 'W' + r.strk : r.strk < 0 ? 'L' + -r.strk : '-'}</td><td class="n">${l10}-${r.last.length - l10}</td>${UI.vis().O ? `<td class="n">${PB.teamOvr(t).toFixed(1)}</td>` : ''}</tr>`; }).join('')}</tbody></table></div>`;
     };
     let html = '';
+    if (single) {
+      const all = L.sortTeams(G, G.teams.map(t => t.id));
+      const q = lg.poN;
+      return `<div class="col">${table('League standings · top ' + q + ' make the playoffs', all)}</div>`;
+    }
     if (view.standMode === 'league') html = table('League', L.sortTeams(G, G.teams.map(t => t.id)));
     else if (view.standMode === 'div') for (const d of PB.DIVISIONS) html += table(d.conf + ' — ' + d.name + ' Division', L.divStandings(G, d.conf, d.name));
     else for (const c of ['East', 'West']) html += table(c + 'ern Conference', L.confStandings(G, c));
@@ -141,7 +155,7 @@
     if (sub === 'leaders') {
       return nav + `<div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${LEAD.map(([k, lbl, f]) => {
         const rows = L.leaders(G, k, 8, view.statsPO);
-        return `<div class="panel"><h3>${lbl}</h3>${rows.map((r, i) => { const m = PB.BYID[r.id]; const tid = G.claimed[r.id]; return `<div class="row between" data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer"><span>${i + 1}. ${UI.spr(m, 24)} ${esc(m.dispName)} <span class="dim">${esc(G.teams[tid].abbr)}</span></span><b>${f(r.v)}</b></div>`; }).join('') || '<div class="dim">No data yet.</div>'}</div>`;
+        return `<div class="panel"><h3>${lbl}</h3>${rows.map((r, i) => { const m = PB.BYID[r.id]; const tid = L.teamOf(G, r.id); return `<div class="row between" data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer"><span>${i + 1}. ${UI.spr(m, 24)} ${esc(m.dispName)} <span class="dim">${esc(G.teams[tid].abbr)}</span></span><b>${f(r.v)}</b></div>`; }).join('') || '<div class="dim">No data yet.</div>'}</div>`;
       }).join('')}</div>`;
     }
     if (sub === 'players') {
@@ -152,7 +166,7 @@
       rows.sort((a, b) => val(b) - val(a));
       return nav + `<div class="panel"><div class="row" style="margin-bottom:6px"><span class="dim">Sort by</span><select data-change="rosterSort">${['ppg', 'rpg', 'apg', 'spg', 'bpg', 'mpg', 'pm', 'gp'].map(k => `<option ${key === k ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
         <div class="scroll"><table class="t"><thead><tr><th>#</th><th>Pokémon</th><th>Team</th>${UI.vis().P ? '<th>Pos</th>' : ''}<th class="n">GP</th><th class="n">MPG</th><th class="n">PPG</th><th class="n">RPG</th><th class="n">APG</th><th class="n">SPG</th><th class="n">BPG</th><th class="n">TOV</th><th class="n">FG%</th><th class="n">3P%</th><th class="n">FT%</th><th class="n">+/-</th></tr></thead><tbody>
-        ${rows.slice(0, 120).map((r, i) => { const m = PB.BYID[r.id], s = r.s, g = s.gp; const tid = G.claimed[r.id]; return `<tr class="${G.teams[tid].user ? 'me' : ''}"><td class="dim">${i + 1}</td><td>${UI.spr(m, 24)} <span data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer">${esc(m.dispName)}</span></td><td>${esc(G.teams[tid].abbr)}</td>${UI.vis().P ? `<td>${m.pos[0]}</td>` : ''}<td class="n">${g}</td><td class="n">${(s.sec / g / 60).toFixed(1)}</td><td class="n">${(s.pts / g).toFixed(1)}</td><td class="n">${((s.oreb + s.dreb) / g).toFixed(1)}</td><td class="n">${(s.ast / g).toFixed(1)}</td><td class="n">${(s.stl / g).toFixed(1)}</td><td class="n">${(s.blk / g).toFixed(1)}</td><td class="n">${(s.tov / g).toFixed(1)}</td><td class="n">${UI.pct(s.fgm, s.fga)}</td><td class="n">${UI.pct(s.tpm, s.tpa)}</td><td class="n">${UI.pct(s.ftm, s.fta)}</td><td class="n">${(s.pm / g).toFixed(1)}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+        ${rows.slice(0, 120).map((r, i) => { const m = PB.BYID[r.id], s = r.s, g = s.gp; const tid = L.teamOf(G, r.id); return `<tr class="${G.teams[tid].user ? 'me' : ''}"><td class="dim">${i + 1}</td><td>${UI.spr(m, 24)} <span data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer">${esc(m.dispName)}</span></td><td>${esc(G.teams[tid].abbr)}</td>${UI.vis().P ? `<td>${m.pos[0]}</td>` : ''}<td class="n">${g}</td><td class="n">${(s.sec / g / 60).toFixed(1)}</td><td class="n">${(s.pts / g).toFixed(1)}</td><td class="n">${((s.oreb + s.dreb) / g).toFixed(1)}</td><td class="n">${(s.ast / g).toFixed(1)}</td><td class="n">${(s.stl / g).toFixed(1)}</td><td class="n">${(s.blk / g).toFixed(1)}</td><td class="n">${(s.tov / g).toFixed(1)}</td><td class="n">${UI.pct(s.fgm, s.fga)}</td><td class="n">${UI.pct(s.tpm, s.tpa)}</td><td class="n">${UI.pct(s.ftm, s.fta)}</td><td class="n">${(s.pm / g).toFixed(1)}</td></tr>`; }).join('')}</tbody></table></div></div>`;
     }
     const rows = G.teams.map(t => ({ t, s: lg.tstats[t.id], g: lg.tgp[t.id], r: lg.rec[t.id] })).filter(r => r.g > 0).sort((a, b) => b.s.pts / b.g - a.s.pts / a.g);
     return nav + `<div class="panel"><table class="t"><thead><tr><th>Team</th><th class="n">W-L</th><th class="n">PPG</th><th class="n">FG%</th><th class="n">3P%</th><th class="n">FT%</th><th class="n">3PA</th><th class="n">REB</th><th class="n">AST</th><th class="n">STL</th><th class="n">BLK</th><th class="n">TOV</th></tr></thead><tbody>
@@ -165,25 +179,28 @@
   // ---------------- PLAYOFFS ----------------
   TAB.playoffs = function (G, lg) {
     if (!lg.po) {
-      const e = L.confStandings(G, 'East').slice(0, 8), w = L.confStandings(G, 'West').slice(0, 8);
       const list = (n, a) => `<div class="panel"><h3>${n} </h3>${a.map((id, i) => `<div class="row between"><span>${i + 1}. ${UI.teamLabel(G, id)}</span><span class="dim">${recStr(lg.rec[id])}</span></div>`).join('')}</div>`;
+      if (lg.single) return `<div class="layout2" style="--side:1fr">${list('Playoff picture (top ' + lg.poN + ')', L.sortTeams(G, G.teams.map(t => t.id)).slice(0, lg.poN))}</div>`;
+      const e = L.confStandings(G, 'East').slice(0, 8), w = L.confStandings(G, 'West').slice(0, 8);
       return `<div class="layout2" style="--side:1fr">${list('East', e)}${list('West', w)}</div>`;
     }
     const po = lg.po;
+    const need = s => s.need || 4;
     const ser = s => {
-      const hiWin = s.w[0] === 4, loWin = s.w[1] === 4;
+      const hiWin = s.w[0] === need(s), loWin = s.w[1] === need(s);
       const line = (id, seed, w, win) => `<div class="row between ${win ? 'w' : (hiWin || loWin) ? 'l' : ''}"><span>${seed ? '(' + seed + ') ' : ''}${UI.teamLabel(G, id)}</span><b>${w}</b></div>`;
       return `<div class="series">${line(s.hi, s.hiSeed, s.w[0], hiWin)}${line(s.lo, s.loSeed, s.w[1], loWin)}${s.games.length ? `<div class="dim" style="font-size:10px;margin-top:2px">${s.games.map(g => `${g.sc[0]}-${g.sc[1]}`).join(' · ')}</div>` : ''}</div>`;
     };
-    const roundName = ['First Round', 'Conference Semifinals', 'Conference Finals', 'Finals'];
-    const cols = [0, 1, 2, 3].map(i => `<div><h3>${roundName[i]}</h3>${(po.rounds[i] || []).map(ser).join('') || '<div class="dim">TBD</div>'}</div>`).join('');
-    return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">🏆 ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel"><div class="bracket">${cols}</div></div>`;
+    const n = po.rounds.length;
+    const roundName = po.single ? po.rounds.map((_, i) => { const left = n - 1 - i; return left === 0 ? 'Finals' : left === 1 ? 'Semifinals' : left === 2 ? 'Quarterfinals' : 'Round ' + (i + 1); }) : ['First Round', 'Conference Semifinals', 'Conference Finals', 'Finals'];
+    const cols = roundName.map((nm, i) => `<div><h3>${nm}</h3>${(po.rounds[i] || []).map(ser).join('') || '<div class="dim">TBD</div>'}</div>`).join('');
+    return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">🏆 ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel"><div class="bracket" style="grid-template-columns:repeat(${roundName.length},1fr)">${cols}</div></div>`;
   };
 
   // ---------------- AWARDS ----------------
   TAB.awards = function (G, lg) {
     lg.allStarSeen = true; lg.awardsSeen = !!lg.awards;
-    const who = id => { if (id == null) return '<span class="dim">—</span>'; const m = PB.BYID[id], t = G.teams[G.claimed[id]]; return `<span data-act="inspect" data-id="${id}" tabindex="0" style="cursor:pointer;${t.user ? 'color:var(--gold);font-weight:700' : ''}">${UI.spr(m, 28)} ${esc(m.dispName)} <span class="dim">${esc(t.abbr)}</span></span>`; };
+    const who = id => { if (id == null) return '<span class="dim">—</span>'; const m = PB.BYID[id], t = G.teams[L.teamOf(G, id)]; return `<span data-act="inspect" data-id="${id}" tabindex="0" style="cursor:pointer;${t.user ? 'color:var(--gold);font-weight:700' : ''}">${UI.spr(m, 28)} ${esc(m.dispName)} <span class="dim">${esc(t.abbr)}</span></span>`; };
     const line = id => { const s = lg.pstats[id]; if (!s) return ''; const g = s.gp; return `<span class="dim" style="font-size:12px">${(s.pts / g).toFixed(1)} pts · ${((s.oreb + s.dreb) / g).toFixed(1)} reb · ${(s.ast / g).toFixed(1)} ast</span>`; };
     const list = ids => ids.map(id => `<div class="row between">${who(id)}${line(id)}</div>`).join('');
     let html = '';
@@ -198,9 +215,9 @@
     }
     if (lg.allStar) {
       const a = lg.allStar;
-      html += `<div class="panel" style="margin-top:12px"><h3>All-Star Game ${a.game ? `— East ${a.game.score[0]}, West ${a.game.score[1]}` : ''}</h3>
+      html += `<div class="panel" style="margin-top:12px"><h3>All-Star Game ${a.game ? `— ${(a.names || {}).East || 'East'} ${a.game.score[0]}, ${(a.names || {}).West || 'West'} ${a.game.score[1]}` : ''}</h3>
         ${a.game && a.game.mvp ? `<div style="margin-bottom:8px"><b>All-Star MVP</b> ${who(a.game.mvp)}</div>` : ''}
-        <div class="layout2" style="--side:1fr">${['East', 'West'].map(c => `<div><h3>${c}</h3><div class="dim" style="font-size:11px">Starters</div>${list(a.squads[c].starters)}<div class="dim" style="font-size:11px;margin-top:6px">Reserves</div>${list(a.squads[c].reserves)}</div>`).join('')}</div></div>`;
+        <div class="layout2" style="--side:1fr">${['East', 'West'].map(c => `<div><h3>${(a.names || {})[c] || c}</h3><div class="dim" style="font-size:11px">Starters</div>${list(a.squads[c].starters)}<div class="dim" style="font-size:11px;margin-top:6px">Reserves</div>${list(a.squads[c].reserves)}</div>`).join('')}</div></div>`;
     }
     return html || '<div class="panel dim">No awards yet.</div>';
   };
@@ -224,7 +241,7 @@
       ${boxTable(G, b.a, b.box[1])}<div style="height:10px"></div>${boxTable(G, b.h, b.box[0])}`);
   };
   TAB.boxes = function (G, lg) {
-    const list = lg.userBoxes.map((b, i) => ({ b, i })).reverse();
+    const list = lg.userBoxes.map((b, i) => ({ b, i })).filter(x => x.b.h === G.userTeam || x.b.a === G.userTeam).reverse();
     return `<div class="panel"><h3>Your games — click for the full box score</h3><table class="t"><thead><tr><th>Date</th><th></th><th>Opponent</th><th>Result</th><th>Top performer</th></tr></thead><tbody>
       ${list.map(({ b, i }) => { const mine = b.h === G.userTeam; const my = mine ? b.sc[0] : b.sc[1], th = mine ? b.sc[1] : b.sc[0]; const side = mine ? 0 : 1; const top = Object.keys(b.box[side]).map(id => ({ id, s: L.unpackBox(b.box[side][id]) })).sort((x, y) => y.s.pts - x.s.pts)[0];
         return `<tr data-act="openBox" data-i="${i}" tabindex="0" style="cursor:pointer"><td>${L.dateStr(b.day)}${b.po ? ' <span class="tag">PO</span>' : ''}</td><td>${mine ? 'vs' : '@'}</td><td>${UI.teamLabel(G, mine ? b.a : b.h)}</td><td><b class="${my > th ? 'good' : 'bad'}">${my > th ? 'W' : 'L'} ${my}-${th}${b.ot ? ' OT' : ''}</b></td><td class="dim">${top ? esc(PB.BYID[top.id].dispName) + ' ' + top.s.pts + ' pts' : ''}</td></tr>`; }).join('') || '<tr><td class="dim">No games played yet.</td></tr>'}</tbody></table></div>`;

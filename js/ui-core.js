@@ -21,12 +21,19 @@
   const sbar = (label, v) => `<span>${label}</span><div class="bar"><i style="width:${Math.min(100, v / 1.8)}%;background:${barColor(Math.min(99, v * 0.75))}"></i></div><b>${v}</b>`;
   const baseBars = m => `<div class="bars">${BASE.map(([l, k]) => sbar(l, m[k])).join('')}</div>`;
   // what the player chose to reveal (Settings): basketball ratings, positions, archetypes, overall
-  UI.vis = () => { const s = PB.settings || {}; return { R: !!s.showRatings, P: !!s.showPositions, A: !!s.showArchetypes, O: !!s.showOverall }; };
+  // ratings, positions, archetypes and overall show for drafted Pokemon and in league menus, never for draft prospects.
+  // vis(true) = hide everything (draft tables); vis(mon) = hide only if that mon is an undrafted prospect on a draft screen
+  UI.inDraft = () => UI.cur === 'draft' || UI.cur === 'fantasy' || (UI.cur === 'hub' && UI.params && UI.params.tab === 'offseason' && PB.G && PB.G.fr && PB.G.fr.stage === 'draft');
+  UI.vis = hide => {
+    const s = PB.settings || {};
+    if (hide === true || (hide && hide.id && UI.inDraft() && !(PB.G && PB.G.claimed[hide.id] != null))) return { R: false, P: false, A: false, O: false };
+    return { R: s.showRatings !== false, P: s.showPositions !== false, A: s.showArchetypes !== false, O: s.showOverall !== false };
+  };
   Object.assign(UI, { spr, tier, ovrBadge, typePills, posBadges, bar, miniBars, KEYBARS, baseBars, BASE });
 
   UI.mcard = function (m, o) {
     o = o || {};
-    const v = UI.vis();
+    const v = UI.vis(m);
     const legend = m.leg || m.myth;
     return `<div class="mcard ${legend ? 'legend' : ''} ${o.sel ? 'sel' : ''}" tabindex="0" data-act="${o.act || 'inspect'}" data-id="${m.id}" ${o.extra || ''}>
       <div class="top"><div><div class="name">${esc(m.dispName)}</div><div>${typePills(m)}</div></div>${v.O ? ovrBadge(m.ovr) : ''}</div>
@@ -40,7 +47,7 @@
   };
 
   UI.fullCard = function (m, extra) {
-    const v = UI.vis();
+    const v = UI.vis(m);
     const keys = Object.keys(PB.RLABELS);
     return `<div class="row wrap" style="align-items:flex-start;gap:18px">
       <div class="col" style="align-items:center;min-width:170px">${spr(m, 160)}<div class="center"><b style="font-size:20px">${esc(m.dispName)}</b><div>${typePills(m)}</div><div class="dim" style="font-size:12px">#${m.id} · ${m.region} · ${PB.fmtHeight(m.h)} · ${PB.fmtWeight(m.w)} · ${m.shape}</div></div>

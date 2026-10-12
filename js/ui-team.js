@@ -8,11 +8,12 @@
     const slot = l === 'S' ? i : null;
     const pen = slot != null ? PB.slotPenalty(m, slot) : 0;
     const fit = (slot == null || !UI.vis().P) ? '' : pen === 0 ? '<span class="tag good">fit</span>' : pen < 0.04 ? '<span class="tag" style="background:#6b5b10;color:#ffe27a">stretch</span>' : '<span class="tag bad">out of position −' + Math.round(pen * 100) + '%</span>';
-    const label = l === 'S' ? PB.POS[i] : 'B' + (i + 1);
+    const label = l === 'S' ? PB.POS[i] : l === 'R' ? 'RES' : 'B' + (i + 1);
+    const inj = G.fr && G.fr.inj[id] && G.fr.inj[id].g > 0 ? `<span class="tag bad">🩹 ${UI.esc(G.fr.inj[id].k)} · ${G.fr.inj[id].g}g</span>` : '';
     const on = sel && sel.l === l && sel.i === i;
     return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="lineupClick" data-l="${l}" data-i="${i}">
       <span class="pos p${l === 'S' ? i : 2}" style="min-width:34px">${label}</span>${UI.spr(m, 44)}
-      <div class="grow"><b>${esc(m.dispName)}</b> ${fit}<div class="dim" style="font-size:11px">${[UI.vis().A ? m.archOff + ' · ' + m.archDef : '', UI.vis().R ? `3PT ${m.r.three} · DNK ${m.r.dunk} · PAS ${m.r.pass} · SPD ${m.r.speed} · STA ${m.r.stamina}` : `HP ${m.hp} · ATK ${m.atk} · DEF ${m.def} · SPA ${m.spa} · SPD ${m.spd} · SPE ${m.spe}`].filter(Boolean).join(' · ')}</div></div>
+      <div class="grow"><b>${esc(m.dispName)}</b> ${fit} ${inj}<div class="dim" style="font-size:11px">${[UI.vis().A ? m.archOff + ' · ' + m.archDef : '', UI.vis().R ? `3PT ${m.r.three} · DNK ${m.r.dunk} · PAS ${m.r.pass} · SPD ${m.r.speed} · STA ${m.r.stamina}` : `HP ${m.hp} · ATK ${m.atk} · DEF ${m.def} · SPA ${m.spa} · SPD ${m.spd} · SPE ${m.spe}`].filter(Boolean).join(' · ')}</div></div>
       <div>${UI.vis().P ? UI.posBadges(m) : ''}</div>${UI.vis().O ? UI.ovrBadge(m.ovr) : ''}
       <button class="small ghost" data-act="inspect" data-id="${m.id}" title="Scouting report">🔍</button></div>`;
   }
@@ -35,7 +36,7 @@
       const cont = p.ctx === 'postStarters' ? `<button class="primary" data-act="lineupDone" autofocus>Bench draft</button>`
         : p.ctx === 'midDraft' ? `<button class="primary" data-act="lineupDone" autofocus>Back to draft</button>`
           : p.ctx === 'postDraft' ? `<button class="gold" data-act="startSeason" ${errs.length ? 'disabled' : ''} autofocus>Start season</button>`
-            : p.ctx === 'fantasyPost' ? `<button class="gold" data-act="startSeason" ${errs.length ? 'disabled' : ''} autofocus>Start the season</button>`
+            : p.ctx === 'fantasyPost' ? (PB.Net && PB.Net.onlineLeague() ? UI.onlineReadyHtml(G) : `<button class="gold" data-act="startSeason" ${errs.length ? 'disabled' : ''} autofocus>Start the season</button>`)
               : `<button class="primary" data-act="lineupDone" autofocus>Done</button>`;
       return `<div class="row between wrap"><h2 style="margin:0">${esc(T.name)} — Lineup & Rotation</h2><div class="row">${cont}</div></div>
         ${errs.length && !partial ? `<div class="need">${errs.join(' · ')}</div>` : ''}
@@ -44,6 +45,7 @@
           <div class="col">
             <div class="panel"><h3>Starting five</h3><div class="slots">${T.starters.map((id, i) => row(G, T, 'S', i, id)).join('')}</div></div>
             <div class="panel"><h3>Bench / rotation order</h3><div class="slots">${T.bench.map((id, i) => row(G, T, 'B', i, id)).join('') || '<div class="dim">No bench yet.</div>'}</div></div>
+            ${PB.reserves(T).length ? `<div class="panel"><h3>Reserves <span class="dim" style="font-weight:400;text-transform:none">— do not play until moved into the top 12</span></h3><div class="slots">${PB.reserves(T).map((id, i) => row(G, T, 'R', i, id)).join('')}</div></div>` : ''}
           </div>
           <div class="col">
             ${UI.vis().O || UI.vis().R ? `<div class="panel">${UI.vis().O ? `<div class="kpi"><div><b>${PB.teamOvr(T).toFixed(1)}</b><span>Team OVR</span></div></div>` : ''}
@@ -64,14 +66,15 @@
     const cur = { l: d.l, i: +d.i };
     if (!sel) { sel = cur; UI.refresh(); return; }
     if (sel.l === cur.l && sel.i === cur.i) { sel = null; UI.refresh(); return; }
-    const arr = l => l === 'S' ? T.starters : T.bench;
-    const a = arr(sel.l), b = arr(cur.l);
+    const lists = { S: T.starters.slice(), B: T.bench.slice(), R: PB.reserves(T) };
+    const a = lists[sel.l], b = lists[cur.l];
     const t = a[sel.i]; a[sel.i] = b[cur.i]; b[cur.i] = t;
-    sel = null; UI.refresh();
+    sel = null;
+    PB.Ops.run('lineup', { tid: G.userTeam, starters: lists.S, bench: lists.B }, err => { if (err) PB.toast(err); UI.refresh(); });
   };
-  A.setStrat = (el, d) => { const T = PB.G.teams[PB.G.userTeam]; T.strat[d.k] = el.value; UI.refresh(); };
-  A.autoLineup = () => { const T = PB.G.teams[PB.G.userTeam]; if (T.roster.length >= 12) PB.autoLineup(T); else PB.autoLineupPartial(T); sel = null; UI.refresh(); };
-  A.benchByOvr = () => { const T = PB.G.teams[PB.G.userTeam]; T.bench.sort((x, y) => PB.BYID[y].ovr - PB.BYID[x].ovr); UI.refresh(); };
+  A.setStrat = (el, d) => { const T = PB.G.teams[PB.G.userTeam]; const s = Object.assign({}, T.strat); s[d.k] = el.value; PB.Ops.run('strat', { tid: PB.G.userTeam, off: s.off, def: s.def }, () => UI.refresh()); };
+  A.autoLineup = () => { const T = PB.G.teams[PB.G.userTeam]; sel = null; if (T.roster.length >= 12) PB.Ops.run('autoLineup', { tid: PB.G.userTeam }, () => UI.refresh()); else { PB.autoLineupPartial(T); UI.refresh(); } };
+  A.benchByOvr = () => { const T = PB.G.teams[PB.G.userTeam]; const b = T.bench.slice().sort((x, y) => PB.BYID[y].ovr - PB.BYID[x].ovr); PB.Ops.run('lineup', { tid: PB.G.userTeam, starters: T.starters.slice(), bench: b }, () => UI.refresh()); };
   A.lineupDone = () => {
     sel = null;
     const p = UI.params;
