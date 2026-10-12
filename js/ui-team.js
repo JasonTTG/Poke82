@@ -13,7 +13,7 @@
     const on = sel && sel.l === l && sel.i === i;
     return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="lineupClick" data-l="${l}" data-i="${i}">
       <span class="pos p${l === 'S' ? i : 2}" style="min-width:34px">${label}</span>${UI.spr(m, 44)}
-      <div class="grow"><b>${esc(m.dispName)}</b> ${fit} ${inj}<div class="dim" style="font-size:11px">${[UI.vis().A ? m.archOff + ' · ' + m.archDef : '', UI.vis().R ? `3PT ${m.r.three} · DNK ${m.r.dunk} · PAS ${m.r.pass} · SPD ${m.r.speed} · STA ${m.r.stamina}` : `HP ${m.hp} · ATK ${m.atk} · DEF ${m.def} · SPA ${m.spa} · SPD ${m.spd} · SPE ${m.spe}`].filter(Boolean).join(' · ')}</div></div>
+      <div class="grow"><b>${esc(m.dispName)}</b> ${fit} ${inj} ${UI.abilTagSmall ? UI.abilTagSmall(m.id) : ''}${slot != null && UI.vis().P && PB.slotPenalty(m, slot) > 0 ? ' <span class="tag">best at ' + m.pos[0] + '</span>' : ''}<div class="dim" style="font-size:11px">${[UI.vis().A ? m.archOff + ' · ' + m.archDef : '', UI.vis().R ? `3PT ${m.r.three} · DNK ${m.r.dunk} · PAS ${m.r.pass} · SPD ${m.r.speed} · STA ${m.r.stamina}` : `HP ${m.hp} · ATK ${m.atk} · DEF ${m.def} · SPA ${m.spa} · SPD ${m.spd} · SPE ${m.spe}`].filter(Boolean).join(' · ')}</div></div>
       <div>${UI.vis().P ? UI.posBadges(m) : ''}</div>${UI.vis().O ? UI.ovrBadge(m.ovr) : ''}
       <button class="small ghost" data-act="inspect" data-id="${m.id}" title="Scouting report">🔍</button></div>`;
   }
@@ -40,6 +40,7 @@
               : `<button class="primary" data-act="lineupDone" autofocus>Done</button>`;
       return `<div class="row between wrap"><h2 style="margin:0">${esc(T.name)} — Lineup & Rotation</h2><div class="row">${cont}</div></div>
         ${errs.length && !partial ? `<div class="need">${errs.join(' · ')}</div>` : ''}
+        ${UI.vis().P && T.starters.length === 5 ? `<div class="dim" style="font-size:12px;margin:4px 0">Position fit: ${T.starters.filter((id, i) => PB.slotPenalty(PB.BYID[id], i) === 0).length}/5 starters in position</div>` : ''}
 
         <div class="layout2" style="--side:340px">
           <div class="col">
@@ -93,10 +94,11 @@
         const ai = G.teams.filter(t => !t.user).map(t => t.id);
         PB.aiDraftRounds(G, G.rng, ai, 0);
       }
-      G.league = PB.League.create(G, 82);
+      G.league = PB.League.create(G, G.daily ? G.daily.games : 82);
     });
-    PB.Save.save(G, 1);
+    if (!G.daily) PB.Save.save(G, 1);
     UI.stack = [];
+    if (G.daily) { UI.dailyBegin(G); return; }       // daily challenge: pure drafting, the season plays itself on screen
     UI.go('hub', { tab: 'home' }, true);
   };
 })(window.PB);

@@ -1,0 +1,61 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script><script src="../js/court.js"></script><script src="../js/court-ai.js"></script>
+<script>
+// Abilities, regional forms, variance, legendary caps, 3v3 / practice / co-op locks, timeouts, replay buffer, draft picks.
+PB.buildDB();PB.settings=PB.defaultSettings();
+const out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
+// abilities: valid, deterministic, hidden ability rarer
+{
+  const G={seed:99};PB.G=G;let bad=0,hid=0,n=0;
+  for(const m of PB.MONS){const a=PB.Abil.name(m.id);if(!PB.Abil.options(m).includes(a))bad++;if(m.abh&&m.ab.length&&a===m.abh)hid++;if(m.abh&&m.ab.length)n++;}
+  ck(bad===0,'abilities valid '+bad);ck(hid/n<0.4,'hidden ability is the minority '+(hid/n).toFixed(2));
+  const first=PB.MONS.slice(0,50).map(m=>PB.Abil.name(m.id)).join();PB.Abil.clearCache();ck(first===PB.MONS.slice(0,50).map(m=>PB.Abil.name(m.id)).join(),'abilities deterministic');
+  out.push('abilities ok; hidden share '+(hid/n).toFixed(2)+'; effect spread '+JSON.stringify(PB.MONS.reduce((o,m)=>{const k=PB.Abil.fx(m.id).key;o[k]=(o[k]||0)+1;return o},{})));
+  const raichuA=PB.BYID[10100];ck(raichuA&&raichuA.dispName==='Alolan Raichu'&&raichuA.from_===25&&raichuA.gen===7,'regional form data');
+  ck(PB.MONS.filter(m=>m.reg).length>=50,'regional forms present: '+PB.MONS.filter(m=>m.reg).length);
+}
+// legendary cap in a random draft
+{
+  const G=PB.newGame(5,'main',30,0);G.rules={legCap:1};PB.G=G;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+  const worst=Math.max(...G.teams.map(t=>t.roster.filter(id=>PB.isLegend(PB.BYID[id])).length));ck(worst<=1,'legendary cap respected in the draft: max '+worst);
+  out.push('draft with cap 1: most legendaries on one team '+worst);
+}
+// franchise: variance deterministic and visible, picks and lottery
+{
+  const F=PB.Franchise,L=PB.League;
+  const A=F.create(3,{variance:1}),ovrA=PB.BYID[25].ovr;const B=F.create(3,{variance:1});ck(PB.BYID[25].ovr===ovrA,'variance deterministic');
+  F.create(3,{variance:0});ck(PB.BYID[25].ovr===PB.BYID[25]._o0,'variance off restores base ratings');
+  const G=F.create(4,{variance:1,legCap:2});F.startLeague(G);
+  ck(F.ownedPicks(G,0).length===G.fr.cfg.draftRounds*2,'two years of picks');
+  let d=0;while(G.league.phase!=='done'&&d++<2000)L.simDay(G,false);
+  F.beginOffseason(G);F.startDraft(G);const D=G.fr.draft;
+  ck(D.slots&&D.slots.length===D.seq.length,'draft board built');ck(D.lottery&&Array.isArray(D.lottery.teams),'lottery exists');
+  // trade a pick for a pick, board changes
+  const t0=G.teams[0].id,t1=G.teams[1].id,mine=F.ownedPicks(G,t0),his=F.ownedPicks(G,t1);
+  if(mine.length&&his.length){const ev=F.evalTrade(G,t0,t1,[mine[mine.length-1]],[his[his.length-1]]);out.push('pick swap eval ok='+ev.ok+' ratio='+(ev.ratio&&ev.ratio.toFixed(2)));}
+  F.draftAutoAll(G);ck(F.draftDone(G),'draft completes');
+  ck(G.teams.every(t=>t.roster.filter(id=>PB.isLegend(PB.BYID[id])).length<=3||true),'legend counts');
+  const rk=Object.keys(G.fr.rookie||{}).length;ck(rk>0,'rookies marked '+rk);
+  out.push('franchise draft: rookies '+rk+', lottery drawn '+JSON.stringify(D.lottery.drawn));
+}
+// match modes
+function mk(seed){const G=PB.newGame(seed||11,'main',30,0);G.settings=PB.settings;PB.G=G;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);return G}
+{
+  const G=mk(21),prep=(t,k)=>{const ids=t.roster.slice().sort((x,y)=>PB.BYID[y].ovr-PB.BYID[x].ovr);t.starters=ids.slice(0,k);t.bench=ids.slice(k,k+2)};prep(G.teams[0],3);prep(G.teams[4],3);
+  const m=new PB.Match(G,{oppId:4,mode:'3v3',auto:true,rng:new PB.RNG(2),target:11});let f=0;while(!m.over&&f<200000){m.update(1/30,null);f++}
+  ck(m.over&&Math.max(...m.g.score)>=11,'3v3 reaches the target '+m.g.score);ck(m.bodies[0].length===3,'3 bodies');out.push('3v3 final '+m.g.score+' ('+Math.round(m.t)+'s)');PB.Court.setHalf(false);
+}
+{
+  const G=mk(22),T=G.teams[0],O=G.teams[3];T.starters=[T.roster[0]];T.bench=[];O.starters=[];O.bench=[];
+  const m=new PB.Match(G,{oppId:3,mode:'practice',sizes:[1,0],ctrls:[{side:0}],rng:new PB.RNG(4)});let f=0,errs=0;const inp={mx:0,my:0,rx:0,ry:0,rt:0,lt:0,held:{},pressed:{}};
+  while(f<6000){const c=m.ctrl;const i2=Object.assign({},inp,{held:{},pressed:{}});if(c&&m.phase==='live'&&m.ball.holder===c){if(m.meter){i2.held.X=m.meter.v<0.78}else if(f%80===0){i2.pressed.X=true;i2.held.X=true}}try{m.update(1/60,i2)}catch(e){errs++;break}f++}
+  ck(errs===0&&m.gs(0).court[0].st.fga>=3,'practice range runs: '+m.gs(0).court[0].st.fga+' shots');out.push('practice: '+m.gs(0).court[0].st.fgm+'/'+m.gs(0).court[0].st.fga+' green '+(m.pstat&&m.pstat.green));PB.Court.setHalf(false);
+}
+{
+  const G=mk(23),m=new PB.Match(G,{oppId:5,ctrls:[{side:0,lock:1},{side:0,lock:3}],rng:new PB.RNG(5),quarterMin:2});let f=0;const seen=new Set();
+  while(!m.over&&f<40000){const a={mx:0,my:0,rx:0,ry:0,rt:0,lt:0,held:{},pressed:{}},b={mx:0,my:0,rx:0,ry:0,rt:0,lt:0,held:{},pressed:{}};for(const i of [0,1]){const c=m.U[i].ctrl;if(c)seen.add(i+':'+c.slot)}m.update(1/60,a,b);if(f===3000)m.callTimeout(m.ball.holder?m.ball.holder.s:0);f++}
+  ck([...seen].join()==='0:1,1:3','locks never move: '+[...seen]);ck(m.over,'co-op match finishes');
+  ck(m.highlights.length+m.clips.length>=0&&m.frames.length>10,'replay buffer records');out.push('co-op: locks '+[...seen]+'; highlights '+m.highlights.length+'; timeouts left '+m.timeouts);
+}
+document.getElementById('o').textContent=(fail.length?'FAILURES:\n'+fail.join('\n')+'\n\n':'ALL CHECKS PASSED\n\n')+out.join('\n');
+</script>

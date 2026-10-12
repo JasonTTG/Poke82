@@ -1,15 +1,16 @@
 // Online play UI: connect, rooms and lobbies, online exhibition, online leagues (franchise / fantasy draft), live matches between people.
 (function (PB) {
   const UI = PB.UI, esc = UI.esc, S = UI.screens, A = UI.actions, N = PB.Net, L = PB.League, F = PB.Franchise, O = PB.Ops;
-  const view = { url: '', status: '', rooms: null, code: '', ex: { picks: {}, qMin: 5 }, fOpts: { teams: 12 } };
-  const MODES = { exhibition: 'Exhibition (2 players)', franchise: 'Franchise league', fantasy: 'Fantasy draft league' };
+  const view = { modes: Object.keys({ exhibition: 1, coop: 1, franchise: 1, fantasy: 1 }), url: '', status: '', rooms: null, code: '', ex: { picks: {}, qMin: 5 }, fOpts: { teams: 12 } };
+  const MODES = { exhibition: 'Exhibition (2 players)', coop: 'Co-op vs AI (2 players, one team)', franchise: 'Franchise league', fantasy: 'Fantasy draft league' };
 
   // ---------- connect / browse ----------
   S.online = {
     back() { if (N.active()) N.leave(); UI.go('menu', {}, true); },
     render() {
-      const connected = N.connected;
-      return `<div class="panel" style="max-width:760px;margin:16px auto"><h2>Play online</h2>
+      const connected = N.connected, vm = view.modes, leagueKind = vm.includes('franchise') ? 'Franchise' : vm.includes('fantasy') ? 'Fantasy' : null;
+      const title = vm.length === 1 ? MODES[vm[0]].replace(/ \(.*\)/, '') + ' · online' : vm.includes('exhibition') ? 'Quick Play · online' : 'Play online';
+      return `<div class="panel" style="max-width:760px;margin:16px auto"><h2>${title}</h2>
         <div class="dim" style="margin-bottom:10px">Play with anyone over the web, nothing to install or run: the host opens a room and shares the 4-letter code.</div>
         <div class="col">
           <label>Your name <input type="text" id="ol-name" maxlength="20" value="${esc(N.name || '')}" placeholder="Trainer"></label>
@@ -17,12 +18,13 @@
           <div class="row wrap"><button class="primary" data-act="olConnect" ${connected ? 'disabled' : ''} autofocus>${connected ? 'Connected ✓' : 'Connect'}</button>${connected ? '<button data-act="olDisconnect">Disconnect</button>' : ''}<span class="dim">${esc(view.status)}</span></div>
         </div>
         ${connected ? `<hr style="border-color:var(--line);margin:16px 0">
-        <h3>Resume a saved league (you host)</h3>
-        <div class="col">${[1, 2].map(n => { const m = saveMeta(n); return `<div class="row between"><span>${m ? `<b>Slot ${n}</b> · ${esc(m.label)} <span class="dim">${new Date(m.t).toLocaleString()}</span>` : `<span class="dim">Slot ${n}: empty</span>`}</span><button class="small primary" data-act="olResume" data-slot="${n}" ${m ? '' : 'disabled'}>Resume</button></div>`; }).join('')}
-          <label class="row">Or from a file <input type="file" id="ol-file" accept=".json" onchange="PB.UI.olFile(this)"></label></div>
+        ${leagueKind ? `<h3>Resume a saved league (you host)</h3>
+        <div class="col">${[1, 2].map(n => { let m = saveMeta(n); if (m && m.label.indexOf(leagueKind) !== 0) m = null; return `<div class="row between"><span>${m ? `<b>Slot ${n}</b> · ${esc(m.label)} <span class="dim">${new Date(m.t).toLocaleString()}</span>` : `<span class="dim">Slot ${n}: empty</span>`}</span><button class="small primary" data-act="olResume" data-slot="${n}" ${m ? '' : 'disabled'}>Resume</button></div>`; }).join('')}
+          <label class="row">Or from a file <input type="file" id="ol-file" accept=".json" onchange="PB.UI.olFile(this)"></label></div>` : ''}
+        ${(() => { try { const l = JSON.parse(localStorage.getItem('poke82_lastroom')); return l && Date.now() - l.t < 6 * 3600e3 ? `<div class="panel" style="background:var(--bg2);margin-bottom:10px"><div class="row between wrap"><span>Dropped out of room <b>${esc(l.code)}</b>? You can walk back in as ${esc(l.name)}.</span><button class="primary" data-act="olRejoin">Rejoin</button></div></div>` : ''; } catch (e) { return ''; } })()}
         <h3 style="margin-top:16px">Host a game</h3>
         <div class="menu-grid" style="margin-top:6px">
-          ${Object.entries(MODES).map(([k, l]) => `<div class="menu-card" tabindex="0" data-act="olHost" data-mode="${k}"><h3>${l}</h3><div class="dim" style="font-size:12px">${k === 'exhibition' ? 'One-on-one live game on the court' : k === 'franchise' ? 'Several people each run a team in one growing league' : 'Snake draft with friends, then a full season'}</div></div>`).join('')}
+          ${Object.entries(MODES).filter(([k]) => vm.includes(k)).map(([k, l]) => `<div class="menu-card" tabindex="0" data-act="olHost" data-mode="${k}"><h3>${l}</h3><div class="dim" style="font-size:12px">${k === 'exhibition' ? 'One-on-one live game on the court' : k === 'coop' ? 'You and a friend each control a Pokémon on the same team' : k === 'franchise' ? 'Several people each run a team in one growing league' : 'Snake draft with friends, then a full season'}</div></div>`).join('')}
         </div>
         <h3 style="margin-top:16px">Join a game</h3>
         <div class="row wrap"><input type="text" id="ol-code" maxlength="4" placeholder="CODE" value="${esc(view.code)}" style="width:90px;text-transform:uppercase"><button data-act="olJoinCode">Join</button></div>` : ''}
@@ -30,6 +32,7 @@
     },
 
   };
+  UI.setOnlineModes = m => { view.modes = m; };
   function nameVal() { const e = document.getElementById('ol-name'); return e ? e.value.trim() : ''; }
   A.olConnect = async () => {
     N.name = nameVal() || N.name || 'Trainer';
@@ -44,7 +47,7 @@
     N.name = nameVal() || N.name || 'Trainer';
     const mode = d.mode; view.resume = null;
     view.ex = { picks: {}, qMin: PB.settings.quarterMin || 5 };
-    N.create(mode, mode === 'exhibition' ? 2 : 8, MODES[mode]);
+    N.create(mode, (mode === 'exhibition' || mode === 'coop') ? 2 : 8, MODES[mode]);
   };
   A.olJoinCode = () => { view.code = document.getElementById('ol-code').value.trim().toUpperCase(); N.name = nameVal() || N.name || 'Trainer'; N.join(view.code); };
   A.olJoin = (el, d) => { N.name = nameVal() || N.name || 'Trainer'; N.join(d.code); };
@@ -55,8 +58,8 @@
     if (UI.cur === 'online' && room) UI.go('lobby', {}, true);
     else if (UI.cur === 'lobby') UI.refresh();
   });
-  N.on('closed', why => { PB.toast(why || 'The room was closed', 3500); if (UI.cur === 'lobby' || UI.cur === 'extpick') UI.go('online', {}, true); else if (N.session) { N.session = null; UI.go('menu', {}, true); } });
-  N.on('disconnected', () => { PB.toast('Disconnected from the server', 4000); if (UI.cur === 'lobby') UI.go('online', {}, true); });
+  N.on('closed', why => { if (reconnect()) return; PB.toast(why || 'The room was closed', 3500); if (UI.cur === 'lobby' || UI.cur === 'extpick') UI.go('online', {}, true); else if (N.session) { N.session = null; UI.go('menu', {}, true); } });
+  N.on('disconnected', () => { if (N.session && N.session.league && !N.isHost()) return; PB.toast('Disconnected from the server', 4000); if (UI.cur === 'lobby') UI.go('online', {}, true); });
 
   // ---------- lobby ----------
   S.lobby = {
@@ -65,15 +68,15 @@
       const r = N.room; if (!r) return '<div class="panel">Not in a room.</div>';
       const host = N.isHost(), full = r.players.length >= 2;
       let settings = '';
-      if (r.mode === 'exhibition') settings = host ? `<label>Quarter length <select id="lb-q">${[2, 3, 5, 8, 12].map(n => `<option ${view.ex.qMin === n ? 'selected' : ''}>${n}</option>`).join('')}</select> min</label>` : '';
+      if (r.mode === 'exhibition' || r.mode === 'coop') settings = host ? `<label>Quarter length <select id="lb-q">${[2, 3, 5, 8, 12].map(n => `<option ${view.ex.qMin === n ? 'selected' : ''}>${n}</option>`).join('')}</select> min</label>` : '';
       else if (r.mode === 'fantasy') settings = host ? `<label>League size <select id="lb-teams">${[8, 12, 16, 20, 24, 30].filter(n => n >= r.players.length).map(n => `<option ${view.fOpts.teams === n ? 'selected' : ''}>${n}</option>`).join('')}</select> teams (AI teams fill the rest)</label>` : '';
       const rs = view.resume;
       if (rs && host) {
         const mk = h => { const m = r.players.find(p => p.name === h.name); return ['<option value="">— AI team —</option>'].concat(r.players.map(p => `<option value="${p.id}" ${m && m.id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`)).join(''); };
         settings = `<div class="dim">Resuming <b>${esc(rs.label)}</b>. Pick who plays each team (others can join with the code first).</div>` + rs.humans.map(h => `<label class="row between">${esc(h.teamName)} <span class="dim">was ${esc(h.name)}</span><select id="as-${h.team}">${mk(h)}</select></label>`).join('');
       }
-      const startLabel = rs ? 'Resume the league' : r.mode === 'exhibition' ? 'Start match' : r.mode === 'franchise' ? 'Set up the league…' : 'Start the draft';
-      const canStart = host && (r.mode === 'exhibition' ? full : r.players.length >= 1);
+      const startLabel = rs ? 'Resume the league' : r.mode === 'exhibition' || r.mode === 'coop' ? 'Start match' : r.mode === 'franchise' ? 'Set up the league…' : 'Start the draft';
+      const canStart = host && (r.mode === 'exhibition' || r.mode === 'coop' ? full : r.players.length >= 1);
       return `<div class="panel" style="max-width:640px;margin:16px auto"><h2>${esc(MODES[r.mode] || r.mode)}</h2>
         <div class="row between"><div class="dim">Room code</div><div style="font-size:34px;font-weight:900;letter-spacing:.2em" class="gold">${esc(r.code)}</div></div>
         <h3 style="margin-top:12px">Players (${r.players.length}/${r.max})</h3>
@@ -94,9 +97,9 @@
       const start = { k: 'start', kind: 'resume', mode: rs.kind, data: rs.G, teams, names };
       N.toAll(start); UI.onlineBegin(start); return;
     }
-    if (r.mode === 'exhibition') {
+    if (r.mode === 'exhibition' || r.mode === 'coop') {
       const q = document.getElementById('lb-q'); view.ex.qMin = q ? +q.value : 5;
-      const start = { k: 'start', kind: 'exhibition', seed, qMin: view.ex.qMin, players: r.players.map(p => p.id) };
+      const start = { k: 'start', kind: r.mode, seed, qMin: view.ex.qMin, players: r.players.map(p => p.id) };
       N.toAll(start); UI.onlineBegin(start);
     } else if (r.mode === 'franchise') {
       UI.go('frnew', { online: true });
@@ -132,11 +135,22 @@
       T.nick = String(start.names[pid] || 'Trainer').slice(0, 16); T.name = T.city + ' ' + T.nick;
     }
     PB.G = G; PB.settings = G.settings;
-    N.session = { league: true, mode: start.mode || start.kind, teams: start.teams };
+    N.session = { league: true, mode: start.mode || start.kind, teams: start.teams, names: Object.assign({}, start.names) };
+    N.lastCode = N.room ? N.room.code : N.lastCode;
+    try { if (!N.isHost()) localStorage.setItem('poke82_lastroom', JSON.stringify({ code: N.lastCode, name: N.name, t: Date.now() })); } catch (e) { }
     N.seq = 0; N.lastSeq = 0;
     UI.stack = [];
   }
   UI.onlineBegin = function (start) {
+    if (start.kind === 'coop') {
+      const G = PB.newGame(start.seed, 'main', 30, 0);
+      G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal' });
+      PB.aiDraftRounds(G, G.rng, G.teams.map(t => t.id), 0);
+      PB.G = G; view.co = { picks: {}, start };
+      N.session = { league: false, mode: 'coop', teams: {} };
+      UI.go('cooppick', {}, true);
+      return;
+    }
     if (start.kind === 'exhibition') {
       const G = PB.newGame(start.seed, 'main', 30, 0);
       G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal' });
@@ -228,6 +242,75 @@
         UI.boxModal(b);
       } });
   }
+
+  // ---------- online co-op: each person is locked to one Pokemon on the same team ----------
+  S.cooppick = {
+    back() { },
+    top() { return `<div class="logo">POKÉHOOPS 82</div><div class="spacer"></div><span class="tag good">CO-OP ${N.room ? esc(N.room.code) : ''}</span><button class="small" data-act="exLeave">Leave</button>`; },
+    render() {
+      const G = PB.G, T = G.teams[0], picks = view.co.picks;
+      const who = slot => { const pid = Object.keys(picks).find(p => picks[p] === slot); return pid ? N.nameOf(+pid) : ''; };
+      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Choose your Pokémon</h2><div class="dim">${N.room ? N.room.players.map(p => esc(p.name) + (picks[p.id] != null ? ' ✓' : ' …')).join(' · ') : ''} — you play ${esc(T.name)} against an AI team</div></div></div>
+        <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">${T.starters.map((id, i) => `<div class="mcard ${picks[N.id] === i ? 'sel' : ''}" tabindex="0" data-act="coopPick" data-i="${i}" style="${who(i) && picks[N.id] !== i ? 'opacity:.5' : ''}"><div class="top"><div class="name">${esc(PB.BYID[id].dispName)}</div></div><div class="sprwrap">${UI.spr(PB.BYID[id], 96)}</div><div class="dim center">${PB.POS[i]} · ${esc(PB.Abil.describe(id).badge)}</div>${who(i) ? `<div class="tag good">${esc(who(i))}</div>` : ''}</div>`).join('')}</div>`;
+    },
+  };
+  A.coopPick = (el, d) => { const i = +d.i; if (N.isHost()) coopHostPick(N.id, i); else N.toHost({ k: 'coopPick', i }); };
+  function coopHostPick(pid, i) {
+    const picks = view.co.picks;
+    if (Object.keys(picks).some(p => +p !== pid && picks[p] === i)) { if (pid !== N.id) N.to(pid, { k: 'exDeny' }); else PB.toast('Already taken'); return; }
+    picks[pid] = i; N.toAll({ k: 'coopState', picks }); if (UI.cur === 'cooppick') UI.refresh();
+    const ids = N.room.players.map(p => p.id);
+    if (ids.length === 2 && ids.every(id => picks[id] != null)) { const go = { k: 'coopGo', picks, seed: (Math.random() * 4294967296) >>> 0, qMin: view.co.start.qMin }; N.toAll(go); startCoopMatch(go); }
+  }
+  N.on('coopPick', (d, from) => { if (N.isHost()) coopHostPick(from, d.i); });
+  N.on('coopState', d => { view.co.picks = d.picks; if (UI.cur === 'cooppick') UI.refresh(); });
+  N.on('coopGo', d => startCoopMatch(d));
+  function startCoopMatch(go) {
+    const G = PB.G, ids = N.room.players.map(p => p.id), hostId = N.room.host, guestId = ids.find(i => i !== hostId);
+    const meCi = N.id === hostId ? 0 : 1, peer = meCi === 0 ? guestId : hostId, opp = 1 + (view.co.start.seed % 29);
+    UI.closeModal();
+    UI.startOnlineMatch({ G, userTeam: 0, oppId: opp, userHome: true, qMin: go.qMin, speed: 1, shotMeter: true, seed: go.seed, me: 0, meCi, peer, exhibition: true, ctrls: [{ side: 0, lock: go.picks[hostId] }, { side: 0, lock: go.picks[guestId] }],
+      onEnd: (res, m) => {
+        view.co.picks = {}; UI.go('cooppick', {}, true);
+        const b = { day: 0, h: m.teams[0].id, a: m.teams[1].id, sc: res.score, q: res.q, ot: res.ot, shots: res.shots, box: [0, 1].map(s => { const o = {}; for (const id in res.box[s]) { const x = res.box[s][id]; if (x.sec > 0) o[id] = PB.STAT_KEYS.map(k => x[k]); } return o; }) };
+        UI.boxModal(b);
+      } });
+  }
+
+  // ---------- reconnecting ----------
+  let rc = null;
+  function reconnect() {
+    if (rc || !N.session || !N.session.league || N.isHost() || !N.lastCode) return false;
+    rc = { n: 0, timer: null };
+    UI.modal(`<div class="center"><h2>Connection lost</h2><div class="dim" id="rc-msg">Trying to get you back in…</div><div class="row center" style="margin-top:12px"><button data-act="rcGiveUp">Give up</button></div></div>`);
+    const attempt = () => {
+      if (!rc) return;
+      rc.n++; const el = document.getElementById('rc-msg'); if (el) el.textContent = 'Reconnecting… attempt ' + rc.n + ' of 12';
+      N.p2pJoin(N.lastCode, true);
+      rc.timer = setTimeout(() => { if (!rc) return; if (rc.n >= 12) { A.rcGiveUp(); return; } attempt(); }, 6000);
+    };
+    attempt();
+    return true;
+  }
+  A.rcGiveUp = () => { if (rc) { clearTimeout(rc.timer); rc = null; } UI.closeModal(); N.session = null; UI.stack = []; UI.go('menu', {}, true); PB.toast('Could not rejoin. Open Play Online → Rejoin to try again.', 5000); };
+  N.on('rejoin', d => {
+    if (rc) { clearTimeout(rc.timer); rc = null; UI.closeModal(); }
+    const G = PB.Save.deserialize(d.data); PB.Save.relink(G);
+    N.session = { league: true, mode: d.mode, teams: d.teams, names: d.names };
+    G.userTeam = d.teams[N.id]; G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal', autosave: false });
+    PB.G = G; PB.settings = G.settings; N.lastSeq = d.seq; N.seq = d.seq;
+    UI.stack = []; if (G.league) UI.go('hub', { tab: 'home' }, true); else if (G.fdraft && G.fdraft.pick < G.fdraft.total) UI.go('fantasy', {}, true); else UI.go('lineup', { ctx: 'fantasyPost' }, true);
+    PB.toast('Back in the game');
+  });
+  N.on('teams', d => { if (N.session) { N.session.teams = d.teams; N.session.names = d.names; } });
+  N.on('error', () => { if (rc) { /* the next attempt is already scheduled */ } });
+  A.olRejoin = async () => {
+    let last = null; try { last = JSON.parse(localStorage.getItem('poke82_lastroom')); } catch (e) { }
+    if (!last) return;
+    N.name = last.name; view.status = 'Connecting…'; UI.refresh();
+    try { await N.connectP2P(last.name); view.status = ''; N.session = { league: true, teams: {}, names: {} }; N.p2pJoin(last.code, true); }
+    catch (e) { view.status = e.message; UI.refresh(); }
+  };
 
   // ---------- online leagues ----------
   const isOn = () => N.onlineLeague();

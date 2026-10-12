@@ -90,6 +90,12 @@
       }
       if (I._rbWait && !gp.buttons.some(b => b.pressed)) I._rbWait = false;
     }
+    const tc = I.touch;
+    if (tc && tc.active) {
+      if (tc.lx || tc.ly) { lx = tc.lx; ly = tc.ly; }
+      if (tc.rx || tc.ry) { rx = tc.rx; ry = tc.ry; }
+      for (const b in tc.held) if (tc.held[b]) I._held[b] = true;
+    }
     if (I._held.LT) lt = Math.max(lt, 1); if (I._held.RT) rt = Math.max(rt, 1);
     I.lx = lx * I.sens; I.ly = ly * I.sens; I.rx = rx; I.ry = ry; I.lt = lt; I.rt = rt;
     if (lt > 0.4) I._held.LT = true; if (rt > 0.4) I._held.RT = true;
@@ -112,17 +118,23 @@
     const els = focusables(); if (!els.length) return;
     const cur = document.activeElement && els.includes(document.activeElement) ? document.activeElement : null;
     if (!cur) { els[0].focus(); return; }
-    const cr = cur.getBoundingClientRect(); const cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+    const cr = cur.getBoundingClientRect();
+    // a menu card with a button inside: DOWN steps into it, UP from it returns to the card
+    if (cur.classList.contains('menu-card') && dir === 'DOWN') { const inner = els.find(e => e !== cur && cur.contains(e)); if (inner) { inner.focus(); return; } }
+    const par = cur.parentElement ? cur.parentElement.closest('.menu-card') : null;
+    if (par && dir === 'UP' && els.includes(par)) { par.focus(); return; }
     let best = null, bs = Infinity;
     for (const el of els) {
-      if (el === cur) continue;
-      const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;
-      const dx = x - cx, dy = y - cy;
-      let along, perp;
-      if (dir === 'UP') { along = -dy; perp = Math.abs(dx); } else if (dir === 'DOWN') { along = dy; perp = Math.abs(dx); }
-      else if (dir === 'LEFT') { along = -dx; perp = Math.abs(dy); } else { along = dx; perp = Math.abs(dy); }
-      if (along < 4) continue;
-      const sc = along + perp * 2.2;
+      if (el === cur || cur.contains(el) || el.contains(cur)) continue;
+      const r = el.getBoundingClientRect();
+      // distance along the direction between facing edges, plus how far off-axis the two boxes are (0 when they overlap)
+      let along, gap;
+      const gx = Math.max(0, r.left - cr.right, cr.left - r.right), gy = Math.max(0, r.top - cr.bottom, cr.top - r.bottom);
+      if (dir === 'UP') { along = cr.top - r.bottom; gap = gx; } else if (dir === 'DOWN') { along = r.top - cr.bottom; gap = gx; }
+      else if (dir === 'LEFT') { along = cr.left - r.right; gap = gy; } else { along = r.left - cr.right; gap = gy; }
+      if (along < -4) continue;
+      const vert = dir === 'UP' || dir === 'DOWN';
+      const sc = Math.max(0, along) + gap * 3 + (vert ? r.left : r.top) * 0.001;     // ties go to the left / top one
       if (sc < bs) { bs = sc; best = el; }
     }
     if (best) { best.focus({ preventScroll: false }); best.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
@@ -156,6 +168,23 @@
     if (I._pressed.Y && PB.UI && PB.UI.onY) PB.UI.onY();
   };
 
+  // second gamepad (local co-op): same button mapping, own edge detection
+  I._held2 = {}; I._prev2 = {};
+  I.poll2 = function () {
+    const out = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, held: {}, pressed: {} };
+    const pads = (navigator.getGamepads ? Array.from(navigator.getGamepads()) : []).filter(p => p && p.connected);
+    const gp = pads[1];
+    I._prev2 = I._held2; I._held2 = {};
+    if (!gp) { return out; }
+    const [lx, ly] = dz(gp.axes[0] || 0, gp.axes[1] || 0, I.deadzone), [rx, ry] = dz(gp.axes[2] || 0, gp.axes[3] || 0, I.deadzone);
+    out.lx = lx * I.sens; out.ly = ly * I.sens; out.rx = rx; out.ry = ry;
+    for (const name of BTN) { const b = gp.buttons[I.padMap[name]]; if (b && (b.pressed || b.value > 0.5)) I._held2[name] = true; }
+    const ltb = gp.buttons[I.padMap.LT], rtb = gp.buttons[I.padMap.RT];
+    out.lt = ltb ? ltb.value : 0; out.rt = rtb ? rtb.value : 0;
+    if (out.lt > 0.4) I._held2.LT = true; if (out.rt > 0.4) I._held2.RT = true;
+    for (const b in I._held2) { out.held[b] = true; if (!I._prev2[b]) out.pressed[b] = true; }
+    return out;
+  };
   I.endFrame = function () { };
   I.loadConfig();
   // menu mode loop (game engine runs its own loop and calls poll itself)

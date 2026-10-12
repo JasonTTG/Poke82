@@ -3,10 +3,12 @@
 (function (PB) {
   const { clamp, Rules } = PB;
   const W = 94, H = 50, RIM_Z = 10, BASKET = [5.25, 88.75];  // BASKET[s] = x of the basket side s ATTACKS: s0 -> 88.75
-  const ATTACK_X = s => s === 0 ? 88.75 : 5.25;
-  const DEFEND_X = s => s === 0 ? 5.25 : 88.75;
-  const DIR = s => s === 0 ? 1 : -1;
-  const fx = (s, x) => s === 0 ? x : W - x;               // attack-frame <-> world (mirror about x)
+  // half-court games (3v3, practice): both teams attack the same (right) basket, so every side maps onto the right half
+  let HALF = false;
+  const ATTACK_X = s => HALF ? 88.75 : s === 0 ? 88.75 : 5.25;
+  const DEFEND_X = s => HALF ? 5.25 : s === 0 ? 5.25 : 88.75;
+  const DIR = s => HALF ? 1 : s === 0 ? 1 : -1;
+  const fx = (s, x) => (HALF || s === 0) ? x : W - x;      // attack-frame <-> world (mirror about x)
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const len = (x, y) => Math.hypot(x, y);
 
@@ -16,7 +18,7 @@
     if (fromBase <= 14) return Math.abs(y - 25) >= 22;
     return Math.hypot(x - bx, y - 25) >= 23.75;
   }
-  PB.Court = { W, H, isThree, ATTACK_X, DEFEND_X, DIR, fx, RIM_Z };
+  PB.Court = { W, H, isThree, ATTACK_X, DEFEND_X, DIR, fx, RIM_Z, setHalf: v => { HALF = !!v; }, isHalf: () => HALF };
 
   const SHOT_METER_T = 0.78;      // seconds to fill the shot meter
   const SWEET = 0.80;             // sweet spot on the meter
@@ -27,6 +29,12 @@
     constructor(G, opts) {
       opts = opts || {};
       this.G = G; this.opts = opts;
+      this.mode = opts.mode || 'std';                       // 'std' | '3v3' | 'practice'
+      this.mode3 = this.mode !== 'std';
+      this.half = this.mode3; PB.Court.setHalf(this.half);
+      this.n = opts.sizes || (this.mode3 ? [3, 3] : [5, 5]);
+      this.SC = this.mode === 'practice' ? 9999 : this.mode3 ? 12 : 24;
+      this.target = opts.target || 21;
       this.rng = opts.rng || new PB.RNG((Math.random() * 4294967296) >>> 0);
       const U = PB.activeTeam(G, G.teams[opts.userTeam != null ? opts.userTeam : G.userTeam]);
       const O = PB.activeTeam(G, G.teams[opts.oppId]);
@@ -37,13 +45,17 @@
       const adj = d === 'easy' ? -0.02 : d === 'hard' ? 0.02 : d === 'legend' ? 0.045 : 0;
       diff[this.gi[1]] = adj;
       this.qMin = opts.quarterMin || 5;
-      this.g = new PB.Game(this.userHome ? U : O, this.userHome ? O : U, { rng: this.rng, quarterMin: this.qMin, diff, userSide: this.gi[0] });
+      this.g = new PB.Game(this.userHome ? U : O, this.userHome ? O : U, { rng: this.rng, quarterMin: this.qMin, diff, userSide: this.gi[0], noPos: this.mode3 });
+      if (this.mode3) { this.g.qLen = 99999; this.g.otLen = 99999; }
       this.g.qLen = this.qMin * 60; this.g.otLen = Math.max(60, Math.round(this.qMin * 60 * 5 / 12));
       this.teams = [U, O];
       this.speed = opts.gameSpeed || 1;
       this.auto = !!opts.auto;                  // user's team also AI-controlled (testing)
-      this.humans = [!this.auto, !this.auto && !!opts.twoHumans];      // which sides have a person on the sticks
+      // controllers: who is on the sticks. {side, lock} - lock pins a person to one Pokemon (slot) instead of following the ball
+      this.ctrls = this.auto ? [] : (opts.ctrls || (opts.twoHumans ? [{ side: 0 }, { side: 1 }] : [{ side: 0 }]));
+      this.humans = [this.ctrls.some(c => c.side === 0), this.ctrls.some(c => c.side === 1)];
       this.me = opts.me || 0;                   // the side this screen belongs to (UI only)
+      this.meCi = opts.meCi != null ? opts.meCi : Math.max(0, this.ctrls.findIndex(c => c.side === this.me));
       this.shotMeterOn = opts.shotMeter != null ? !!opts.shotMeter : PB.settings.shotMeter !== false;
       this.t = 0; this.q = 1; this.ot = 0;
       this.clock = this.g.qLen; this.shotClock = 24;
@@ -59,13 +71,17 @@
       this.pauseSubs = false;
       this.bodies = [[], []];
       this.ball = { x: 47, y: 25, z: 3, vx: 0, vy: 0, vz: 0, holder: null, state: 'held', flight: null };
-      this.U = [0, 1].map(() => ({ ctrl: null, ctrlLock: 0, _ctrlPoss: null, askBall: null, helpCall: null }));
+      this.U = (this.ctrls.length ? this.ctrls : [{ side: 0 }]).map(c => ({ side: c.side, lock: c.lock == null ? null : c.lock, ctrl: null, ctrlLock: 0, _ctrlPoss: null, askBall: null, helpCall: null }));
       this.us = 0;                              // the side whose person-controlled state the accessors below refer to
       this.stratOverride = null;
+      this.timeouts = [opts.timeouts != null ? opts.timeouts : 5, opts.timeouts != null ? opts.timeouts : 5];
+      this.runPts = [0, 0]; this._tmLast = -99;
+      this.frames = []; this.clips = []; this.highlights = []; this.shotLog = []; this._recT = 0; this.replayOffer = null;
       this.sim = { clockRun: false };
       this.rebT = 0;
       this.over = false;
-      for (let s = 0; s < 2; s++) for (let i = 0; i < 5; i++) this._mkBody(s, i);
+      for (let s = 0; s < 2; s++) for (let i = 0; i < this.n[s]; i++) this._mkBody(s, i);
+      if (this.mode === 'practice' || opts.passive) for (const b of this.bodies[1]) b.passive = true;
       this.startQuarter(1);
     }
 
@@ -73,8 +89,12 @@
     sc(s) { return this.g.score[this.gi[s]]; }
     opp(s) { return 1 - s; }
     isHuman(s) { return this.humans[s] && !this.auto; }
-    onSide(s, fn) { const o = this.us; this.us = s; try { return fn(); } finally { this.us = o; } }
-    clearLocks() { this.U[0].ctrlLock = 0; this.U[1].ctrlLock = 0; }
+    ci(s) { return this.U.findIndex(u => u.side === s); }
+    get uside() { return this.U[this.us].side; }
+    onCtl(i, fn) { const o = this.us; this.us = i; try { return fn(); } finally { this.us = o; } }
+    onSide(s, fn) { const i = this.ci(s); return this.onCtl(i < 0 ? this.us : i, fn); }
+    isMine(b) { return !!b && this.U[this.meCi] && this.U[this.meCi].ctrl === b; }
+    clearLocks() { for (const u of this.U) u.ctrlLock = 0; }
 
     _mkBody(s, slot) {
       const pl = this.gs(s).court[slot];
@@ -95,11 +115,11 @@
     }
 
     eff(b, key) {
-      return b.mon.r[key] * Rules.fatigueMult(b.pl.en) * (1 - PB.slotPenalty(b.mon, b.slot));
+      return b.mon.r[key] * Rules.fatigueMult(PB.Abil.fatigueEn(b.mon.id, b.pl.en, this.g)) * (this.mode3 ? 1 : 1 - PB.slotPenalty(b.mon, b.slot));
     }
     effR(b) { const o = {}; for (const k of ['three', 'mid', 'layup', 'dunk', 'post', 'ft', 'pass', 'handle', 'steal', 'block', 'perD', 'intD', 'strength', 'iq', 'oreb', 'dreb', 'speed', 'accel', 'stamina']) o[k] = this.eff(b, k); return o; }
     // top speed spreads widely with the speed rating; acceleration falls with mass (momentum)
-    vmax(b) { return 8.0 + 0.135 * (this.eff(b, 'speed') - 30); }
+    vmax(b) { return (8.0 + 0.135 * (this.eff(b, 'speed') - 30)) * PB.Abil.mult(b.mon.id, 'speed'); }
     acc(b) { return (16 + 0.30 * this.eff(b, 'accel')) * (1.25 - 0.5 * b.mon.r.sW); }
     decel(b) { return (24 + 0.30 * this.eff(b, 'accel')) * (1.3 - 0.5 * b.mon.r.sW); }
     reach(b) { return BODY_H(b) + 1.4 + b.z; }
@@ -122,10 +142,11 @@
       // quarter-break recovery
       for (const s of this.g.sides) for (const pl of s.court) pl.en = Math.min(100, pl.en + (q === 3 ? 22 : 10));
       for (let si = 0; si < 2; si++) { this.g.refresh(si); }
-      this.doSubs();
+      if (!this.mode3) this.doSubs();
       this.poss = p;
-      this.shotClock = 24;
-      if (q === 1 || q > 4) this.startJumpBall();
+      this.shotClock = this.SC;
+      if (this.mode3) this.setInbound(this.rng.int(0, 1), 0, 25, 'check');
+      else if (q === 1 || q > 4) this.startJumpBall();
       else this.setInbound(p, 47, 0.0, 'quarter');
     }
 
@@ -146,7 +167,7 @@
       this.ball.holder = null; this.ball.state = 'toss'; this.ball.flight = null;
       this.ball.x = 47; this.ball.y = 25; this.ball.z = 6; this.ball.vx = this.ball.vy = 0; this.ball.vz = 15;
       this.say('JUMP BALL', true);
-      for (let s = 0; s < 2; s++) if (this.isHuman(s)) this.onSide(s, () => { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = J[s]; J[s].ctl = true; });
+      for (let i = 0; i < this.U.length; i++) this.onCtl(i, () => { const s = this.uside; if (this.ctrl) this.ctrl.ctl = false; this.ctrl = this.lock != null && this.bodies[s][this.lock] ? this.bodies[s][this.lock] : J[s]; this.ctrl.ctl = true; });
     }
     updateJumpBall(dt, inps) {
       const jb = this.jb, ball = this.ball;
@@ -155,7 +176,7 @@
       for (let s = 0; s < 2; s++) {
         const j = jb.J[s];
         const userSide = this.isHuman(s);
-        const inp = inps && inps[s];
+        const inp = inps && inps[this.ci(s)];
         const press = userSide && inp && (inp.pressed.Y || inp.pressed.X || inp.pressed.A);
         if (!j.jump && !jb.tipped && ((userSide && press) || (!userSide && jb.t >= jb.aiJump[s]))) { j.jump = 1; j.jumpKind = 'tip'; j.vz = 9 + this.jumpH(j) * 1.6; j.tipJumpT = jb.t; }
       }
@@ -198,6 +219,7 @@
     finish() {
       this.phase = 'over'; this.over = true; this.sfx.push('buzzer'); this.say('FINAL', true);
       this.resultObj = this.g.result(this.ot);
+      this.resultObj.shots = this.shotLog;
       // ensure result.ot consistent
     }
 
@@ -207,13 +229,16 @@
       this.phase = 'inbound'; this.inboundSide = side; this.poss = side;
       this.sim.clockRun = false; this.ball.state = 'held'; this.ball.flight = null; this.shot = null; this.meter = null; this.ft = null;
       this.lastPass = null; this.passPending = null;
-      this.shotClock = 24; this.frontcourt = [false, false]; this.fcT = [null, null];
+      if (!this.bodies[side].length) side = 1 - side;                    // practice: the empty side never gets the ball
+      this.inboundSide = side; this.poss = side;
+      this.shotClock = this.SC; this.frontcourt = this.half ? [true, true] : [false, false]; this.fcT = [null, null];
       this.inboundT = 0;
-      const baseline = reason === 'made';
+      const baseline = reason === 'made' && !this.half;
       let ix = x, iy = y;
       if (baseline) { ix = DEFEND_X(side) * 0 + (side === 0 ? 0 : W) ; ix = side === 0 ? -1.5 : W + 1.5; iy = 25; }
       else if (reason === 'quarter') { ix = 47; iy = (this.q % 2 === 1) ? -1.5 : H + 1.5; }
       else { iy = y < 25 ? -1.5 : H + 1.5; ix = clamp(x, 6, W - 6); }
+      if (this.half) { ix = 61.5; iy = 25; }                              // street rules: the ball is checked at the top of the key
       this.inboundSpot = { x: ix, y: iy, baseline };
       this.doSubs();
       // place everyone
@@ -221,7 +246,7 @@
       const inbounder = this._pickInbounder(side);
       this.inbounder = inbounder;
       const bxA = fx(side, ix);                       // attack-frame x of the inbound spot (0 = own baseline)
-      const pos = baseline ? [[9, 14], [14, 38], [19, 24], [27, 32]] : [[bxA + 5, 12], [bxA + 9, 38], [bxA + 13, 22], [bxA + 17, 30]];
+      const pos = this.half ? [[70, 11], [70, 39], [79, 25], [76, 18]] : baseline ? [[9, 14], [14, 38], [19, 24], [27, 32]] : [[bxA + 5, 12], [bxA + 9, 38], [bxA + 13, 22], [bxA + 17, 30]];
       const others = O.filter(b => b !== inbounder).sort((a, b) => b.mon.r.handle - a.mon.r.handle);
       others.forEach((b, i) => { const p = pos[i]; b.x = fx(side, clamp(p[0], 4, 88)); b.y = clamp(p[1], 4, 46); b.vx = b.vy = 0; b.ai = {}; });
       inbounder.x = ix; inbounder.y = iy; inbounder.vx = inbounder.vy = 0; inbounder.ai = {};
@@ -240,6 +265,19 @@
       this._clearActions();
       this.pickCtrl(true);
       this.inboundDelay = 0.9;
+      if (O.length <= 1) { this.phase = 'live'; this.sim.clockRun = true; this.inboundSpot = null; this.inbounder = null; this.inboundDelay = 0; }
+    }
+    // after a steal or defensive rebound in half-court play the ball has to come back out ("take it back")
+    resolveCheck() {
+      const c = this.checkPending;
+      if (this.phase !== 'live') { if (this.phase !== 'dead') this.checkPending = null; return; }
+      const h = this.ball.holder;
+      if (!h || h.s !== c.side) { if (this.t - c.t > 1.5) this.checkPending = null; return; }
+      this.checkPending = null;
+      if (isThree(h.x, h.y, ATTACK_X(h.s))) return;
+      this.setInbound(c.side, 0, 25, 'check');
+      const ib = this.inbounder;
+      if (ib && ib !== h) { const tx = ib.x, ty = ib.y; ib.x = h.x; ib.y = h.y; h.x = tx; h.y = ty; this.inbounder = h; this.ball.holder = h; this.ball.x = h.x; this.ball.y = h.y; this.pickCtrl(true); }
     }
     _pickInbounder(side) {
       const O = this.bodies[side];
@@ -255,7 +293,7 @@
       g.elapsed = this.t;
       for (let si = 0; si < 2; si++) {
         const sd = g.sides[si];
-        for (let slot = 0; slot < 5; slot++) if (sd.court[slot].dq) {
+        for (let slot = 0; slot < sd.court.length; slot++) if (sd.court[slot].dq) {
           const cand = sd.bench.filter(b => !b.dq).sort((a, b) => b.mon.ovr * Rules.fatigueMult(b.en) - a.mon.ovr * Rules.fatigueMult(a.en))[0];
           if (cand) { g.swap(si, slot, cand); this.rebind(this.gi.indexOf(si), slot); this.say('SUB: ' + cand.mon.dispName + ' in (foul out)'); }
         }
@@ -263,7 +301,7 @@
       for (let si = 0; si < 2; si++) {
         const before = g.sides[si].court.map(p => p);
         g.subs(si);
-        for (let slot = 0; slot < 5; slot++) {
+        for (let slot = 0; slot < g.sides[si].court.length; slot++) {
           const sIdx = g.sides[si].court[slot];
           if (before[slot] !== sIdx) { const s = this.gi.indexOf(si); this.rebind(s, slot); this.say((s === this.me ? 'SUB: ' : 'Opp SUB: ') + sIdx.mon.dispName + ' in'); }
         }
@@ -278,13 +316,15 @@
     // Offense: control follows the ball. Defense: the user keeps their defender (only A/RB switch),
     // except once at the moment the team goes on defense.
     pickCtrl(force) {
-      if (this.auto) { this.U[0].ctrl = null; this.U[1].ctrl = null; return; }
-      for (let sd = 0; sd < 2; sd++) if (this.humans[sd]) this.onSide(sd, () => this._pickCtrl(force));
+      if (this.auto) { for (const u of this.U) u.ctrl = null; return; }
+      for (let i = 0; i < this.U.length; i++) this.onCtl(i, () => this._pickCtrl(force));
     }
     _pickCtrl(force) {
-      if (this.ctrlLock > 0 && !force) return;
-      const side = this.us, other = 1 - side;
+      const side = this.uside, other = 1 - side;
       const mine = this.bodies[side];
+      if (!mine.length) return;
+      if (this.lock != null) { const lb = mine[this.lock] || mine[0]; if (this.ctrl !== lb) { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = lb; } lb.ctl = true; return; }
+      if (this.ctrlLock > 0 && !force) return;
       const hb = this.ball.holder;
       let pick = null;
       if (hb && hb.s === side) pick = hb;
@@ -300,16 +340,17 @@
       if (pick && pick !== this.ctrl) { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = pick; }
       if (this.ctrl) this.ctrl.ctl = true;
     }
-    setCtrl(b) { if (this.ctrl) this.ctrl.ctl = false; this.ctrl = b; b.ctl = true; this.ctrlLock = 0.45; }
+    setCtrl(b) { if (this.lock != null && b.slot !== this.lock) return; if (this.ctrl) { this.ctrl.ctl = false; this.ctrl.handUp = this.ctrl.deny = this.ctrl.boxOut = false; } this.ctrl = b; b.ctl = true; this.ctrlLock = 0.45; }
 
     // ---------------------------------------------------------------- main update
-    update(dt0, inp, inp1) {
-      const inps = [inp, inp1];
+    update(dt0, inp, inp1, inp2, inp3) {
+      const inps = [inp, inp1, inp2, inp3];
       if (this.over) return;
       const dt = Math.min(dt0, 1 / 30) * this.speed;
       this.t += dt;
       if (this.flashT > 0) this.flashT -= dt;
       for (const u of this.U) if (u.ctrlLock > 0) u.ctrlLock -= dt;
+      if (this.checkPending) this.resolveCheck();
       if (this.phase === 'dead') { this.deadT -= dt; if (this.deadT <= 0) { const f = this.afterDead; this.afterDead = null; f && f(); } return; }
       if (this.phase === 'ft') { this.updateFT(dt, inps); this.energy(dt, false); return; }
       if (this.phase === 'jump') { this.updateJumpBall(dt, inps); return; }
@@ -336,7 +377,67 @@
       }
       this.energy(dt, this.phase === 'live');
       this.pickCtrl();
+      this.afterMoves(dt);
+      this.recordFrame(dt);
       if (this.q > 4) { /* overtime handled in endQuarter */ }
+    }
+
+    // ---------------------------------------------------------------- replay buffer (15 frames per second, ~5 s back)
+    recordFrame(dt) {
+      this._recT += dt; if (this._recT < 1 / 15) return; this._recT = 0;
+      const bl = this.ball, fr = { t: this.t, p: this.poss, b: this.allBodies().map(b => [b.x, b.y, b.z, b.vx, b.vy, b.jump ? 1 : 0, b.face || 1, b.shootT > 0 ? 1 : 0]), ball: [bl.x, bl.y, bl.z, bl.holder ? 1 : 0] };
+      this.frames.push(fr); if (this.frames.length > 90) this.frames.shift();
+      if (!this.clips.length) return;
+      for (const c of this.clips) c.frames.push(fr);
+      this.clips = this.clips.filter(c => {
+        if (this.t < c.until) return true;
+        const clip = { label: c.label, kind: c.kind, q: c.q, clock: c.clock, frames: c.frames, bodies: c.bodies, side: c.side };
+        this.highlights.push(clip); if (this.highlights.length > 12) this.highlights.shift();
+        if (c.kind !== 'three' && c.kind !== 'steal') this.replayOffer = { clip, until: this.t + 7 };
+        return false;
+      });
+    }
+    markHighlight(kind, label, side) {
+      if (this.frames.length < 6) return;
+      const mm = Math.floor(Math.max(0, this.clock) / 60), ss = String(Math.floor(Math.max(0, this.clock) % 60)).padStart(2, '0');
+      this.clips.push({ kind, label, side, q: this.q, clock: mm + ':' + ss, until: this.t + 1.5, frames: this.frames.slice(-70), bodies: this.allBodies().map(b => ({ mon: b.mon, pl: b.pl, s: b.s, slot: b.slot, r: b.r })) });
+    }
+
+    // ---------------------------------------------------------------- timeouts and move follow-ups
+    callTimeout(s) {
+      if (this.over || this.phase === 'dead' || this.phase === 'ft' || this.phase === 'jump') return false;
+      if (this.timeouts[s] <= 0) return false;
+      if (this.phase === 'live' && !(this.ball.holder && this.ball.holder.s === s)) return false;
+      this.timeouts[s]--;
+      const prev = this.phase;
+      this.phase = 'dead'; this.deadT = 3.2; this._tmLast = this.t;
+      for (const pl of this.gs(s).court) pl.en = Math.min(100, pl.en + 16);
+      this.say(this.teams[s].abbr + ' TIMEOUT (' + this.timeouts[s] + ' left)', true);
+      this.sfx.push('whistle');
+      this.afterDead = () => { this.phase = prev; if (prev === 'live') this.shotClock = Math.max(this.shotClock, 14); this.doSubs(); this.g.refresh(0); this.g.refresh(1); };
+      return true;
+    }
+    aiTimeouts(dt) {
+      this._tmT = (this._tmT || 0) + dt;
+      if (this._tmT < 1) return; this._tmT = 0;
+      if (this.t - this._tmLast < 25) return;
+      for (let s = 0; s < 2; s++) {
+        if (this.isHuman(s) || this.timeouts[s] <= 0) continue;
+        const behind = this.sc(1 - s) - this.sc(s);
+        const run = this.runPts[1 - s] >= 10, late = this.q >= 4 && this.clock < 150 && behind > 0 && behind <= 9 && this.poss === s;
+        if ((run || late) && this.callTimeout(s)) { this.runPts[1 - s] = 0; return; }
+      }
+    }
+    // euro steps / drop steps finish at the rim; shot flags expire
+    afterMoves(dt) {
+      for (const b of this.allBodies()) {
+        if (b.euro && b.evade <= 0) {
+          const e = b.euro; b.euro = null;
+          const bx = ATTACK_X(b.s), d = Math.hypot(b.x - bx, b.y - 25);
+          if (this.ball.holder === b && this.phase === 'live' && !b.shootT && !b.gather && d < 10.5 && this.t - e.t < 1.2) { b.shotFlag = e.kind || 'euro'; b.shotFlagT = this.t; this.startShot(b, false); }
+        }
+      }
+      this.aiTimeouts(dt);
     }
 
     energy(dt, live) {
@@ -347,7 +448,7 @@
         for (const pl of s.court) {
           const b = this.bodyOfPl(pl); const sp = b ? Math.hypot(b.vx, b.vy) / Math.max(8, this.vmax(b)) : 0;
           const act = live ? (0.75 + 0.9 * clamp(sp, 0, 1.2)) * (b && b.sprint ? 1.7 : 1) : 0.3;
-          pl.en = Math.max(0, pl.en - Rules.drainPerSec(pl.mon.r.stamina, stratMult) * act * dt);
+          pl.en = Math.max(0, pl.en - Rules.drainPerSec(pl.mon.r.stamina, stratMult) * act * PB.Abil.mult(pl.id, 'drain') * dt);
         }
         for (const pl of s.bench) pl.en = Math.min(100, pl.en + Rules.recoverPerSec(pl.mon.r.stamina) * dt);
       }
@@ -358,11 +459,11 @@
     // ---------------------------------------------------------------- user input handling
     userInput(dt, inps) {
       if (this.auto) return;
-      for (let sd = 0; sd < 2; sd++) if (this.humans[sd] && inps[sd]) this.onSide(sd, () => this._userInput(dt, inps[sd]));
+      for (let i = 0; i < this.U.length; i++) if (inps[i]) this.onCtl(i, () => this._userInput(dt, inps[i]));
     }
     _userInput(dt, inp) {
       const c = this.ctrl;
-      const side = this.us;
+      const side = this.uside;
       const hasBall = this.ball.holder === c;
       const offense = this.poss === side;
       // meter progress
@@ -383,6 +484,7 @@
         if (!mv) c.intent.sp = 0;
       } else c.intent = { tx: c.x, ty: c.y, sp: 0, manual: true, mx: 0, my: 0 };
       const P = inp.pressed;
+      if (offense) { c.handUp = false; c.deny = false; c.boxOut = false; }
       if (this.phase === 'inbound') {
         if (this.inboundSide === side && this.inbounder && this.inbounder.s === side) {
           // user inbounds with A (directional) when ready
@@ -408,8 +510,12 @@
         if (P.LB) this.callScreen();
       } else {
         // defense
+        const Hd = this.U[this.us].hold || (this.U[this.us].hold = { X: 0, RB: 0 });
+        Hd.X = inp.held.X ? Hd.X + dt : 0;
+        if (inp.held.RB) Hd.RB += dt; else { if (Hd.RB > 0 && Hd.RB < 0.28) this.cycleDefender(1); Hd.RB = 0; }
+        c.handUp = Hd.X > 0.3; c.deny = Hd.RB > 0.28;
+        c.boxOut = !!inp.held.LT && (this.ball.state === 'loose' || (!!this.shot && !this.shot.done));
         if (P.A) this.switchDefender();
-        if (P.RB) this.cycleDefender(1);
         if (P.X) this.stealAttempt(c);
         if (P.Y) { if (this.ball.state === 'flight' && this.shot) this.blockJump(c, true); else this.jumpForBall(c); }
         if (P.B) this.chargeStance(c);
@@ -448,7 +554,7 @@
     userPassAction(inp, inbound, kind) {
       const c = inbound ? this.inbounder : this.ctrl;
       if (!c || this.ball.holder !== c) return;
-      const mates = this.bodies[this.us].filter(b => b !== c);
+      const mates = this.bodies[this.uside].filter(b => b !== c);
       let tgt = null;
       const mag = Math.hypot(inp.mx, inp.my);
       if (mag > 0.4) {
@@ -473,18 +579,18 @@
     iconPassCheck(inp) {
       // while RB held, A/B/X/Y pass to icons (assigned left->right by court x in attack direction)
       const c = this.ctrl; if (!c || this.ball.holder !== c) return;
-      const mates = this.bodies[this.us].filter(b => b !== c).sort((a, b) => a.slot - b.slot);
+      const mates = this.bodies[this.uside].filter(b => b !== c).sort((a, b) => a.slot - b.slot);
       const map = { A: 0, B: 1, X: 2, Y: 3 };
       for (const k of ['A', 'B', 'X', 'Y']) if (inp.pressed[k] && mates[map[k]]) { this.passTo(c, mates[map[k]], 'chest'); return; }
     }
     iconTargets() {
       const c = this.ctrl; if (!c) return [];
-      return this.bodies[this.us].filter(b => b !== c).sort((a, b) => a.slot - b.slot).map((b, i) => ({ b, key: ['A', 'B', 'X', 'Y'][i] }));
+      return this.bodies[this.uside].filter(b => b !== c).sort((a, b) => a.slot - b.slot).map((b, i) => ({ b, key: ['A', 'B', 'X', 'Y'][i] }));
     }
     lobPass(c) {
       // alley-oop to the teammate nearest the rim
-      const mates = this.bodies[this.us].filter(b => b !== c);
-      const bx = ATTACK_X(this.us);
+      const mates = this.bodies[this.uside].filter(b => b !== c);
+      const bx = ATTACK_X(this.uside);
       let best = null, bd = 1e9;
       for (const m of mates) { const d = Math.hypot(m.x - bx, m.y - 25); if (d < bd) { bd = d; best = m; } }
       if (best) { best.ai.alley = this.t + 2.0; this.passTo(c, best, 'lob'); }
@@ -516,8 +622,30 @@
     // ---------------------------------------------------------------- moves
     dribbleMove(c, rx, ry) {
       if (c.evade > 0 || c.moveCd > this.t) return;
+      const ang = Math.atan2(ry, rx);
+      if (c.postUp) { this.postMove(c, ang); return; }
+      const bx = ATTACK_X(c.s), toB = Math.atan2(25 - c.y, bx - c.x), dB = Math.hypot(c.x - bx, c.y - 25);
+      const da = Math.abs(((ang - toB + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
       c.moveCd = this.t + 0.55;
-      this.evadeMove(c, Math.atan2(ry, rx), 'cross');
+      if (dB < 18 && dB > 3 && da < 0.8) { this.euroStep(c, ang); return; }
+      this.evadeMove(c, ang, 'cross');
+    }
+    // euro step: a wide first step away from the defender, then the finish at the rim
+    euroStep(c, ang) {
+      const d = this.nearestDef(c, 8), side = d ? (Math.sign(c.y - d.y) || 1) : 1;
+      c.moveCd = this.t + 0.95;
+      this.evadeMove(c, ang + side * 0.75, 'euro');
+      c.euro = { t: this.t, kind: 'euro' };
+    }
+    // post moves (stick relative to the basket): toward = drop step, back = fadeaway, side = hook or spin
+    postMove(c, ang) {
+      const bx = ATTACK_X(c.s), toB = Math.atan2(25 - c.y, bx - c.x);
+      const ar = Math.abs(((ang - toB + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      c.moveCd = this.t + 0.8;
+      if (ar < 0.7) { this.evadeMove(c, toB + (Math.sign(c.y - 25) || 1) * 0.25, 'drop'); c.euro = { t: this.t, kind: 'drop' }; }
+      else if (ar > 2.3) { c.shotFlag = 'fade'; c.shotFlagT = this.t; c.moveWin = true; this.startShot(c, true); }
+      else if (ar < 1.5) { c.shotFlag = 'hook'; c.shotFlagT = this.t; c.moveWin = true; this.startShot(c, true); }
+      else { this.evadeMove(c, ang, 'spin'); }
     }
     // evade: burst in direction ang, test vs the nearest defender
     evadeMove(c, ang, kind) {
@@ -525,14 +653,15 @@
       c.evade = kind === 'step' ? 0.34 : 0.42; c.evadeAng = ang; c.evadeKind = kind;
       c.vx += Math.cos(ang) * 8; c.vy += Math.sin(ang) * 8;
       if (d) {
-        const win = this.eff(c, 'handle') + this.eff(c, 'accel') * 0.3 - this.eff(d, 'perD') * 0.8 - this.eff(d, 'speed') * 0.3 + this.rng.gauss() * 12 + (kind === 'euro' ? 6 : 0);
+        const win = this.eff(c, 'handle') + this.eff(c, 'accel') * 0.3 - this.eff(d, 'perD') * 0.8 - this.eff(d, 'speed') * 0.3 + this.rng.gauss() * 12 + (kind === 'euro' ? 6 : kind === 'spin' ? 8 : kind === 'drop' ? 10 : 0);
+        c.moveWin = win > 4; if (kind === 'euro' || kind === 'spin' || kind === 'drop') { c.shotFlag = kind; c.shotFlagT = this.t; }
         if (win > 4) { d.stun = 0.30 + clamp(win / 80, 0, 0.35); d.stunDir = { x: -Math.cos(ang), y: -Math.sin(ang) }; c.immune = 0.55; c.beat = this.t; if (kind === 'step') c.stepBack = this.t; }
         else if (win < -14 && this.rng.chance(0.3)) { this.stealTry(d, c, 0.5); }
       }
     }
     callScreen() {
       const c = this.ctrl; if (!c) return;
-      const mates = this.bodies[this.us].filter(b => b !== c && b !== this.ball.holder);
+      const mates = this.bodies[this.uside].filter(b => b !== c && b !== this.ball.holder);
       let best = null, bs = -1e9;
       for (const m of mates) { const sc = this.eff(m, 'strength') * 0.5 + m.mon.r.sW * 20 - dist(m, c) * 1.2; if (sc > bs) { bs = sc; best = m; } }
       if (!best) return;
@@ -545,17 +674,17 @@
       // A on defense: switch to the defender nearest the ball
       const tgt = this.ball.holder || this.ball;
       let best = null, bd = 1e9;
-      for (const b of this.bodies[this.us]) { if (b === this.ctrl) continue; const d = Math.hypot(b.x - tgt.x, b.y - tgt.y); if (d < bd) { bd = d; best = b; } }
+      for (const b of this.bodies[this.uside]) { if (b === this.ctrl) continue; const d = Math.hypot(b.x - tgt.x, b.y - tgt.y); if (d < bd) { bd = d; best = b; } }
       if (best) this.setCtrl(best);
     }
     cycleDefender(dir) {
-      const list = this.bodies[this.us].slice().sort((a, b) => a.slot - b.slot);
+      const list = this.bodies[this.uside].slice().sort((a, b) => a.slot - b.slot);
       const i = list.indexOf(this.ctrl);
-      this.setCtrl(list[(i + dir + 5) % 5]);
+      this.setCtrl(list[(i + dir + list.length) % list.length]);
     }
     cycleDefScheme() {
       const keys = Object.keys(PB.DEF_STRATS);
-      const s = this.gs(this.us).strat; const i = keys.indexOf(s.def);
+      const s = this.gs(this.uside).strat; const i = keys.indexOf(s.def);
       s.def = keys[(i + 1) % keys.length];
       this.say('Defense: ' + PB.DEF_STRATS[s.def], true);
     }
@@ -628,6 +757,7 @@
       const win = this.meterWindows(b);
       const g = this.gradeTiming(v, win);
       b.shotAim = { quality: 0.55, meter: v, grade: g, win };
+      const ps = this.pstat = this.pstat || { att: 0, green: 0, ok: 0, bad: 0, err: 0 }; ps.att++; ps[g.grade]++; ps.err += g.e;
       this.feedback = { text: g.text, col: g.col, t: this.t, b };
       b.shootT = 0.02; b.release = true;
     }
@@ -636,6 +766,8 @@
       const s = b.s, bx = ATTACK_X(s);
       const type = b.shotType;
       const R = this.effR(b);
+      let flag = b.shotFlag; b.shotFlag = null;
+      if (flag && this.t - (b.shotFlagT || 0) > 1.7) flag = null;
       const dfd = this.contester(b);
       const dd = dfd ? dist(dfd, b) : 12;
       // contest quality: distance, whether defender is in the shooting lane (between shooter and basket), jumped (block) bonus
@@ -647,6 +779,8 @@
         if (dfd.block > 0 || dfd.jump) c = Math.min(1, c + 0.15);
         c *= clamp(0.75 + (this.reach(dfd) - this.reach(b)) * 0.07, 0.5, 1.15);
       }
+      if (flag === 'fade') c *= 0.55; else if (flag === 'hook') c *= 0.8;
+      if (dfd && dfd.handUp) c = Math.min(1, c + 0.14);
       let Dr = dfd ? this.effR(dfd) : { perD: 56, intD: 58, strength: 55, iq: 55, block: 55 };
       Dr = { perD: 56 + (Dr.perD - 56) * c, intD: 58 + (Dr.intD - 58) * c, strength: Dr.strength, iq: Dr.iq, block: Dr.block };
       const gS = this.gs(s), gO = this.gs(1 - s);
@@ -656,6 +790,8 @@
       adj += (q - 0.55) * (type === 'rim' ? 0.10 : 0.22);
       adj += (this.userHome === (s === 0) ? 0.008 : 0);                 // home court
       adj += this.g.form[this.gi[s]] - this.g.form[this.gi[1 - s]] * 0.5 + (this.g.diff[this.gi[s]] - this.g.diff[this.gi[1 - s]]) * 0.5;
+      if (flag) { const k = b.moveWin ? 1 : 0.35; adj += k * ({ euro: 0.06, drop: 0.06, spin: 0.045, hook: 0.045, fade: -0.02 }[flag] || 0); }
+      adj += PB.Abil.shotAdj(this.g, this.gi[s], b.pl, dfd && dfd.pl, { type, c, fast: this.possT != null && this.t - this.possT < 7, bigger: !!dfd && b.mon.r.sH > dfd.mon.r.sH + 0.1 });
       const strat = gS.strat, dstrat = gO.strat;
       if (dstrat.def === 'lockdown') adj -= 0.004;
       if (dstrat.def === 'zone') adj += type === 'three' ? 0.008 : type === 'rim' ? -0.018 : 0;
@@ -671,14 +807,16 @@
       let pMake = Rules.makeProb(type === 'rim' ? 'rim' : type, R, Dr, T, adj);
       if (type === 'rim' && b.rimKind === 'dunk') pMake = clamp(pMake + 0.06 + (R.dunk - 60) * 0.002, 0.2, 0.97);
       if (b.shotAim && b.shotAim.grade) pMake = clamp(this.applyTiming(pMake, b.shotAim.grade, b.shotAim.win, c), 0.02, 0.97);
+      // range: accuracy falls off fast beyond the arc (about 0.6 at 28 ft, 0.1 at 40 ft, a heave from half court is ~1%)
+      { const sd = Math.hypot(b.x - bx, b.y - 25); if (type !== 'rim' && sd > 24.5) pMake *= Math.max(0.004, Math.exp(-(sd - 24.5) * 0.16)); }
       // shooting foul
-      const fProb = dfd ? Rules.foulProb(type, R, this.effR(dfd)) * (0.8 + c * 1.5) * (b.rimKind === 'dunk' ? 0.8 : 1) : 0;
+      const fProb = dfd ? Rules.foulProb(type, R, this.effR(dfd)) * (0.8 + c * 1.5) * (b.rimKind === 'dunk' ? 0.8 : 1) * PB.Abil.mult(b.mon.id, 'foul') * (dfd.handUp ? 1.35 : 1) : 0;
       const fouled = dfd && this.rng.chance(fProb);
       if (fouled) pMake *= 0.82;
       // block: defender jumping near shooter
       let blocked = false;
       if (dfd && (dfd.block > 0 || dfd.jump) && dd < 4.5) {
-        const pb = Rules.blockProb(type, R, this.effR(dfd)) * (dfd.blockTimed ? 2.2 : 1.1) * (0.5 + c);
+        const pb = Rules.blockProb(type, R, this.effR(dfd)) * (dfd.blockTimed ? 2.2 : 1.1) * (0.5 + c) * PB.Abil.mult(dfd.mon.id, 'block') * (flag === 'hook' ? 0.5 : 1);
         blocked = this.rng.chance(clamp(pb, 0, 0.55));
         if (blocked) { this.blockShot(b, dfd, type); return; }
       }
@@ -689,7 +827,7 @@
       let best = null, bs = 1e9;
       for (const o of this.bodies[1 - b.s]) {
         const d = dist(o, b); if (d > 9) continue;
-        const sc = d - (o.block > 0 ? 1.5 : 0);
+        const sc = d - (o.block > 0 ? 1.5 : 0) - (o.handUp ? 1.2 : 0);
         if (sc < bs) { bs = sc; best = o; }
       }
       return best;
@@ -699,6 +837,8 @@
       const isTh = type === 'three';
       this.shot = { shooter: b, type, made, foulBy, c, q, three: isTh, x0: b.x, y0: b.y, done: false, t0: this.t, dist: Math.hypot(b.x - bx, b.y - 25), catchShoot: this.shot && this.shot.catchShoot };
       b.pl.st.fga++; if (isTh) b.pl.st.tpa++;
+      this.shotLog.push([this.gi[b.s], +fx(b.s, b.x).toFixed(1), +b.y.toFixed(1), made ? 1 : 0, type === 'three' ? 3 : type === 'rim' ? 0 : type === 'post' ? 2 : 1, b.mon.id]);
+      PB.Abil.record(b.pl, made);
       { const k = type + (made ? '-make' : '-miss'); this.sstat[k] = (this.sstat[k] || 0) + 1; const c10 = 'c' + Math.min(4, Math.floor(c * 5)) + (made ? 'm' : 'x'); this.sstat[c10] = (this.sstat[c10] || 0) + 1; }
       // assist context
       if (this.lastPass && this.lastPass.to === b && this.t - this.lastPass.t < 1.8 && this.lastPass.from !== b) this.shot.assist = this.lastPass.from;
@@ -724,6 +864,7 @@
     }
     pickShotCtrl() { }
     blockShot(b, d, type) {
+      this.markHighlight('block', 'Block: ' + d.mon.dispName, d.s);
       d.pl.st.blk++; this.sfx.push('block'); this.sfx.push({ kind: 'block', side: d.s }); b.pl.st.fga++; if (type === 'three') b.pl.st.tpa++;
       this.say('BLOCKED by ' + d.mon.dispName + '!', true);
       this.ball.holder = null; this.ball.state = 'loose'; this.ball.flight = null;
@@ -753,7 +894,7 @@
       if (dd > 3.4) { return; }
       if (h.immune > 0) return;
       const sr = this.eff(d, 'steal'), hr = this.eff(h, 'handle');
-      let p = clamp(0.22 + (sr - hr) * 0.0075 + (this.pressure(h) * 0.05), 0.04, 0.6) * mult;
+      let p = clamp(0.22 + (sr - hr) * 0.0075 + (this.pressure(h) * 0.05), 0.04, 0.6) * mult * PB.Abil.mult(d.mon.id, 'steal');
       if (d.stance) p *= 1.15;
       if (h.sprint) p *= 0.8;
       if (this.rng.chance(p)) {
@@ -763,6 +904,7 @@
       }
     }
     stealBall(d, h) {
+      this.markHighlight('steal', 'Steal: ' + d.mon.dispName, d.s);
       d.pl.st.stl++; h.pl.st.tov++; this.sfx.push('steal'); this.sfx.push({ kind: 'steal', side: d.s });
       this.say('STEAL by ' + d.mon.dispName + '!', true);
       this.ball.holder = d; this.ball.state = 'held'; this.ball.flight = null;
@@ -803,6 +945,12 @@
 
     // ---------------------------------------------------------------- free throws
     startFT(side, shooter, n, andOne, continuePoss) {
+      if (this.mode3) {                                                    // no free throws in street ball: a bonus point on an and-one, then the ball is checked
+        this.shot = null; this.ball.flight = null;
+        if (andOne) { this.g._addPoints(this.gi[side], 1, shooter.pl); this.say('And one! +1', true); if (this.mode === '3v3' && this.g.score[this.gi[side]] >= this.target) { this.g.qScores = [[this.g.score[0]], [this.g.score[1]]]; this.finish(); return; } this.afterScore(side); }
+        else this.setInbound(side, 0, 25, 'check');
+        return;
+      }
       this.phase = 'ft'; this.sim.clockRun = false;
       this.ft = { side, shooter, n, i: 0, made: 0, t: 1.0, state: 'wait', meter: null, andOne, nBase: n };
       this.ball.holder = shooter; this.ball.state = 'held'; this.ball.flight = null; this.shot = null; this.meter = null;
@@ -810,7 +958,7 @@
       this.rebindFTShooter();
       this.arrangeFT();
       this.clearLocks();
-      if (this.isHuman(shooter.s)) this.onSide(shooter.s, () => { this.ctrl && (this.ctrl.ctl = false); this.ctrl = shooter; shooter.ctl = true; });
+      if (this.isHuman(shooter.s)) this.onSide(shooter.s, () => { if (this.lock != null) return; this.ctrl && (this.ctrl.ctl = false); this.ctrl = shooter; shooter.ctl = true; });
       this.say(shooter.mon.dispName + ' to the line (' + n + ')');
     }
     rebindFTShooter() { }
@@ -833,7 +981,7 @@
     }
     updateFT(dt, inps) {
       const f = this.ft, sh = f.shooter;
-      const inp = inps && inps[sh.s];
+      const inp = inps && inps[this.ci(sh.s)];
       const user = this.isHuman(sh.s);
       if (f.state === 'wait') {
         f.t -= dt;
@@ -863,7 +1011,7 @@
       const f = this.ft, sh = f.shooter;
       sh.pl.st.fta++;
       const user = this.isHuman(sh.s) && this.shotMeterOn;
-      let p = Rules.ftProb(this.eff(sh, 'ft')) + this.g.form[this.gi[sh.s]] * 0.3;
+      let p = (Rules.ftProb(this.eff(sh, 'ft')) + this.g.form[this.gi[sh.s]] * 0.3) * PB.Abil.mult(sh.mon.id, 'ft');
       if (user && f.grade) p = this.applyTiming(clamp(p, 0.1, 0.95), f.grade, f.win, 0);
       f.grade = null;
       f.made1 = this.rng.chance(clamp(p, 0.15, 0.985));
@@ -874,7 +1022,7 @@
       const f = this.ft, sh = f.shooter;
       f.i++;
       this.sfx.push(f.made1 ? 'swish' : 'rim');
-      if (f.made1) { sh.pl.st.ftm++; this.g._addPoints(this.gi[sh.s], 1, sh.pl); f.made++; }
+      if (f.made1) { sh.pl.st.ftm++; this.g._addPoints(this.gi[sh.s], 1, sh.pl); f.made++; this.runPts[sh.s]++; this.runPts[1 - sh.s] = 0; }
       const last = f.i >= f.n;
       if (!last) { f.state = 'between'; f.t = 0.6; this.ball.flight = null; this.ball.state = 'held'; return; }
       // sequence over
@@ -907,7 +1055,8 @@
       this.setInbound(1 - scoringSide, 0, 25, 'made');
     }
     changePoss(side, live) {
-      this.poss = side; this.shotClock = 24; this.frontcourt = [false, false];
+      if (this.half && live) this.checkPending = { side, t: this.t };
+      this.poss = side; this.shotClock = this.SC; this.frontcourt = this.half ? [true, true] : [false, false];
       this.ai0 = null; this.fcT = [null, null];
       this.press = this.gs(1 - side).strat.def === 'press';
       this.passPending = null;
@@ -916,14 +1065,18 @@
     }
     score(b, type, made) {
       // credit made basket (called by ball resolution)
-      const pts = type === 'three' ? 3 : 2;
+      const pts = this.mode3 ? (type === 'three' ? 2 : 1) : (type === 'three' ? 3 : 2);
+      this.runPts[b.s] += pts; this.runPts[1 - b.s] = 0;
       const st = b.pl.st; st.fgm++; if (type === 'three') st.tpm++;
       this.g._addPoints(this.gi[b.s], pts, b.pl);
       const as = this.shot && this.shot.assist;
       if (as && as !== b) { const p = as.pl.st; p.ast++; }
       this.sfx.push(type === 'rim' && b.rimKind === 'dunk' ? 'dunk' : 'swish');
+      { const al = b.alleyDunk && this.t - b.alleyDunk < 3; if (al) this.markHighlight('alley', 'Alley-oop: ' + b.mon.dispName, b.s); else if (type === 'rim' && b.rimKind === 'dunk') this.markHighlight('dunk', 'Dunk: ' + b.mon.dispName, b.s); else if (type === 'three') this.markHighlight('three', 'Three: ' + b.mon.dispName, b.s); }
       if (type === 'three' || (type === 'rim' && b.rimKind === 'dunk')) this.sfx.push({ kind: type === 'three' ? 'three' : 'dunk', side: b.s });
-      this.say((type === 'three' ? '3PT! ' : type === 'rim' && b.rimKind === 'dunk' ? 'DUNK! ' : '') + b.mon.dispName + ' scores (' + this.sc(b.s) + '-' + this.sc(1 - b.s) + ')', type === 'three' || (b.rimKind === 'dunk' && type === 'rim'));
+      const oop = b.alleyDunk && this.t - b.alleyDunk < 3;
+      if (this.mode === '3v3' && this.g.score[this.gi[b.s]] >= this.target) { this.g.qScores = [[this.g.score[0]], [this.g.score[1]]]; this.finish(); }
+      this.say((oop ? 'ALLEY-OOP! ' : type === 'three' ? '3PT! ' : type === 'rim' && b.rimKind === 'dunk' ? 'DUNK! ' : '') + b.mon.dispName + ' scores (' + this.sc(b.s) + '-' + this.sc(1 - b.s) + ')', type === 'three' || oop || (b.rimKind === 'dunk' && type === 'rim'));
     }
     violation(kind) {
       const s = this.poss;
@@ -989,6 +1142,8 @@
       if (it.manual) { const mx = it.mx, my = it.my; const m = Math.hypot(mx, my); dx = m > 0.01 ? mx / m : 0; dy = m > 0.01 ? my / m : 0; d = m > 0.01 ? 1 : 0; }
       if (this.ball.holder === b) vmax *= 0.90 + 0.10 * this.eff(b, 'handle') / 100;
       if (b.stance) vmax *= 0.72;
+      if (b.handUp) vmax *= 0.82;
+      if (b.boxOut) vmax *= 0.8;
       if (b.sprint || sp > 1) vmax *= (it.onBall ? 1.12 : 1.18);
       else if (it.onBall) vmax *= 1.05;
       if (b.stun > 0) vmax *= 0.35;
@@ -1188,7 +1343,7 @@
         for (const b of this.allBodies()) {
           if (b === fl.from && this.t - fl.t0 < 0.3) continue;
           const d = Math.hypot(b.x - ball.x, b.y - ball.y);
-          const reach = (b === fl.to ? 3.8 : 1.6) + b.r * 0.35 + (b.jump ? 0.8 : 0);
+          const reach = (b === fl.to ? 3.8 : 1.6) + b.r * 0.35 + (b.jump ? 0.8 : 0) + (b.deny ? 1.4 : 0);
           if (d > reach) continue;
           if (ball.z > this.reach(b) + 1.6 && fl.kind !== 'lob') continue;
           if (b === fl.to) {
@@ -1202,7 +1357,7 @@
           }
           if (b.s !== fl.from.s) {
             // interception chance per frame near the line
-            const pi = clamp(0.006 + (this.eff(b, 'steal') - this.eff(fl.from, 'pass')) * 0.0002 + (this.eff(b, 'iq') - 55) * 0.0001, 0.001, 0.04) * (this.phase === 'inbound' ? 0.4 : 1) * (fl.kind === 'bounce' ? 0.45 : 1);
+            const pi = clamp(0.006 + (this.eff(b, 'steal') - this.eff(fl.from, 'pass')) * 0.0002 + (this.eff(b, 'iq') - 55) * 0.0001, 0.001, 0.04) * (this.phase === 'inbound' ? 0.4 : 1) * (fl.kind === 'bounce' ? 0.45 : 1) * (b.deny ? 1.7 : 1);
             if (this.rng.chance(pi)) {
               b.pl.st.stl++; fl.from.pl.st.tov++;
               this.say('STEAL by ' + b.mon.dispName + '! (intercepted)', true);
@@ -1226,6 +1381,7 @@
       if (b.s === this.poss) { const fcx = fx(b.s, b.x); if (fcx > 47) this.frontcourt[b.s] = true; }
     }
     alleyFinish(b) {
+      b.alleyDunk = this.t;
       b.shotType = 'rim'; b.rimKind = 'dunk'; b.shootT = 0.4; b.shootTotal = 0.4; b.jump = 1; b.jumpKind = 'shot'; b.vz = 12; b.shotAim = { quality: 0.85 }; b.released = false;
     }
     resolveLoose(dt) {
@@ -1239,8 +1395,10 @@
           if (d > 18) continue;
           const isOff = this.poss === b.s;
           const reb = this.eff(b, isOff ? 'oreb' : 'dreb');
-          let w = Math.pow(reb / 60, 2.2) * Math.pow(BODY_H(b) / 5.5, 0.8) * Math.exp(-d / 6.5) * (isOff ? 0.42 : 1);
+          let w = Math.pow(reb / 60, 2.2) * Math.pow(BODY_H(b) / 5.5, 0.8) * Math.exp(-d / 6.5) * (isOff ? 0.42 : 1) * PB.Abil.mult(b.mon.id, 'reb');
           if (b.jump && b.jumpKind === 'reb') w *= 1.6;
+          if (b.boxOut) w *= 1.3;
+          if (this.allBodies().some(x => x.boxOut && x.s !== b.s && Math.hypot(x.x - b.x, x.y - b.y) < 4.5)) w *= 0.75;
           cands.push([b, w]);
         }
         if (cands.length) {
@@ -1308,7 +1466,7 @@
   }
 
   // ctrl, ctrlLock, ... belong to whichever human side `this.us` points at (see onSide)
-  for (const k of ['ctrl', 'ctrlLock', '_ctrlPoss', 'askBall', 'helpCall']) {
+  for (const k of ['ctrl', 'ctrlLock', '_ctrlPoss', 'askBall', 'helpCall', 'lock']) {
     Object.defineProperty(Match.prototype, k, { get() { return this.U[this.us][k]; }, set(v) { this.U[this.us][k] = v; } });
   }
   Match.PLAY_TUNE = { rim: 0.08, three: 0.025, mid: 0.025, post: 0.07 };   // calibration so AI-vs-AI efficiency matches the simulation

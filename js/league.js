@@ -101,6 +101,7 @@
     };
     if (G.fr) { lg.single = true; lg.need = ((G.fr.cfg.seriesLen + 1) / 2) | 0; lg.poN = PB.Franchise.playoffN(G.teams.length, G.fr.cfg); }
     lg.lastDay = lg.sched[lg.sched.length - 1].day;
+    { const cnt = {}; for (const g of lg.sched) { cnt[g.h] = (cnt[g.h] || 0) + 1; cnt[g.a] = (cnt[g.a] || 0) + 1; } lg.games = Math.max(...Object.values(cnt)); }
     return lg;
   };
 
@@ -140,7 +141,7 @@
     if (h.user || a.user) {
       const box = [{}, {}];
       for (let s = 0; s < 2; s++) for (const id in result.box[s]) { const b = result.box[s][id]; if (b.sec > 0) box[s][id] = PB.STAT_KEYS.map(k => b[k]); }
-      lg.userBoxes.push({ day: game.day, h: h.id, a: a.id, sc: result.score, q: result.q, ot: result.ot, po: !!playoff, box });
+      lg.userBoxes.push({ day: game.day, h: h.id, a: a.id, sc: result.score, q: result.q, ot: result.ot, po: !!playoff, box, shots: result.shots || null });
     }
     if (G.fr) PB.Franchise.afterGame(G, game, result);
   };
@@ -371,6 +372,7 @@
     if (!lg.awards) L.seasonAwards(G);
     L.playoffMvp(G);
     if (G.fr) PB.Franchise.onSeasonEnd(G);
+    if (PB.onSeasonDone) PB.onSeasonDone(G);
   };
 
   // ----- stats views --------------------------------------------------------
@@ -401,7 +403,21 @@
     return Object.keys(lg.pstats).map(id => ({ id: +id, s: lg.pstats[id], t: L.teamOf(G, +id) })).filter(r => r.s.gp >= Math.max(1, (lg.tgp[r.t] || 0) * frac));
   }
   const winPct = (lg, t) => { const r = lg.rec[t]; return (r.w + r.l) ? r.w / (r.w + r.l) : 0.5; };
-  const mvpScore = (lg, r) => gscore(r.s) * (0.65 + 0.7 * winPct(lg, r.t)) * Math.min(1, r.s.gp / Math.max(1, lg.tgp[r.t] * 0.8));
+  // MVP ballot: game score is compared inside the player's position group (guards rack up assists, bigs rebounds) and against the
+  // league's best, weighted by team success and games played, with a little deterministic voter noise so the award is not a lock
+  function mvpRows(G, rows) {
+    const lg = G.league, grp = id => isG(id) ? 0 : isC(id) ? 2 : 1;
+    const gs = rows.map(r => gscore(r.s)), topAvg = a => { const t = a.slice().sort((x, y) => y - x).slice(0, 6); return Math.max(1, PB.avg(t)); };
+    const all = topAvg(gs), base = [0, 1, 2].map(k => topAvg(gs.filter((v, i) => grp(rows[i].id) === k).concat([0])));
+    const yr = G.fr ? G.fr.year : 0;
+    return rows.map((r, i) => {
+      const rel = 0.45 * gs[i] / all + 0.55 * gs[i] / base[grp(r.id)];
+      const noise = Math.max(-2 * L.voteNoise, Math.min(2 * L.voteNoise, new PB.RNG(((G.seed || 1) ^ Math.imul(r.id + 1, 2654435761) ^ Math.imul(yr + 7, 40503) ^ (lg.day || 0)) >>> 0).gauss() * L.voteNoise));
+      const v = Math.pow(rel, L.mvpPow) * (1 - L.mvpWin / 2 + L.mvpWin * winPct(lg, r.t)) * Math.min(1, r.s.gp / Math.max(1, lg.tgp[r.t] * 0.8)) * (1 + noise);
+      return Object.assign({}, r, { v });
+    }).sort((a, b) => b.v - a.v);
+  }
+  L.voteNoise = 0.10; L.mvpPow = 0.35; L.mvpWin = 1.4;   // tuned: ~14 different MVPs in 24 seasons, none above ~17%
   function defScore(G, r) {
     const lg = G.league, s = r.s, g = Math.max(1, s.gp);
     const opp = lg.rec[r.t], gp = Math.max(1, opp.w + opp.l);
@@ -422,7 +438,7 @@
   }
   L.allStarBreak = function (G) {
     const lg = G.league;
-    const rows = eligible(G, 0.4).map(r => Object.assign(r, { v: mvpScore(lg, r) })).sort((a, b) => b.v - a.v);
+    const rows = mvpRows(G, eligible(G, 0.4));
     const squads = {};
     if (lg.single) {
       // no conferences: captains alternate picks
@@ -461,11 +477,13 @@
     const lg = G.league;
     const rows = eligible(G, 0.6);
     if (!rows.length) return;
-    const byMvp = rows.map(r => Object.assign({}, r, { v: mvpScore(lg, r) })).sort((a, b) => b.v - a.v);
+    const byMvp = mvpRows(G, rows);
     const byDef = rows.map(r => Object.assign({}, r, { v: defScore(G, r) })).sort((a, b) => b.v - a.v);
     const bench = rows.filter(r => r.s.gs < r.s.gp * 0.35).map(r => Object.assign({}, r, { v: gscore(r.s) })).sort((a, b) => b.v - a.v);
     const lead = (k, f) => rows.slice().sort((a, b) => f(b.s) - f(a.s))[0];
+    const rook = G.fr && G.fr.rookie ? byMvp.filter(r => G.fr.rookie[r.id] === G.fr.year) : [];
     const A = {
+      roy: rook.length ? rook[0].id : null,
       mvp: byMvp[0].id, mvpVotes: byMvp.slice(0, 5).map(r => r.id),
       dpoy: byDef[0].id, sixth: bench.length ? bench[0].id : null,
       scoring: lead('pts', s => s.pts / s.gp).id, rebounding: lead('reb', s => (s.oreb + s.dreb) / s.gp).id, assists: lead('ast', s => s.ast / s.gp).id,
@@ -473,6 +491,7 @@
     };
     lg.awards = A;
     L.honor(lg, A.mvp, 'MVP'); L.honor(lg, A.dpoy, 'Defensive Player of the Year');
+    if (A.roy != null) L.honor(lg, A.roy, 'Rookie of the Year');
     if (A.sixth) L.honor(lg, A.sixth, 'Sixth Pokémon of the Year');
     L.honor(lg, A.scoring, 'Scoring Title'); L.honor(lg, A.rebounding, 'Rebounding Title'); L.honor(lg, A.assists, 'Assists Title');
     ['1st', '2nd', '3rd'].forEach((n, i) => A.allLeague[i].forEach(id => L.honor(lg, id, 'All-League ' + n + ' Team')));

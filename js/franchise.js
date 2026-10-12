@@ -68,7 +68,8 @@
       for (const t of order) {
         const top = avail.slice(0, Math.min(avail.length, n * 2 + 2));
         let best = null, bv = -1e9;
-        for (const m of top) { const v = vals[m.id] + (PB.draftValue(t, t.roster, m, rng, 0) - m.ovr) * 0.8; if (v > bv) { bv = v; best = m; } }
+        for (const m of top) { if (!PB.legalAdd(G, t.id, m.id)) continue; const v = vals[m.id] + (PB.draftValue(t, t.roster, m, rng, 0) - m.ovr) * 0.8; if (v > bv) { bv = v; best = m; } }
+        if (!best) best = avail.find(m => PB.legalAdd(G, t.id, m.id)) || avail[0];
         PB.Registry.claim(G, best.id, t.id); avail.splice(avail.indexOf(best), 1);
       }
     }
@@ -89,7 +90,9 @@
     // online leagues: every person's team is flagged before the Pokemon are handed out
     if (humans) for (const h of humans) { const T = G.teams[h]; T.user = true; T.identity = 'user'; T.strat = { off: 'balanced', def: 'man' }; }
     for (const t of G.teams) { t.conf = 'League'; t.div = 'League'; }
+    G.rules = { legCap: cfg.legCap || 0 };
     G.fr = { cfg, order, gens, nextIdx: gens.length, pool: {}, dev: {}, inj: {}, focus: {}, year: 1, stage: 'season', draft: null, history: [], evoLog: [], news: [], hall: [] };
+    PB.G = G;                                   // applies this league's talent variance before anyone is picked
     distribute(G, pool, rng);
     for (const t of G.teams) PB.autoLineup(t);
     return G;
@@ -112,7 +115,7 @@
       for (const id of T.roster) {
         const b = box[id]; const sec = b ? b.sec : 0;
         // development: practice for everyone, game minutes for the rotation
-        fr.dev[id] = (fr.dev[id] || 0) + 0.5 + sec / 60 * 0.07;
+        fr.dev[id] = (fr.dev[id] || 0) + (0.5 + sec / 60 * 0.07) * (PB.Var ? PB.Var.devMul(G, id) : 1);
         if (!cfg.injuries || sec <= 0 || fr.inj[id]) continue;
         const m = PB.BYID[id];
         const p = 0.00028 * (sec / 60) * (cfg.injRate || 1) * (1 + (60 - m.r.stamina) / 160);
@@ -146,6 +149,7 @@
     if (fr.inj[id]) { fr.inj[toId] = fr.inj[id]; delete fr.inj[id]; }
     if (fr.focus[id]) { fr.focus[toId] = 1; delete fr.focus[id]; }
     const lg = G.league; if (lg && lg.honors && lg.honors[id]) { lg.honors[toId] = (lg.honors[toId] || []).concat(lg.honors[id]); }
+    PB.Abil.evolveCarry(G, id, toId);
     fr.evoLog.push({ y: fr.year, t: tid, from: id, to: toId });
     F.news(G, PB.BYID[id].dispName + ' evolved into ' + PB.BYID[toId].dispName + '!', isHuman(G, tid));
     return toId;
@@ -285,6 +289,7 @@
     if (G.claimed[monId] != null) throw new Error('Already on a team');
     if (!fr.pool[monId]) throw new Error('Not a free agent');
     if (T.roster.length >= fr.cfg.rosterMax) throw new Error('Roster is full (' + fr.cfg.rosterMax + ')');
+    if (!PB.legalAdd(G, tid, monId)) throw new Error('Legendary limit reached (' + G.rules.legCap + ' per team)');
     PB.Registry.claim(G, monId, tid); delete fr.pool[monId];
     if (T.bench.length < 7 && T.starters.length >= 5) T.bench.push(monId);
     if (T.starters.length < 5 || T.bench.length < 7) PB.fixLineup(T);
@@ -320,7 +325,7 @@
       if (!fas.length) break;
       for (const t of order) {
         let best = null, bv = -1e9;
-        for (const m of fas) { if (G.claimed[m.id] != null) continue; const v = prospectValue(G, t, m, 1); if (v > bv) { bv = v; best = m; } }
+        for (const m of fas) { if (G.claimed[m.id] != null || !PB.legalAdd(G, t.id, m.id)) continue; const v = prospectValue(G, t, m, 1); if (v > bv) { bv = v; best = m; } }
         if (!best) continue;
         F.sign(G, t.id, best.id); acted = true;
       }

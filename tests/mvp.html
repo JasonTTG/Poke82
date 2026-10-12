@@ -1,0 +1,20 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script>
+<script>
+// MVP spread: simulate seasons (async chunks), keep them, then tally who wins MVP. window.report() re-scores awards on the stored leagues.
+PB.buildDB();PB.settings=PB.defaultSettings();
+const N=+(new URLSearchParams(location.search).get('n')||12),L=PB.League;window.Gs=[];
+window.report=function(){
+  const cnt={},top3={};let seasons=0,ovrSum=0;
+  for(const G of Gs){PB.G=G;L.seasonAwards(G);const A=G.league.awards;if(!A)continue;seasons++;cnt[A.mvp]=(cnt[A.mvp]||0)+1;ovrSum+=PB.BYID[A.mvp].ovr;A.mvpVotes.slice(0,3).forEach(id=>top3[id]=(top3[id]||0)+1)}
+  const arr=Object.entries(cnt).sort((a,b)=>b[1]-a[1]),t3=Object.entries(top3).sort((a,b)=>b[1]-a[1]);
+  return 'seasons '+seasons+'; distinct MVPs '+arr.length+'; top share '+(arr[0][1]/seasons).toFixed(2)+'; mean MVP ovr '+(ovrSum/seasons).toFixed(1)+'\n'+arr.map(([id,c])=>PB.BYID[id].dispName+'('+PB.BYID[id].ovr+'/p'+PB.BYID[id].r.pos1+') x'+c).join(', ')+'\ndistinct top-3 finishers '+t3.length;
+};
+let seed=1;
+(function step(){
+  if(seed>N){document.getElementById('o').textContent='sims done\n'+report();window.ready=true;return}
+  const G=PB.newGame(seed*7+1,'main',30,0);G.settings=PB.settings;PB.G=G;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+  G.league=L.create(G,82);L.simAll(G);Gs.push(G);seed++;
+  document.getElementById('o').textContent='simmed '+(seed-1)+'/'+N;setTimeout(step,0);
+})();
+</script>

@@ -93,7 +93,7 @@
     const mons = PB.MONS = window.POKE_RAW.map(r => {
       const m = Object.assign({}, r);
       m.def = r.def_;
-      m.dispName = PB.fmtName(r.name);
+      m.dispName = r.reg ? ({ alola: 'Alolan', galar: 'Galarian', hisui: 'Hisuian', paldea: 'Paldean' })[r.reg] + ' ' + PB.fmtName(r.name.split('-' + r.reg)[0]) : PB.fmtName(r.name);
       m.region = PB.REGIONS[r.gen];
       m.bst = r.hp + r.atk + r.def_ + r.spa + r.spd + r.spe;
       m.sprite = 'sprites/' + r.id + '.png';

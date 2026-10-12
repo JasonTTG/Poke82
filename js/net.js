@@ -46,6 +46,7 @@
     await N.loadPeer();
     N.mode = 'p2p'; N.connected = true; N.id = null;
   };
+  const J = m => typeof m === 'string' ? JSON.parse(m) : m;        // everything travels as JSON text
   const openPeer = id => new Promise((res, rej) => {
     const p = id ? new window.Peer(id) : new window.Peer();
     const t = setTimeout(() => { try { p.destroy(); } catch (e) { } rej(new Error('Could not reach the matchmaking service')); }, 10000);
@@ -76,12 +77,19 @@
         case 'hello': c.name = String(msg.name || 'Player').slice(0, 20); break;
         case 'join': {
           if (String(msg.code || '').toUpperCase() !== this.code) { c.send({ t: 'error', err: 'No room with code ' + msg.code }); return; }
-          if (this.started) { c.send({ t: 'error', err: 'That game has already started.' }); return; }
+          let back = null;
+          if (this.started) {
+            const names = (N.session && N.session.league && N.session.names) || {};
+            const old = msg.rejoin ? Object.keys(names).find(pid => names[pid] === String(msg.name || '').slice(0, 20) && !this.members.some(m => String(m.id) === pid)) : null;
+            if (old == null) { c.send({ t: 'error', err: 'That game has already started.' }); return; }
+            back = +old;
+          }
           if (this.members.length >= this.max) { c.send({ t: 'error', err: 'That room is full.' }); return; }
           c.name = String(msg.name || c.name).slice(0, 20);
           this.members.push(c);
           this.bcast({ t: 'room', room: this.info() });
           c.send({ t: 'joined', you: c.id });
+          if (back != null) N.hostRejoin(c, back);
           break;
         }
         case 'leave': this.drop(c); break;
@@ -115,26 +123,38 @@
       N.id = 1; N.link = o => setTimeout(() => relay.handle(local, o), 0);
       peer.on('connection', conn => {
         let c = null;
-        conn.on('open', () => { c = { id: relay.nextId++, name: 'Player', conn, send: o => { try { conn.send(o); } catch (e) { } } }; c.send({ t: 'welcome', id: c.id }); });
-        conn.on('data', m => { if (c) relay.handle(c, m); });
+        conn.on('open', () => { c = { id: relay.nextId++, name: 'Player', conn, send: o => { try { conn.send(JSON.stringify(o)); } catch (e) { } } }; c.send({ t: 'welcome', id: c.id }); });
+        conn.on('data', m => { if (c) { try { relay.handle(c, J(m)); } catch (e) { console.error(e); } } });
         conn.on('close', () => { if (c) relay.drop(c); });
       });
       peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) { } });
       N.room = relay.info(); fire('room', N.room);
     } catch (e) { fire('error', e.message || 'Could not host (is the internet reachable?)'); }
   };
-  N.p2pJoin = async function (code) {
+  // the host hands a returning player their team and the current league
+  N.hostRejoin = function (c, oldPid) {
+    const ses = N.session; if (!ses) return;
+    const team = ses.teams[oldPid]; delete ses.teams[oldPid]; delete ses.names[oldPid];
+    ses.teams[c.id] = team; ses.names[c.id] = c.name;
+    N.toAll({ k: 'teams', teams: ses.teams, names: ses.names });
+    N.to(c.id, { k: 'rejoin', data: PB.Save.serialize(PB.G), teams: ses.teams, names: ses.names, mode: ses.mode, seq: N.seq });
+    fire('teams', { teams: ses.teams, names: ses.names });
+  };
+  N.p2pJoin = async function (code, rejoin) {
     try {
+      if (rejoin) { for (const p of N.peers) { try { p.destroy(); } catch (e) { } } N.peers = []; }
+      N.lastCode = code;
       const peer = await openPeer(null); N.peers.push(peer);
       const conn = peer.connect('pokehoops-' + code, { reliable: true });
       N.conn = conn;
       const t = setTimeout(() => { if (!N.room) fire('error', 'No room with code ' + code + ' (or it could not be reached)'); }, 12000);
       peer.on('error', e => { clearTimeout(t); fire('error', e && e.type === 'peer-unavailable' ? 'No room with code ' + code : 'Connection problem: ' + (e && e.type)); });
       conn.on('open', () => {
-        N.link = o => { try { conn.send(o); } catch (e) { } };
-        N.send({ t: 'hello', name: N.name }); N.send({ t: 'join', code, name: N.name });
+        const direct = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } };
+        direct({ t: 'hello', name: N.name }); direct({ t: 'join', code, name: N.name, rejoin: !!rejoin });
       });
-      conn.on('data', m => { if (m && m.t === 'joined') clearTimeout(t); N._recv(m); });
+      // only the connection the host accepted becomes the live link (a retry that loses the race must not replace it)
+      conn.on('data', raw => { const m = J(raw); if (m && m.t === 'joined') { clearTimeout(t); N.conn = conn; N.link = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } }; } N._recv(m); });
       conn.on('close', () => { const had = !!N.room; N.room = null; N.link = null; if (had) { fire('closed', 'The host left or the connection dropped.'); fire('disconnected'); } });
     } catch (e) { fire('error', e.message || 'Could not connect'); }
   };
@@ -184,7 +204,7 @@
     if (N.isHost()) N._hostExec(name, args, N.id, cid);
     else N.toHost({ k: 'op', name, args, cid });
   };
-  const HOST_ONLY = ['beginOffseason', 'startDraft', 'startNextSeason', 'simDays', 'advance', 'simRest', 'simSeason', 'simToDay', 'forceDay', 'draftRest', 'fRest', 'fantasyStart'];
+  const HOST_ONLY = ['beginOffseason', 'startDraft', 'startNextSeason', 'simDays', 'advance', 'simRest', 'simSeason', 'simToDay', 'forceDay', 'draftRest', 'fRest', 'fantasyStart', 'rules'];
   N._hostExec = function (name, args, fromPid, cid) {
     const team = N.session && N.session.teams[fromPid];
     if (fromPid !== N.id && HOST_ONLY.includes(name)) { N.to(fromPid, { k: 'opErr', cid, err: 'Only the host can do that.' }); return; }

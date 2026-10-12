@@ -45,9 +45,10 @@
     return { gen: c.gen, type: c.type, region: PB.REGIONS[c.gen], count: PB.eligible(G, c.gen, c.type).length, rerolls: 0 };
   };
 
-  PB.genCandidates = function (G, rng, pickIdx, gen, type, n) {
+  PB.genCandidates = function (G, rng, pickIdx, gen, type, n, tid) {
     n = n || PB.DRAFT.candidates;
     let pool = PB.eligible(G, gen, type);
+    if (tid != null) { const ok = pool.filter(m => PB.legalAdd(G, tid, m.id)); if (ok.length) pool = ok; }
     const out = [];
     while (out.length < n && pool.length) {
       const idx = rng.weighted(pool.map(m => PB.pickWeight(m, pickIdx)));
@@ -105,8 +106,8 @@
       for (const tid of order) {
         const team = G.teams[tid];
         if (team.roster.length > pick) continue;
-        const combo = PB.rollCombo(G, rng);
-        const cands = PB.genCandidates(G, rng, pick, combo.gen, combo.type);
+        let combo, cands, tries = 0;
+        do { combo = PB.rollCombo(G, rng); cands = PB.genCandidates(G, rng, pick, combo.gen, combo.type, undefined, tid); } while (cands.every(m => !PB.legalAdd(G, tid, m.id)) && ++tries < 25);
         const m = PB.aiChoose(team, cands, rng);
         PB.Registry.claim(G, m.id, tid);
       }
@@ -119,7 +120,7 @@
     const G = {
       version: 1, seed, mode, nTeams, rng,
       claimed: {}, teams: PB.makeTeams(rng, nTeams, userSlot), userTeam: userSlot,
-      draft: null, league: null,
+      draft: null, league: null, rules: { legCap: 0 },
       settings: PB.defaultSettings(),
     };
     // pool-size sanity: refuse impossible league configs rather than generate duplicates
@@ -128,5 +129,5 @@
     return G;
   };
 
-  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.5, sfx: true, showHints: true, shotMeter: true, camera: 'behind', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
+  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.5, sfx: true, showHints: true, shotMeter: true, camera: 'behind', meterSkin: 'bar', meterColor: 'classic', autoReplay: true, touchControls: 'auto', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
 })(window.PB);

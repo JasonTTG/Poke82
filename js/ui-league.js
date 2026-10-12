@@ -9,7 +9,7 @@
     if (G.mode !== 'franchise') return tabs;
     const lg = G.league, base = [['home', 'Home'], ['schedule', 'Schedule'], ['standings', 'Standings'], ['stats', 'Stats'], ['playoffs', 'Playoffs'], ['awards', 'Awards'], ['boxes', 'Box Scores'], ['roster', 'Roster'], ['fa', 'Free Agents'], ['trades', 'Trades']];
     if (lg.phase === 'done') base.splice(1, 0, ['offseason', G.fr.stage === 'over' ? 'Final' : 'Offseason']);
-    base.push(['history', 'History'], ['save', 'Save / Load']);
+    base.push(['records', 'Records'], ['history', 'History'], ['rules', 'Rules'], ['save', 'Save / Load']);
     return base;
   };
   const recStr = r => r.w + '-' + r.l;
@@ -207,7 +207,7 @@
     const A = lg.awards;
     if (A) {
       html += `<div class="panel"><h3>Season awards</h3>
-        ${[['MVP', A.mvp], ['Defensive Player of the Year', A.dpoy], ['Sixth Pokémon of the Year', A.sixth], ['Scoring Title', A.scoring], ['Rebounding Title', A.rebounding], ['Assists Title', A.assists], ['Playoffs MVP', A.playoffMvp]].filter(x => x[1] != null).map(([n, id]) => `<div class="row between" style="padding:3px 0"><b style="min-width:230px">${n}</b>${who(id)}${line(id)}</div>`).join('')}</div>
+        ${[['MVP', A.mvp], ['Defensive Player of the Year', A.dpoy], ['Rookie of the Year', A.roy], ['Sixth Pokémon of the Year', A.sixth], ['Scoring Title', A.scoring], ['Rebounding Title', A.rebounding], ['Assists Title', A.assists], ['Playoffs MVP', A.playoffMvp]].filter(x => x[1] != null).map(([n, id]) => `<div class="row between" style="padding:3px 0"><b style="min-width:230px">${n}</b>${who(id)}${line(id)}</div>`).join('')}</div>
         <div class="layout2" style="--side:1fr">
           <div class="panel">${['1st', '2nd', '3rd'].map((n, i) => `<h3 style="margin-top:${i ? 10 : 0}px">All-League ${n} Team</h3>${list(A.allLeague[i])}`).join('')}</div>
           <div class="panel">${['1st', '2nd'].map((n, i) => `<h3 style="margin-top:${i ? 10 : 0}px">All-Defensive ${n} Team</h3>${list(A.allDefense[i])}`).join('')}
@@ -223,23 +223,81 @@
   };
 
   // ---------------- BOX SCORES ----------------
+  // ---- box score: players (with efficiency), team comparison, shot chart ----
+  const gmsc = s => s.pts + 0.4 * s.fgm - 0.7 * s.fga - 0.4 * (s.fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov;
+  const efg = s => s.fga ? (s.fgm + 0.5 * s.tpm) / s.fga : 0;
+  const tsp = s => (s.fga + 0.44 * s.fta) ? s.pts / (2 * (s.fga + 0.44 * s.fta)) : 0;
+  const rowsOf = boxArr => Object.keys(boxArr).map(id => ({ id: +id, s: Array.isArray(boxArr[id]) ? L.unpackBox(boxArr[id]) : boxArr[id] })).sort((a, b) => b.s.sec - a.s.sec);
+  const totalsOf = boxArr => { const tot = PB.newStat(); rowsOf(boxArr).forEach(r => PB.STAT_KEYS.forEach(k => tot[k] += r.s[k])); return tot; };
   function boxTable(G, tid, boxArr) {
-    const rows = Object.keys(boxArr).map(id => ({ id: +id, s: Array.isArray(boxArr[id]) ? L.unpackBox(boxArr[id]) : boxArr[id] })).sort((a, b) => b.s.sec - a.s.sec);
-    const tot = PB.newStat(); rows.forEach(r => PB.STAT_KEYS.forEach(k => tot[k] += r.s[k]));
-    return `<h3>${esc(G.teams[tid].name)}</h3><table class="t"><thead><tr><th>Pokémon</th><th class="n">MIN</th><th class="n">PTS</th><th class="n">FG</th><th class="n">3P</th><th class="n">FT</th><th class="n">REB</th><th class="n">AST</th><th class="n">STL</th><th class="n">BLK</th><th class="n">TO</th><th class="n">PF</th><th class="n">+/-</th></tr></thead><tbody>
-      ${rows.map(r => { const m = PB.BYID[r.id], s = r.s; return `<tr><td>${UI.spr(m, 22)} ${esc(m.dispName)} <span class="dim">${UI.vis().P && G.teams[tid].starters.includes(m.id) ? m.pos[0] : ''}</span></td><td class="n">${Math.round(s.sec / 60)}</td><td class="n"><b>${s.pts}</b></td><td class="n">${s.fgm}-${s.fga}</td><td class="n">${s.tpm}-${s.tpa}</td><td class="n">${s.ftm}-${s.fta}</td><td class="n">${s.oreb + s.dreb}</td><td class="n">${s.ast}</td><td class="n">${s.stl}</td><td class="n">${s.blk}</td><td class="n">${s.tov}</td><td class="n">${s.pf}</td><td class="n">${s.pm > 0 ? '+' : ''}${s.pm}</td></tr>`; }).join('')}
-      <tr style="font-weight:800"><td>Total</td><td class="n"></td><td class="n">${tot.pts}</td><td class="n">${tot.fgm}-${tot.fga} (${UI.pct(tot.fgm, tot.fga)}%)</td><td class="n">${tot.tpm}-${tot.tpa}</td><td class="n">${tot.ftm}-${tot.fta}</td><td class="n">${tot.oreb + tot.dreb}</td><td class="n">${tot.ast}</td><td class="n">${tot.stl}</td><td class="n">${tot.blk}</td><td class="n">${tot.tov}</td><td class="n">${tot.pf}</td><td></td></tr></tbody></table>`;
+    const rows = rowsOf(boxArr), tot = totalsOf(boxArr);
+    return `<h3>${esc(G.teams[tid].name)}</h3><div class="scroll" style="max-height:none"><table class="t"><thead><tr><th>Pokémon</th><th class="n">MIN</th><th class="n">PTS</th><th class="n">FG</th><th class="n">3P</th><th class="n">FT</th><th class="n">REB</th><th class="n">AST</th><th class="n">STL</th><th class="n">BLK</th><th class="n">TO</th><th class="n">PF</th><th class="n">+/-</th><th class="n">eFG%</th><th class="n">GmSc</th></tr></thead><tbody>
+      ${rows.map(r => { const m = PB.BYID[r.id], s = r.s; return `<tr><td>${UI.spr(m, 22)} ${esc(m.dispName)} <span class="dim">${UI.vis().P && G.teams[tid].starters.includes(m.id) ? m.pos[0] : ''}</span></td><td class="n">${Math.round(s.sec / 60)}</td><td class="n"><b>${s.pts}</b></td><td class="n">${s.fgm}-${s.fga}</td><td class="n">${s.tpm}-${s.tpa}</td><td class="n">${s.ftm}-${s.fta}</td><td class="n">${s.oreb + s.dreb}</td><td class="n">${s.ast}</td><td class="n">${s.stl}</td><td class="n">${s.blk}</td><td class="n">${s.tov}</td><td class="n">${s.pf}</td><td class="n">${s.pm > 0 ? '+' : ''}${s.pm}</td><td class="n">${s.fga ? (efg(s) * 100).toFixed(0) : '-'}</td><td class="n">${gmsc(s).toFixed(1)}</td></tr>`; }).join('')}
+      <tr style="font-weight:800"><td>Total</td><td class="n"></td><td class="n">${tot.pts}</td><td class="n">${tot.fgm}-${tot.fga} (${UI.pct(tot.fgm, tot.fga)}%)</td><td class="n">${tot.tpm}-${tot.tpa}</td><td class="n">${tot.ftm}-${tot.fta}</td><td class="n">${tot.oreb + tot.dreb}</td><td class="n">${tot.ast}</td><td class="n">${tot.stl}</td><td class="n">${tot.blk}</td><td class="n">${tot.tov}</td><td class="n">${tot.pf}</td><td></td><td class="n">${(efg(tot) * 100).toFixed(0)}</td><td></td></tr></tbody></table></div>`;
+  }
+  function teamCompareHtml(G, b) {
+    const T = [totalsOf(b.box[1]), totalsOf(b.box[0])], names = [G.teams[b.a], G.teams[b.h]];
+    const pct = (x, y) => y ? (x / y * 100).toFixed(1) + '%' : '-';
+    const lines = [['Field goals', t => t.fgm + '-' + t.fga + ' (' + pct(t.fgm, t.fga) + ')'], ['Threes', t => t.tpm + '-' + t.tpa + ' (' + pct(t.tpm, t.tpa) + ')'], ['Free throws', t => t.ftm + '-' + t.fta], ['Rebounds', t => (t.oreb + t.dreb) + ' (' + t.oreb + ' off)'], ['Assists', t => t.ast], ['Turnovers', t => t.tov], ['Steals', t => t.stl], ['Blocks', t => t.blk], ['Fouls', t => t.pf]];
+    const four = [['Shooting (eFG%)', t => (efg(t) * 100).toFixed(1)], ['Turnover rate', (t, o) => (t.tov / Math.max(1, t.fga + 0.44 * t.fta + t.tov) * 100).toFixed(1)], ['Off. rebound rate', (t, o) => (t.oreb / Math.max(1, t.oreb + o.dreb) * 100).toFixed(1)], ['Free-throw rate', t => (t.fta / Math.max(1, t.fga) * 100).toFixed(1)]];
+    return `<table class="t" style="max-width:560px"><thead><tr><th class="n">${UI.logo(names[0], 18)} ${esc(names[0].abbr)}</th><th class="center">Team stats</th><th>${UI.logo(names[1], 18)} ${esc(names[1].abbr)}</th></tr></thead><tbody>
+      ${lines.map(([l, f]) => `<tr><td class="n"><b>${f(T[0])}</b></td><td class="center dim">${l}</td><td><b>${f(T[1])}</b></td></tr>`).join('')}
+      <tr><td colspan="3" class="center dim" style="padding-top:10px">Four factors</td></tr>
+      ${four.map(([l, f]) => `<tr><td class="n"><b>${f(T[0], T[1])}</b></td><td class="center dim">${l}</td><td><b>${f(T[1], T[0])}</b></td></tr>`).join('')}</tbody></table>`;
+  }
+  // simulated games have no shot locations: spread each player's attempts around the floor in line with their game
+  function synthShots(G, b) {
+    const rng = new PB.RNG(((b.day + 1) * 7919 + b.h * 131 + b.a) >>> 0), out = [];
+    for (let s = 0; s < 2; s++) for (const id in b.box[s]) {
+      const x = Array.isArray(b.box[s][id]) ? L.unpackBox(b.box[s][id]) : b.box[s][id], m = PB.BYID[id];
+      const two = x.fga - x.tpa, twoMade = x.fgm - x.tpm;
+      const rimW = m.tend.rimRate + 0.1, midW = m.tend.midRate * 0.7 + 0.05, postW = m.tend.postRate;
+      let made3 = x.tpm, made2 = twoMade;
+      const k = s === 0 ? 1 : 0;                  // box[0] is the home side: side index 0
+      for (let i = 0; i < x.tpa; i++) { const ang = rng.range(-1.25, 1.25), r = 23.75 + rng.range(0, 2.5), ax = 88.75 - Math.cos(ang) * r, ay = 25 + Math.sin(ang) * r; const corner = rng.chance(0.2); const cy = rng.chance(0.5) ? 3 : 47; out.push([s, corner ? 94 - rng.range(1, 13) : Math.max(40, ax), corner ? cy : clamp(ay, 1, 49), made3-- > 0 && rng.chance(Math.min(1, x.tpm / Math.max(1, x.tpa) + 0.0)) ? 1 : 0, 3, +id]); }
+      for (let i = 0; i < two; i++) { const t = rng.weighted([rimW, midW, postW]); const rr = t === 0 ? rng.range(0.5, 5) : t === 2 ? rng.range(4, 11) : rng.range(9, 21), ang = rng.range(-1.4, 1.4); out.push([s, 88.75 - Math.cos(ang) * rr, 25 + Math.sin(ang) * rr, 0, t === 0 ? 0 : t === 2 ? 2 : 1, +id]); }
+      // make exactly twoMade of the two-pointers and tpm of the threes
+      const mine3 = out.filter(o => o[0] === s && o[5] === +id && o[4] === 3), mine2 = out.filter(o => o[0] === s && o[5] === +id && o[4] !== 3);
+      mine3.forEach(o => o[3] = 0); mine2.forEach(o => o[3] = 0);
+      rng.shuffle(mine3).slice(0, x.tpm).forEach(o => o[3] = 1); rng.shuffle(mine2).slice(0, Math.max(0, twoMade)).forEach(o => o[3] = 1);
+    }
+    return out;
+  }
+  const clamp = PB.clamp;
+  function courtSvg(shots) {
+    // attack half drawn with the baseline at the top: x = floor width (0..50), y = distance from baseline (94 - attack x)
+    const dots = shots.map(sh => { const X = clamp(sh[2], 0.5, 49.5), Y = clamp(94 - sh[1], 0.5, 46.5); return sh[3] ? `<circle cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="0.95" fill="#2fd47a" stroke="#0b3d22" stroke-width=".2"/>` : `<path d="M${(X - .8).toFixed(1)} ${(Y - .8).toFixed(1)}l1.6 1.6m0 -1.6l-1.6 1.6" stroke="#ff5a5f" stroke-width=".45" stroke-linecap="round"/>`; }).join('');
+    return `<svg viewBox="-1 -1 52 49" style="width:100%;max-width:440px;background:#c98d4f;border-radius:8px"><g fill="none" stroke="#fff" stroke-width=".35" opacity=".9"><rect x="0" y="0" width="50" height="47"/><rect x="17" y="0" width="16" height="19"/><path d="M19 19 A6 6 0 0 0 31 19"/><path d="M19 19 A6 6 0 0 1 31 19" stroke-dasharray="1 1"/><path d="M3 0 V14 A23.75 23.75 0 0 0 47 14 V0"/><circle cx="25" cy="5.25" r="4"/><path d="M22 4 H28"/></g><circle cx="25" cy="5.25" r=".75" fill="none" stroke="#ff7a1a" stroke-width=".3"/>${dots}</svg>`;
+  }
+  function chartHtml(G, b) {
+    const shots = b.shots && b.shots.length ? b.shots : synthShots(G, b), real = !!(b.shots && b.shots.length);
+    const side = UI._boxSide == null ? 1 : UI._boxSide, pid = UI._boxPid || 'all';
+    const teamShots = shots.filter(x => x[0] === side);
+    const ids = [...new Set(teamShots.map(x => x[5]))];
+    const sel = pid === 'all' ? teamShots : teamShots.filter(x => String(x[5]) === String(pid));
+    const made = sel.filter(x => x[3]).length;
+    const zone = (name, f) => { const z = sel.filter(f); return `<div class="row between"><span>${name}</span><b>${z.filter(x => x[3]).length}/${z.length}${z.length ? ' · ' + Math.round(z.filter(x => x[3]).length / z.length * 100) + '%' : ''}</b></div>`; };
+    const tm = side === 1 ? G.teams[b.a] : G.teams[b.h];
+    return `<div class="row wrap" style="margin-bottom:6px"><select data-change="boxSide"><option value="1" ${side === 1 ? 'selected' : ''}>${esc(G.teams[b.a].name)}</option><option value="0" ${side === 0 ? 'selected' : ''}>${esc(G.teams[b.h].name)}</option></select>
+      <select data-change="boxPid"><option value="all">All players</option>${ids.map(id => `<option value="${id}" ${String(pid) === String(id) ? 'selected' : ''}>${esc(PB.BYID[id].dispName)}</option>`).join('')}</select><span class="dim" style="font-size:12px">${real ? 'Real shot locations' : 'Estimated locations (simulated game)'}</span></div>
+      <div class="row wrap" style="align-items:flex-start"><div class="grow" style="min-width:260px">${courtSvg(sel)}</div><div style="min-width:200px;font-size:13px"><div class="kpi"><div><b>${made}/${sel.length}</b><span>FG</span></div><div><b>${sel.length ? Math.round(made / sel.length * 100) : 0}%</b><span>FG%</span></div></div>
+        <div style="margin-top:8px">${zone('At the rim', x => x[4] === 0)}${zone('Post', x => x[4] === 2)}${zone('Mid-range', x => x[4] === 1)}${zone('Three-pointers', x => x[4] === 3)}</div><div class="dim" style="font-size:11px;margin-top:6px"><span style="color:#2fd47a">●</span> made · <span style="color:#ff5a5f">✕</span> missed</div></div></div>`;
   }
   UI.boxModal = function (b) {
-    const G = PB.G;
-    const q = b.q;
+    const G = PB.G; UI._box = b; UI._boxTab = UI._boxTab || 'box';
+    const q = b.q || [[b.sc[0]], [b.sc[1]]];
     const qh = q[0].map((_, i) => `<th class="n">${i < 4 ? 'Q' + (i + 1) : 'OT' + (i - 3)}</th>`).join('');
-    UI.modal(`<div class="row between"><h2 style="margin:0">${esc(G.teams[b.a].name)} @ ${esc(G.teams[b.h].name)} ${b.po ? '<span class="tag">PLAYOFFS</span>' : ''}</h2><button data-act="closeModal" autofocus>Close</button></div>
+    const tab = UI._boxTab;
+    UI.modal(`<div class="row between"><h2 style="margin:0">${UI.logo(G.teams[b.a], 24)} ${esc(G.teams[b.a].name)} @ ${UI.logo(G.teams[b.h], 24)} ${esc(G.teams[b.h].name)} ${b.po ? '<span class="tag">PLAYOFFS</span>' : ''}</h2><button data-act="closeModal" autofocus>Close</button></div>
       <table class="t" style="max-width:420px;margin:8px 0"><thead><tr><th></th>${qh}<th class="n">T</th></tr></thead><tbody>
       <tr><td>${esc(G.teams[b.a].abbr)}</td>${q[1].map(x => `<td class="n">${x}</td>`).join('')}<td class="n"><b>${b.sc[1]}</b></td></tr>
       <tr><td>${esc(G.teams[b.h].abbr)}</td>${q[0].map(x => `<td class="n">${x}</td>`).join('')}<td class="n"><b>${b.sc[0]}</b></td></tr></tbody></table>
-      ${boxTable(G, b.a, b.box[1])}<div style="height:10px"></div>${boxTable(G, b.h, b.box[0])}`);
+      <div class="row" style="margin-bottom:8px">${[['box', 'Box score'], ['team', 'Team stats'], ['chart', 'Shot chart']].map(([k, l]) => `<button class="small ${tab === k ? 'primary' : ''}" data-act="boxTab" data-t="${k}">${l}</button>`).join('')}</div>
+      ${tab === 'team' ? teamCompareHtml(G, b) : tab === 'chart' ? chartHtml(G, b) : `${boxTable(G, b.a, b.box[1])}<div style="height:10px"></div>${boxTable(G, b.h, b.box[0])}`}`);
   };
+  A.boxTab = (el, d) => { UI._boxTab = d.t; UI.boxModal(UI._box); };
+  A.boxSide = el => { UI._boxSide = +el.value; UI._boxPid = 'all'; UI.boxModal(UI._box); };
+  A.boxPid = el => { UI._boxPid = el.value; UI.boxModal(UI._box); };
   TAB.boxes = function (G, lg) {
     const list = lg.userBoxes.map((b, i) => ({ b, i })).filter(x => x.b.h === G.userTeam || x.b.a === G.userTeam).reverse();
     return `<div class="panel"><h3>Your games — click for the full box score</h3><table class="t"><thead><tr><th>Date</th><th></th><th>Opponent</th><th>Result</th><th>Top performer</th></tr></thead><tbody>

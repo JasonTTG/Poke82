@@ -98,20 +98,30 @@
     match.ugame = ug; match.exhibition = !!(opts && opts.exhibition);
     beginScreen();
   }
+  // any custom match: quick play, 3v3, practice, co-op. hooks.onEnd(result, match, forfeited)
+  UI.launchMatch = function (G, mopts, hooks) {
+    paused = false; PB.Input.mode = 'game';
+    match = new PB.Match(G, Object.assign({ gameSpeed: PB.settings.gameSpeed || 1, rng: new PB.RNG((Math.random() * 4294967296) >>> 0) }, mopts));
+    match.custom = hooks || {}; match.exhibition = true; match.ugame = null;
+    startLatch = true;
+    beginScreen();
+  };
+  UI.activeMatch = () => match;
   // two people, two computers: both run the same match from the same seed and exchange controller input every tick
   const TICK = 1 / 60;
   const NEUTRAL = { mx: 0, my: 0, rx: 0, ry: 0, rt: 0, lt: 0, held: {}, pressed: {}, acts: [] };
   UI.startOnlineMatch = function (cfg) {
     paused = false; PB.Input.mode = 'game';
-    match = new PB.Match(cfg.G, { oppId: cfg.oppId, userTeam: cfg.userTeam, quarterMin: cfg.qMin, userHome: cfg.userHome, gameSpeed: cfg.speed || 1, rng: new PB.RNG(cfg.seed), twoHumans: true, me: cfg.me, noDiff: true, shotMeter: cfg.shotMeter !== false });
+    match = new PB.Match(cfg.G, { oppId: cfg.oppId, userTeam: cfg.userTeam, quarterMin: cfg.qMin, userHome: cfg.userHome, gameSpeed: cfg.speed || 1, rng: new PB.RNG(cfg.seed), twoHumans: true, ctrls: cfg.ctrls, me: cfg.me, meCi: cfg.meCi != null ? cfg.meCi : cfg.me, noDiff: true, shotMeter: cfg.shotMeter !== false });
     match.ugame = cfg.ugame || null; match.exhibition = !!cfg.exhibition;
     const D = 6;
-    const N = match.online = { cfg, D, gen: 0, sim: 0, acc: 0, q: [new Map(), new Map()], out: [], pressedAcc: {}, acts: [], cs: {}, rcs: {}, stallT: 0, paused: false, pauser: null, lastInp: null, ended: false };
+    const N = match.online = { cfg, D, gen: 0, sim: 0, acc: 0, q: [new Map(), new Map()], out: [], sent: new Map(), ackBy: D - 1, nextRecv: D, rcvd: new Set(), nSend: 0, pressedAcc: {}, acts: [], cs: {}, rcs: {}, stallT: 0, paused: false, pauser: null, lastInp: null, ended: false };
     for (let t = 0; t < D; t++) { N.q[0].set(t, NEUTRAL); N.q[1].set(t, NEUTRAL); }
     startLatch = true;
     beginScreen();
   };
   function beginScreen() {
+    if (PB.Touch) PB.Touch.show();
     cam.fx = 47; cam.fy = 25; cam.init = false; cam.yaw = 0;
     // court players' sprites load first, fans after
     for (const t of match.teams) for (const id of t.roster) sprite(PB.BYID[id]);
@@ -125,6 +135,7 @@
     raf = requestAnimationFrame(frame);
   }
   function stopGame() {
+    if (PB.Touch) PB.Touch.hide();
     running = false; cancelAnimationFrame(raf);
     window.removeEventListener('resize', resize);
     wrap().classList.remove('open');
@@ -457,20 +468,79 @@
     const [mx, my] = map(I.lx, I.ly), [rx, ry] = map(I.rx, I.ry);
     return { mx, my, rx, ry, held, pressed, rt: I.rt, lt: I.lt };
   }
+  // ---------- instant replay ----------
+  let replay = null;
+  UI.startReplay = function (clip, fromPause) {
+    if (!match || !clip || clip.frames.length < 4) return;
+    UI._modalBack = null; UI.closeModal();
+    const rm = Object.create(match);
+    rm.bodies = [[], []]; rm.replay = true; rm.meter = null; rm.ft = null; rm.flashT = 0; rm.flash = null; rm.events = []; rm.phase = 'live';
+    for (const bm of clip.bodies) rm.bodies[bm.s].push({ s: bm.s, slot: bm.slot, mon: bm.mon, pl: bm.pl, r: bm.r, x: 0, y: 0, z: 0, vx: 0, vy: 0, jump: 0, face: 1, ctl: false, shootT: 0 });
+    rm.allBodies = () => rm.bodies[0].concat(rm.bodies[1]);
+    rm.ball = { x: 0, y: 0, z: 3, holder: null, state: 'loose' };
+    replay = { clip, acc: 0, rm, fromPause: !!fromPause, was: paused };
+    paused = true; PB.Input.mode = 'game';
+  };
+  function stepReplay(dt) {
+    const R = replay, fr = R.clip.frames;
+    R.acc += dt * 0.7;
+    const pos = R.acc * 15, i = Math.floor(pos), f = pos - i;
+    if (i >= fr.length - 1) { endReplay(); return false; }
+    const a = fr[i], b = fr[i + 1], rm = R.rm, bodies = rm.allBodies();
+    for (let k = 0; k < bodies.length; k++) {
+      const p = a.b[k], q = b.b[k], o = bodies[k];
+      o.x = p[0] + (q[0] - p[0]) * f; o.y = p[1] + (q[1] - p[1]) * f; o.z = p[2] + (q[2] - p[2]) * f; o.vx = p[3]; o.vy = p[4]; o.jump = p[5]; o.face = p[6]; o.shootT = p[7];
+    }
+    rm.ball.x = a.ball[0] + (b.ball[0] - a.ball[0]) * f; rm.ball.y = a.ball[1] + (b.ball[1] - a.ball[1]) * f; rm.ball.z = a.ball[2] + (b.ball[2] - a.ball[2]) * f;
+    rm.ball.holder = a.ball[3] ? true : null; rm.t = a.t + (b.t - a.t) * f; rm.poss = a.p;
+    return true;
+  }
+  function endReplay() {
+    const R = replay; replay = null; if (!R) return;
+    last = performance.now();
+    if (R.fromPause) pause(); else { paused = false; startLatch = true; PB.Input.mode = 'game'; }
+    if (match) match.replayOffer = null;
+  }
+  A.watchClip = (el, d) => { const c = match.highlights[+d.i]; if (c) UI.startReplay(c, true); };
+  function inputState2() {
+    const I = PB.Input;
+    const p = I.poll2();
+    const map = (sx, sy) => cam.fwd ? [cam.right[0] * sx - cam.fwd[0] * sy, cam.right[1] * sx - cam.fwd[1] * sy] : [sx, sy];
+    const [mx, my] = map(p.lx, p.ly), [rx, ry] = map(p.rx, p.ry);
+    return { mx, my, rx, ry, held: p.held, pressed: p.pressed, rt: p.rt, lt: p.lt };
+  }
   function frame(now) {
     if (!running) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (replay) {
+      const inp = inputState();
+      if (inp.pressed.A || inp.pressed.B || inp.pressed.X || inp.pressed.Y || inp.pressed.START || inp.pressed.BACK) endReplay();
+      else if (stepReplay(dt)) {
+        const keep = match; match = replay.rm;
+        try { render(dt); } finally { match = keep; }
+        const g = ctx, w = cv().width, h = cv().height, fs = Math.round(h * 0.034);
+        g.font = `900 italic ${fs}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.fillStyle = 'rgba(8,12,22,.8)';
+        const lbl = '◀ REPLAY  ' + replay.clip.label + '  ·  Q' + replay.clip.q + ' ' + replay.clip.clock;
+        const tw = g.measureText(lbl).width + fs; g.fillRect(14, 14, tw, fs * 1.7); g.fillStyle = '#ffd23f'; g.fillText(lbl, 14 + fs / 2, 14 + fs * 1.2);
+        g.font = `600 ${Math.round(fs * 0.5)}px Segoe UI, sans-serif`; g.fillStyle = '#cfd8ea'; g.fillText('press any button to skip', 14 + fs / 2, 14 + fs * 2.1);
+      }
+      raf = requestAnimationFrame(frame); return;
+    }
     if (match.online) onlineFrame(dt);
     else if (!paused) {
       const inp = inputState();
+      if (inp.pressed.BACK && match.replayOffer && match.t < match.replayOffer.until && !match.online) { UI.startReplay(match.replayOffer.clip, false); raf = requestAnimationFrame(frame); return; }
+      const second = match.U.length > 1 && match.U[1].side === match.U[0].side;
+      const inp2 = second ? inputState2() : null;
       // the Start/Esc press that closed the pause menu must be released before it can pause again
       if (startLatch && !inp.held.START) startLatch = false;
       if (inp.pressed.START && !startLatch) pause();
       else {
         let rem = dt, first = true;
+        const np = i => Object.assign({}, i, { pressed: {} });
         while (rem > 1e-4) {
           const d = Math.min(1 / 60, rem); rem -= d;
-          if (!match.over) match.update(d, first ? inp : Object.assign({}, inp, { pressed: {} }));
+          if (!match.over) match.update(d, first ? inp : np(inp), second ? (first ? inp2 : np(inp2)) : undefined);
           first = false;
         }
       }
@@ -497,17 +567,20 @@
   function applyAct(s, a) {
     const N = match.online;
     switch (a[0]) {
-      case 'P': N.paused = true; N.pauser = s; if (s !== match.me) PB.toast(match.teams[s].abbr + ' paused the game'); break;
-      case 'R': N.paused = false; if (s !== match.me && paused) { UI._modalBack = null; UI.closeModal(); resume(); } break;
-      case 'S': { const sd = match.gs(s), pl = sd.players[a[2]]; if (pl && a[1] >= 0 && a[1] < 5 && sd.bench.includes(pl) && !pl.dq) match.forceSub(s, a[1], pl); break; }
-      case 'T': if ((a[1] === 'off' && PB.OFF_STRATS[a[2]]) || (a[1] === 'def' && PB.DEF_STRATS[a[2]])) match.gs(s).strat[a[1]] = a[2]; break;
-      case 'A': { const sd = match.gs(s); sd.auto = !sd.auto; break; }
+      case 'P': N.paused = true; N.pauser = s; if (s !== match.meCi) PB.toast(match.teams[match.U[s].side].abbr + ' paused the game'); break;
+      case 'R': N.paused = false; if (s !== match.meCi && paused) { UI._modalBack = null; UI.closeModal(); resume(); } break;
+      case 'S': { const sd = match.gs(match.U[s].side), pl = sd.players[a[2]]; if (pl && a[1] >= 0 && a[1] < sd.court.length && sd.bench.includes(pl) && !pl.dq) match.forceSub(match.U[s].side, a[1], pl); break; }
+      case 'T': if ((a[1] === 'off' && PB.OFF_STRATS[a[2]]) || (a[1] === 'def' && PB.DEF_STRATS[a[2]])) match.gs(match.U[s].side).strat[a[1]] = a[2]; break;
+      case 'A': { const sd = match.gs(match.U[s].side); sd.auto = !sd.auto; break; }
+      case 'O': match.callTimeout(match.U[s].side); break;
     }
   }
   PB.Net && PB.Net.on('mi', d => {
     if (!match || !match.online) return;
-    const N = match.online, r = 1 - match.me;
-    for (const [t, a] of d.fr) N.q[r].set(t, decodeFrame(a));
+    const N = match.online, r = 1 - match.meCi;
+    for (const [t, a] of d.fr) if (!N.rcvd.has(t)) { N.rcvd.add(t); N.q[r].set(t, decodeFrame(a)); }
+    while (N.rcvd.has(N.nextRecv)) N.nextRecv++;
+    if (d.ack != null && d.ack > N.ackBy) { for (let t = N.ackBy + 1; t <= d.ack; t++) N.sent.delete(t); N.ackBy = d.ack; }
     N.lastRecv = performance.now();
     if (d.cs) for (const k in d.cs) N.rcs[k] = d.cs[k];
   });
@@ -545,9 +618,16 @@
       const f = encodeFrame(li ? { mx: li.mx, my: li.my, rx: li.rx, ry: li.ry, rt: li.rt, lt: li.lt, held: li.held, pressed: N.pressedAcc } : NEUTRAL, N.acts);
       N.acts = []; N.pressedAcc = {};
       const t = N.gen + N.D; N.gen++;
-      N.q[m.me].set(t, decodeFrame(f)); N.out.push([t, f]);
+      N.q[m.meCi].set(t, decodeFrame(f)); N.out.push([t, f]); N.sent.set(t, f);
     }
-    if (N.out.length) { const msg = { k: 'mi', fr: N.out }; if (Object.keys(N.cs).length) { msg.cs = N.cs; N.cs = {}; } PB.Net.to(N.cfg.peer, msg); N.out = []; }
+    // frames go out as they are made; every quarter second the whole unacknowledged window is repeated, so anything sent before the
+    // other side's match had started (or lost) still arrives. Acknowledgements ride along.
+    N.nSend++;
+    if (N.out.length || N.nSend % 15 === 0) {
+      let fr = N.out;
+      if (N.nSend % 15 === 0) { fr = []; for (let t = N.ackBy + 1; t < N.gen + N.D && fr.length < 150; t++) { const f = N.sent.get(t); if (f) fr.push([t, f]); } }
+      const msg = { k: 'mi', fr, ack: N.nextRecv - 1 }; if (Object.keys(N.cs).length) { msg.cs = N.cs; N.cs = {}; } PB.Net.to(N.cfg.peer, msg); N.out = [];
+    }
     // advance the shared simulation whenever both players' input for the next tick is here
     let n = 0, moved = false;
     while (n < 8 && !m.over && N.q[0].has(N.sim) && N.q[1].has(N.sim)) {
@@ -568,8 +648,8 @@
   // ---------- pause menu ----------
   // pause-menu controls view: both keyboard and controller bindings, remappable mid-match
   const PADN = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L-Stick', 'R-Stick', 'D-Up', 'D-Down', 'D-Left', 'D-Right', 'Guide'];
-  const CTRL_ROWS = [['A', 'Pass', 'Switch player'], ['B', 'Bounce pass', 'Take charge'], ['X', 'Shoot (hold, release at the top)', 'Steal'], ['Y', 'Lob', 'Block / rebound'],
-    ['RB', 'Icon pass (+ A/B/X/Y)', 'Next defender'], ['LB', 'Call screen', 'Change defense'], ['LT', 'Post up', 'Defensive stance'], ['RT', 'Sprint', 'Sprint'], ['START', 'Pause', 'Pause']];
+  const CTRL_ROWS = [['A', 'Pass', 'Switch player'], ['B', 'Bounce pass', 'Take charge'], ['X', 'Shoot (hold, release at the top)', 'Steal · hold = hand in the shooter\'s face'], ['Y', 'Lob / alley-oop to a cutter', 'Block / rebound'],
+    ['RB', 'Icon pass (+ A/B/X/Y)', 'Next defender · hold = deny the pass'], ['LB', 'Call screen', 'Change defense'], ['LT', 'Post up, then right stick: toward the rim = drop step, sideways = hook/spin, back = fadeaway', 'Defensive stance · hold on a rebound = box out'], ['RT', 'Sprint', 'Sprint'], ['START', 'Pause (timeouts here)', 'Pause']];
   function controlsView() {
     const I = PB.Input;
     const kb = a => (I.keyMap[a] || []).map(I.keyLabel).join(' / ') || '—';
@@ -579,7 +659,7 @@
         <td><button class="small" data-act="gRebindKey" data-a="${a}">${esc(kb(a))}</button></td>
         <td><button class="small" data-act="gRebindPad" data-a="${a}">${PADN[I.padMap[a]] || 'Button ' + I.padMap[a]}</button></td></tr>`).join('')}
       <tr><td><b>Move</b></td><td colspan="2">Move player</td><td>W A S D</td><td>Left stick</td></tr>
-      <tr><td><b>Moves</b></td><td>Dribble moves</td><td>Help position</td><td>Arrow keys</td><td>Right stick</td></tr>
+      <tr><td><b>Moves</b></td><td>Dribble moves (toward the rim near the basket = euro step)</td><td>Help position</td><td>Arrow keys</td><td>Right stick</td></tr>
       </tbody></table>
       <div class="row" style="margin-top:10px"><button class="small" data-act="gResetControls">Reset to defaults</button></div>`;
   }
@@ -596,12 +676,17 @@
       UI.onStart = () => { UI._modalBack = null; UI.closeModal(); resume(); };
       return;
     }
+    if (UI._pauseView === 'clips') {
+      UI.modal(`<div class="row between"><h2 style="margin:0">Highlights</h2><button data-act="pauseView" data-v="main" autofocus>Back</button></div><div class="col" style="margin-top:8px">${match.highlights.map((c, i) => `<div class="row between"><span><b>${esc(c.label)}</b> <span class="dim">Q${c.q} ${c.clock}</span></span><button class="small primary" data-act="watchClip" data-i="${i}">Watch</button></div>`).reverse().join('') || '<div class="dim">No highlights yet.</div>'}</div>`, { onClose: () => { UI._pauseView = 'main'; setTimeout(pause, 0); } });
+      UI.onStart = () => { UI._modalBack = null; UI.closeModal(); resume(); };
+      return;
+    }
     const sd = match.gs(match.me);
     const showO = PB.settings.showOverall;
     const on = !!match.online;
     const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · ${pl.st.pf} PF · ${Math.round(pl.st.sec / 60)}m</span><div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
     UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>${on ? '<div class="dim" style="margin-bottom:6px">Online match — the game is paused for both players.</div>' : ''}
-      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button>${on ? '' : '<button data-act="autoFinish">Sim to end</button>'}<button data-act="quitGame">${on ? 'Leave match' : 'Forfeit'}</button></div>
+      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button>${match.mode3 ? '' : `<button data-act="callTimeout" ${match.timeouts[match.me] > 0 ? '' : 'disabled'}>Timeout (${match.timeouts[match.me]})</button>`}<button data-act="pauseView" data-v="clips" ${match.highlights.length ? '' : 'disabled'}>Replays (${match.highlights.length})</button><button data-act="cycleMeter">Meter: ${UI.meterSkins[PB.settings.meterSkin || 'bar']}</button>${on ? '' : '<button data-act="autoFinish">Sim to end</button>'}<button data-act="quitGame">${on ? 'Leave match' : match.mode === 'practice' ? 'End practice' : 'Forfeit'}</button></div>
       <div class="row wrap" style="margin:8px 0"><label>Offense <select data-change="gSetStrat" data-k="off">${Object.entries(PB.OFF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.off === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Defense <select data-change="gSetStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
       <div class="layout2" style="--side:1fr"><div><h3>On court</h3><div class="slots">${rows(sd.court)}</div></div><div><h3>Bench</h3><div class="slots">${rows(sd.bench)}</div></div></div>
@@ -616,6 +701,11 @@
     paused = false; PB.Input.mode = 'game'; last = performance.now(); UI.onStart = null; startLatch = true; UI._pauseView = 'main';
   }
   A.resumeGame = () => { UI.closeModal(); resume(); };
+  A.callTimeout = () => {
+    if (match.online) { queueAct(['O']); UI.closeModal(); return; }
+    if (match.callTimeout(match.me)) { UI.closeModal(); } else PB.toast('You can only call a timeout with the ball, or on a dead ball.', 3000);
+  };
+  A.cycleMeter = () => { const k = Object.keys(UI.meterSkins), i = k.indexOf(PB.settings.meterSkin || 'bar'); PB.settings.meterSkin = k[(i + 1) % k.length]; PB.Save.settingsSave(PB.settings); pause(); };
   A.toggleAutoSub = () => { if (match.online) { queueAct(['A']); setTimeout(() => { if (paused) pause(); }, 260); return; } const sd = match.gs(0); sd.auto = !sd.auto; pause(); };
   A.toggleCam = () => { PB.settings.camera = PB.settings.camera === 'broadcast' ? 'behind' : 'broadcast'; PB.Save.settingsSave(PB.settings); cam.init = false; pause(); };
   A.gSetStrat = (el, d) => { if (match.online) queueAct(['T', d.k, el.value]); else match.gs(0).strat[d.k] = el.value; };
@@ -639,9 +729,19 @@
     for (let i = 0; i < 400000 && !match.over; i++) match.update(1 / 30, null);
   };
   A.quitGame = () => {
-    if (!confirm(match.online ? 'Leave this online match? You forfeit.' : 'Forfeit this game? It counts as a loss.')) return;
+    if (match.mode !== 'practice' && !confirm(match.online ? 'Leave this online match? You forfeit.' : 'Forfeit this game? It counts as a loss.')) return;
     UI.closeModal();
     const m = match;
+    if (m.custom && m.custom.onEnd && !m.online) {
+      stopGame(); m._ended = m._finished = true;
+      const res = m.g.result(0), ui = m.gi[0];
+      if (m.mode === 'practice') { m.custom.onEnd(null, m, true); return; }
+      if (res.score[ui] >= res.score[1 - ui]) res.score[1 - ui] = res.score[ui] + 1;
+      res.winner = res.score[0] > res.score[1] ? 0 : 1;
+      if (!m.g.qScores[0].length) res.q = [[res.score[0]], [res.score[1]]];
+      m.custom.onEnd(res, m, true);
+      return;
+    }
     if (m.online) {
       const N = m.online, cfg = N.cfg; N.ended = true;
       PB.Net.to(cfg.peer, { k: 'mleave' });
@@ -679,10 +779,11 @@
     UI.closeModal(); stopGame();
     const G = PB.G;
     if (m.online) { m.online.ended = true; m.online.cfg.onEnd && m.online.cfg.onEnd(m.resultObj, m, false); return; }
+    if (m.custom && m.custom.onEnd) { m.custom.onEnd(m.resultObj, m, false); return; }
     if (m.exhibition) {
       UI.go('menu', {}, true);
       const res = m.resultObj;
-      const b = { day: 0, h: m.userHome ? m.teams[0].id : m.teams[1].id, a: m.userHome ? m.teams[1].id : m.teams[0].id, sc: res.score, q: res.q, ot: res.ot, box: [0, 1].map(s => { const o = {}; for (const id in res.box[s]) { const x = res.box[s][id]; if (x.sec > 0) o[id] = PB.STAT_KEYS.map(k => x[k]); } return o; }) };
+      const b = { day: 0, h: m.userHome ? m.teams[0].id : m.teams[1].id, a: m.userHome ? m.teams[1].id : m.teams[0].id, sc: res.score, q: res.q, ot: res.ot, shots: res.shots, box: [0, 1].map(s => { const o = {}; for (const id in res.box[s]) { const x = res.box[s][id]; if (x.sec > 0) o[id] = PB.STAT_KEYS.map(k => x[k]); } return o; }) };
       UI.boxModal(b);
     } else UI.finishPlayed(G, m.ugame, m.resultObj);
   };
@@ -717,8 +818,7 @@
       const o = proj(47, 25, 0), ex = proj(47 + cam.right[0], 25 + cam.right[1], 0), ey = proj(47 - cam.fwd[0], 25 - cam.fwd[1], 0);
       if (o && ex && ey) {
         g.save(); g.setTransform(ex[0] - o[0], ex[1] - o[1], ey[0] - o[0], ey[1] - o[1], o[0], o[1]);
-        g.fillStyle = homeCol[1]; g.font = '900 1.9px Segoe UI, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillText(home.abbr, 0, 0); g.restore();
+        PB.Logo.canvas(g, home, 0, 0, 8, true); g.restore();
       }
     }
     for (const l of LINES) strokeLine(g, l.p, 'rgba(255,255,255,.92)', 0.17, l.closed);
@@ -729,8 +829,8 @@
       items.push({ d: p[2], kind: 'body', b, p });
       const sh = arc(b.x, b.y, Math.max(0.9, b.r * 0.6) * (1 - b.z * 0.05), 0, Math.PI * 2, 14, 0.02);
       fillPoly(g, sh, 'rgba(0,0,0,.33)');
-      const mine = b.ctl && b.s === m.me;
-      const col = mine ? '#ffd23f' : sideCols(m)[b.s][0];
+      const mine = m.isMine(b), partner = b.ctl && !mine && b.s === m.me && !m.online ? true : false;
+      const col = mine ? '#ffd23f' : partner ? '#4aa3ff' : sideCols(m)[b.s][0];
       strokeLine(g, arc(b.x, b.y, Math.max(1.0, b.r * 0.72), 0, Math.PI * 2, 18, 0.03), col, b.ctl ? 0.32 : 0.16, true);
     }
     const ball = m.ball;
@@ -805,14 +905,15 @@
     g.restore();
     // labels
     const fs = Math.max(11, Math.min(18, sz * 0.13));
-    const mineCtl = b.ctl && b.s === m.me;
-    if (mineCtl || m.ball.holder === b || (b.ctl && m.online)) {
+    const mineCtl = m.isMine(b), partnerCtl = b.ctl && !mineCtl && b.s === m.me;
+    if (mineCtl || partnerCtl || m.ball.holder === b || (b.ctl && m.online)) {
       g.font = `800 ${fs}px Segoe UI, sans-serif`; g.textAlign = 'center';
       const ty = p[1] - sz * 0.86 - bob;
-      if (mineCtl) { g.fillStyle = '#ffd23f'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
+      if (mineCtl || partnerCtl) { g.fillStyle = mineCtl ? '#ffd23f' : '#4aa3ff'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
       g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(b.mon.dispName, p[0], ty - fs * 1.6);
-      g.fillStyle = mineCtl ? '#ffd23f' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
+      g.fillStyle = mineCtl ? '#ffd23f' : partnerCtl ? '#7cc4ff' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
     }
+    { const hot = b.pl.hot || 0; if (hot > 0.55 || hot < -0.55) { g.font = `${Math.max(12, sz * 0.14)}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillText(hot > 0 ? '🔥' : '❄️', p[0] + sz * 0.28, p[1] - sz * 0.78 - bob); } }
     // stamina pip for user's team
     if (b.s === m.me) {
       const en = b.pl.en / 100, bw = Math.max(20, sz * 0.38), bh = Math.max(3, sz * 0.03);
@@ -830,23 +931,61 @@
     g.beginPath(); g.arc(p[0], p[1], r, 0, Math.PI * 2); g.moveTo(p[0] - r, p[1]); g.lineTo(p[0] + r, p[1]); g.moveTo(p[0], p[1] - r); g.quadraticCurveTo(p[0] + r * 0.6, p[1], p[0], p[1] + r); g.stroke();
   }
 
+  // shot meter skins (Settings or the pause menu): bar, ring, line, orb
+  const METER_COLORS = { classic: { fill: '#ffffff', good: '#2fd47a', ok: '#7d6b14', bg: '#26324a' }, neon: { fill: '#7df9ff', good: '#b6ff3b', ok: '#3a5a7a', bg: '#101c33' }, fire: { fill: '#ffb347', good: '#ff4d4d', ok: '#7a4a14', bg: '#2a1a14' }, royal: { fill: '#d9b8ff', good: '#ffd23f', ok: '#4a3a7a', bg: '#1b1640' } };
+  function drawMeter(g, mb, mv, win) {
+    const sc = mb._scr, SW = PB.Match.consts.SWEET, skin = PB.settings.meterSkin || 'bar', C = METER_COLORS[PB.settings.meterColor] || METER_COLORS.classic;
+    const inGreen = Math.abs(mv - SW) <= win.gw, fillCol = inGreen ? C.good : C.fill;
+    g.save();
+    if (skin === 'ring' || skin === 'orb') {
+      const r = Math.max(15, sc.sz * 0.2), cx = sc.x, cy = sc.y - sc.sz * 0.08;
+      const ang = v => -Math.PI / 2 + Math.min(1.1, v) / 1.1 * Math.PI * 2;
+      g.lineCap = 'butt';
+      if (skin === 'ring') {
+        g.lineWidth = Math.max(6, r * 0.34); g.strokeStyle = 'rgba(0,0,0,.75)'; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = C.bg; g.lineWidth -= 2; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = C.ok; g.beginPath(); g.arc(cx, cy, r, ang(SW - win.yw), ang(SW + win.yw)); g.stroke();
+        g.strokeStyle = C.good; g.beginPath(); g.arc(cx, cy, r, ang(SW - win.gw), ang(SW + win.gw)); g.stroke();
+        g.strokeStyle = fillCol; g.globalAlpha = 0.9; g.lineWidth = Math.max(3, r * 0.14); g.beginPath(); g.arc(cx, cy, r, ang(0), ang(mv)); g.stroke();
+      } else {
+        g.fillStyle = 'rgba(0,0,0,.75)'; g.beginPath(); g.arc(cx, cy, r + 3, 0, Math.PI * 2); g.fill();
+        g.save(); g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.clip();
+        g.fillStyle = C.bg; g.fillRect(cx - r, cy - r, r * 2, r * 2);
+        const Y = v => cy + r - Math.min(1.1, v) / 1.1 * r * 2;
+        g.fillStyle = C.ok; g.fillRect(cx - r, Y(SW + win.yw), r * 2, Y(SW - win.yw) - Y(SW + win.yw));
+        g.fillStyle = C.good; g.fillRect(cx - r, Y(SW + win.gw), r * 2, Y(SW - win.gw) - Y(SW + win.gw));
+        g.fillStyle = fillCol; g.globalAlpha = 0.8; g.fillRect(cx - r, Y(mv), r * 2, cy + r - Y(mv)); g.globalAlpha = 1;
+        g.restore();
+        g.strokeStyle = '#f5f5f5'; g.lineWidth = 2; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.moveTo(cx - r, cy); g.lineTo(cx + r, cy); g.stroke();
+      }
+    } else if (skin === 'line') {
+      const bw = Math.max(70, sc.sz * 0.8), bh = Math.max(8, bw * 0.1), x = sc.x - bw / 2, y = sc.y + 8;
+      const X = v => x + Math.min(1.1, v) / 1.1 * bw;
+      g.fillStyle = 'rgba(0,0,0,.75)'; g.fillRect(x - 3, y - 3, bw + 6, bh + 6);
+      g.fillStyle = C.bg; g.fillRect(x, y, bw, bh);
+      g.fillStyle = C.ok; g.fillRect(X(SW - win.yw), y, X(SW + win.yw) - X(SW - win.yw), bh);
+      g.fillStyle = C.good; g.fillRect(X(SW - win.gw), y, X(SW + win.gw) - X(SW - win.gw), bh);
+      g.fillStyle = fillCol; g.globalAlpha = 0.9; g.fillRect(x, y + bh * 0.25, X(mv) - x, bh * 0.5); g.globalAlpha = 1;
+    } else {
+      const bh = Math.max(70, sc.sz * 0.75), bw = Math.max(9, bh * 0.12);
+      const x = sc.x + sc.sz * 0.42, y = sc.y + sc.sz * 0.1;
+      const Y = v => y + bh - Math.min(1.1, v) / 1.1 * bh;
+      g.fillStyle = 'rgba(0,0,0,.75)'; g.fillRect(x - 3, y - 3, bw + 6, bh + 6);
+      g.fillStyle = C.bg; g.fillRect(x, y, bw, bh);
+      g.fillStyle = C.ok; g.fillRect(x, Y(SW + win.yw), bw, Y(SW - win.yw) - Y(SW + win.yw));
+      g.fillStyle = C.good; g.fillRect(x, Y(SW + win.gw), bw, Y(SW - win.gw) - Y(SW + win.gw));
+      g.fillStyle = fillCol; g.globalAlpha = 0.85; g.fillRect(x + 2, Y(mv), bw - 4, y + bh - Y(mv)); g.globalAlpha = 1;
+    }
+    g.restore();
+  }
+  UI.meterSkins = { bar: 'Vertical bar', ring: 'Ring', line: 'Horizontal line', orb: 'Orb' };
+  UI.meterColors = { classic: 'Classic', neon: 'Neon', fire: 'Fire', royal: 'Royal' };
+
   function overlays(g, m, w, h) {
     // shot meter (vertical, beside the shooter)
     const mb = m.meter ? m.meter.body : (m.ft && m.ft.state === 'meter' ? m.ft.shooter : null);
     const mv = m.meter ? m.meter.v : (m.ft && m.ft.state === 'meter' ? m.ft.meterV : 0);
-    if (mb && m.shotMeterOn && mb._scr && (!m.online || mb.s === m.me)) {
-      const win = m.meterWindows(mb, !!m.ft);
-      const SW = PB.Match.consts.SWEET;
-      const bh = Math.max(70, mb._scr.sz * 0.75), bw = Math.max(9, bh * 0.12);
-      const x = mb._scr.x + mb._scr.sz * 0.42, y = mb._scr.y + mb._scr.sz * 0.1;
-      const Y = v => y + bh - Math.min(1.1, v) / 1.1 * bh;
-      g.fillStyle = 'rgba(0,0,0,.75)'; g.fillRect(x - 3, y - 3, bw + 6, bh + 6);
-      g.fillStyle = '#26324a'; g.fillRect(x, y, bw, bh);
-      g.fillStyle = '#7d6b14'; g.fillRect(x, Y(SW + win.yw), bw, Y(SW - win.yw) - Y(SW + win.yw));
-      g.fillStyle = '#2fd47a'; g.fillRect(x, Y(SW + win.gw), bw, Y(SW - win.gw) - Y(SW + win.gw));
-      const fillCol = Math.abs(mv - SW) <= win.gw ? '#2fd47a' : '#ffffff';
-      g.fillStyle = fillCol; g.globalAlpha = 0.85; g.fillRect(x + 2, Y(mv), bw - 4, y + bh - Y(mv)); g.globalAlpha = 1;
-    }
+    if (mb && m.shotMeterOn && mb._scr && (!m.online || mb.s === m.me)) drawMeter(g, mb, mv, m.meterWindows(mb, !!m.ft));
     // timing feedback
     if (m.feedback && m.t - m.feedback.t < 1.0 && m.feedback.b && m.feedback.b._scr) {
       const fb = m.feedback, s = fb.b._scr;
@@ -857,8 +996,8 @@
       g.globalAlpha = 1;
     }
     // icon passing
-    if (PB.Input.held('RB') && m.poss === m.me && m.ball.holder && m.ball.holder.s === m.me && m.onSide(m.me, () => m.ctrl) === m.ball.holder) {
-      for (const it of m.onSide(m.me, () => m.iconTargets())) {
+    if (PB.Input.held('RB') && m.poss === m.me && m.ball.holder && m.ball.holder.s === m.me && m.onCtl(m.meCi, () => m.ctrl) === m.ball.holder) {
+      for (const it of m.onCtl(m.meCi, () => m.iconTargets())) {
         const s = it.b._scr; if (!s) continue;
         const r = Math.max(12, s.sz * 0.12);
         g.fillStyle = { A: '#2fd47a', B: '#ff5a5f', X: '#4aa3ff', Y: '#ffcb05' }[it.key];
@@ -881,6 +1020,11 @@
       g.fillStyle = '#fff'; g.fillText(m.flash, w / 2, y);
       g.globalAlpha = 1;
     }
+    if (m.replayOffer && m.t < m.replayOffer.until && !m.replay && !m.online) {
+      const fs2 = Math.round(h * 0.026); g.font = `800 ${fs2}px Segoe UI`; g.textAlign = 'right'; g.fillStyle = 'rgba(8,12,22,.75)';
+      const tx = (PB.settings.touchControls ? 'Tap ⏪ for instant replay' : 'Press ' + (PB.Input.keyLabel((PB.Input.keyMap.BACK || ['Tab'])[0]) || 'Tab') + ' / View for instant replay') + ' — ' + m.replayOffer.clip.label;
+      const tw2 = g.measureText(tx).width + fs2; g.fillRect(w - tw2 - 14, 14, tw2, fs2 * 1.7); g.fillStyle = '#ffd23f'; g.fillText(tx, w - 14 - fs2 / 2, 14 + fs2 * 1.15);
+    }
     if (m.online) {
       const N = m.online, fs0 = Math.round(h * 0.03);
       if (N.paused || N.stallT > 0.7) {
@@ -888,6 +1032,14 @@
         const tw = g.measureText(txt).width + fs0;
         g.fillRect(w / 2 - tw / 2, h * 0.3 - fs0, tw, fs0 * 1.6); g.fillStyle = '#ffd23f'; g.fillText(txt, w / 2, h * 0.3);
       }
+    }
+    if (m.mode === 'practice') {
+      const ps = m.pstat || { att: 0, green: 0, ok: 0, bad: 0, err: 0 }, u = m.gs(0).court[0], fs1 = Math.round(h * 0.022);
+      const lines = ['PRACTICE', 'Shots ' + u.st.fga + ' · Made ' + u.st.fgm + (u.st.fga ? ' (' + Math.round(u.st.fgm / u.st.fga * 100) + '%)' : ''), 'Timing: ' + ps.green + ' green · ' + ps.ok + ' close · ' + ps.bad + ' off' + (ps.att ? ' · avg ' + (ps.err / ps.att * 100).toFixed(0) + '% off' : '')];
+      g.font = `700 ${fs1}px Segoe UI`; g.textAlign = 'left';
+      const tw = Math.max(...lines.map(l => g.measureText(l).width)) + fs1;
+      g.fillStyle = 'rgba(8,12,22,.75)'; g.fillRect(14, 14, tw, fs1 * 1.5 * lines.length + 8);
+      lines.forEach((l, i) => { g.fillStyle = i ? '#e8edf5' : '#ffd23f'; g.fillText(l, 14 + fs1 / 2, 14 + fs1 * 1.4 * (i + 1)); });
     }
     // free throw banner
     if (m.ft) {
@@ -918,8 +1070,9 @@
       g.fillStyle = grd; g.fillRect(x, y0, teamW, H0);
       g.fillStyle = 'rgba(0,0,0,.28)'; g.fillRect(x + teamW * 0.58, y0, teamW * 0.42, H0);
       g.restore();
-      g.fillStyle = '#fff'; g.font = `900 ${unit * 0.42}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
-      g.fillText(t.abbr, x + unit * 0.22, y0 + H0 * 0.47);
+      PB.Logo.canvas(g, t, x + unit * 0.4, y0 + H0 * 0.44, unit * 0.62, false);
+      g.fillStyle = '#fff'; g.font = `900 ${unit * 0.36}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(t.abbr, x + unit * 0.78, y0 + H0 * 0.46);
       g.font = `900 ${unit * 0.58}px Segoe UI, sans-serif`; g.textAlign = 'center';
       g.fillText(String(m.sc(s)), x + teamW * 0.79, y0 + H0 * 0.52);
       // bonus / fouls strip
@@ -932,9 +1085,9 @@
     // clock block
     const cx = x0 + teamW * 2;
     g.fillStyle = '#16203a'; g.fillRect(cx, y0, clockW, H0);
-    const qn = m.q <= 4 ? ['1ST', '2ND', '3RD', '4TH'][m.q - 1] : 'OT' + (m.q > 5 ? m.q - 4 : '');
+    const qn = m.mode3 ? (m.mode === 'practice' ? 'PRAC' : '3v3') : m.q <= 4 ? ['1ST', '2ND', '3RD', '4TH'][m.q - 1] : 'OT' + (m.q > 5 ? m.q - 4 : '');
     const cl = Math.max(0, m.clock), mm = Math.floor(cl / 60), ss = Math.floor(cl - mm * 60);
-    const clStr = cl < 60 ? cl.toFixed(1) : mm + ':' + String(ss).padStart(2, '0');
+    const clStr = m.mode3 ? (m.mode === 'practice' ? '' : 'TO ' + m.target) : cl < 60 ? cl.toFixed(1) : mm + ':' + String(ss).padStart(2, '0');
     g.fillStyle = '#9fb0d0'; g.font = `800 ${unit * 0.26}px Segoe UI`; g.textAlign = 'center';
     g.fillText(qn, cx + clockW * 0.22, y0 + H0 * 0.5);
     g.fillStyle = '#fff'; g.font = `800 ${unit * 0.46}px ui-monospace, Consolas, monospace`;
@@ -944,7 +1097,7 @@
     rr(g, sx, y0, scW, H0, 6); g.fillStyle = '#05080f'; g.fill();
     const sc = Math.max(0, m.shotClock);
     g.fillStyle = sc < 5 && m.phase === 'live' ? '#ff4d4d' : '#ffd23f'; g.font = `900 ${unit * 0.46}px ui-monospace, Consolas, monospace`;
-    g.fillText(m.phase === 'ft' ? '–' : String(Math.ceil(sc)), sx + scW / 2, y0 + H0 * 0.52);
+    g.fillText(m.phase === 'ft' || m.mode === 'practice' ? '–' : String(Math.ceil(sc)), sx + scW / 2, y0 + H0 * 0.52);
     g.textBaseline = 'alphabetic';
     // top accent line
     g.fillStyle = '#ffd23f'; g.fillRect(x0 + 6, y0 - 3, total - 12, 3);

@@ -5,22 +5,35 @@
 
   // ---------- main menu ----------
   S.menu = {
+    noFocus: true,       // no pre-focused card, so nothing looks hovered until you point at it or navigate by keyboard / pad
     top: () => `<div class="logo">POKÉ<b>HOOPS</b> 82</div><div class="spacer"></div>`,
     render() {
       const showcase = [25, 150, 6, 94, 149, 448, 130, 143, 249, 384, 445, 59].map(id => PB.BYID[id]);
       const m1 = PB.Save.meta(1), m2 = PB.Save.meta(2);
-      const slot = (n, m) => m ? `<div class="menu-card" tabindex="0" data-act="loadSlot" data-slot="${n}"><h3>Continue — Slot ${n}</h3><div class="dim">${esc(m.team || '')} · ${m.mode === 'fantasy' ? 'Fantasy' : m.mode === 'franchise' ? 'Franchise' : 'Main'} · ${esc(m.phase)} ${esc(m.rec || '')}<br>${new Date(m.t).toLocaleString()}</div></div>` : '';
+      const slot = (n, m) => m ? `<div class="menu-card mc-save" tabindex="0" data-act="loadSlot" data-slot="${n}"><b>Continue · Slot ${n}</b><span class="dim">${esc(m.team || '')} · ${m.mode === 'fantasy' ? 'Fantasy' : m.mode === 'franchise' ? 'Franchise' : 'Main'} · ${esc(m.phase)} ${esc(m.rec || '')} · ${new Date(m.t).toLocaleDateString()}</span></div>` : '';
+      let dailyStatus = 'Not played yet';
+      try {
+        const h = JSON.parse(localStorage.getItem('poke82_daily') || '{}'), d = new Date(), k = d.toISOString().slice(0, 10);
+        let st = 0; for (;;) { const kk = d.toISOString().slice(0, 10); if (h[kk]) { st++; d.setUTCDate(d.getUTCDate() - 1); } else break; }
+        dailyStatus = (h[k] ? 'Today: ' + h[k].w + '-' + h[k].l + ' · ' + h[k].res : 'Not played yet') + (st ? ' · ' + st + '-day streak' : '');
+      } catch (e) { }
       return `<div class="hero">
         <h1>POKÉ<span>HOOPS</span> 82</h1>
-        <div class="sprite-row">${showcase.map(m => UI.spr(m, 64)).join('')}</div>
-        <div class="menu-grid">
-          <div class="menu-card" tabindex="0" data-act="newMain" autofocus><h3>Random Draft</h3></div>
-          <div class="menu-card" tabindex="0" data-act="newFantasy"><h3>Fantasy Draft</h3></div>
-          <div class="menu-card" tabindex="0" data-act="newFranchise"><h3>Franchise</h3></div>
-          <div class="menu-card" tabindex="0" data-act="goOnline"><h3>Play Online</h3></div>
-          ${slot(1, m1)}${slot(2, m2)}
-          <div class="menu-card" tabindex="0" data-act="exhibition"><h3>Exhibition</h3></div>
-          <div class="menu-card" tabindex="0" data-act="goSettings"><h3>Settings</h3></div>
+        <div class="sprite-row">${showcase.map(m => UI.spr(m, 68)).join('')}</div>
+        <div class="mgrid g-daily"><div class="menu-card mc-hero c-fire" tabindex="0" data-act="goDaily"><div class="mh-top"><span class="mh-tag">TODAY</span><span class="dim">${dailyStatus}</span></div><h3>Daily Challenge</h3><div class="dim">One shared draft for everyone, every day. Pick your team, then watch the 82-game season and the playoffs play out, and share your result.</div></div></div>
+        <div class="msec">Game modes</div>
+        <div class="mgrid g-modes">
+          <div class="menu-card mc-md c-blue" tabindex="0" data-act="newMain"><h3>Endless Draft</h3><div class="dim">The Daily Challenge with no limit: a fresh random draft every time.</div><span class="mh-tag mc-tag" style="background:#5b9bff">UNLIMITED</span></div>
+          <div class="menu-card mc-md c-gold" tabindex="0" data-act="newFranchise"><h3>Franchise</h3><div class="dim">Draft, develop, evolve and trade across regions. The full multi-season mode.</div><button class="small mc-online" data-act="goOnline" data-modes="franchise">🌐 Play online</button></div>
+          <div class="menu-card mc-md c-purple" tabindex="0" data-act="newFantasy"><h3>Fantasy Draft</h3><div class="dim">Snake draft against the league, best Pokémon available.</div><button class="small mc-online" data-act="goOnline" data-modes="fantasy">🌐 Play online</button></div>
+          <div class="menu-card mc-md" tabindex="0" data-act="goQuick"><h3>Quick Play</h3><div class="dim">Exhibition · 3v3 street · Practice · Co-op</div><button class="small mc-online" data-act="goOnline" data-modes="exhibition,coop">🌐 Play online (1v1, co-op)</button></div>
+        </div>
+        ${m1 || m2 ? `<div class="msec">Saved games</div><div class="mgrid msaves">${slot(1, m1)}${slot(2, m2)}</div>` : ''}
+        <div class="msec">Extras</div>
+        <div class="mgrid mtools">
+          <div class="menu-card mc-xs" tabindex="0" data-act="goDex"><h3>Pokédex & Compare</h3></div>
+          <div class="menu-card mc-xs" tabindex="0" data-act="goLeagueCode"><h3>Open a League Code</h3></div>
+          <div class="menu-card mc-xs" tabindex="0" data-act="goSettings"><h3>Settings</h3></div>
         </div></div>`;
     },
     back() { },
@@ -40,7 +53,9 @@
   };
   A.newMain = () => UI.go('new', { mode: 'main' });
   A.newFranchise = () => UI.go('frnew');
-  A.goOnline = () => UI.go('online');
+  A.goOnline = (el, d) => { if (d && d.modes) UI.setOnlineModes(d.modes.split(',')); UI.go('online'); };
+  A.goQuick = () => UI.go('quick');
+  A.goDaily = () => UI.go('daily');
   A.newFantasy = () => UI.go('new', { mode: 'fantasy' });
 
   // ---------- new game ----------
@@ -49,12 +64,13 @@
     render(p) {
       const fan = p.mode === 'fantasy';
       return `<div class="panel" style="max-width:640px;margin:20px auto">
-        <h2>${fan ? 'New Fantasy Draft' : 'New Main Mode Game'}</h2>
+        <h2>${fan ? 'New Fantasy Draft' : 'New Endless Draft'}</h2>
         <div class="col">
           <label>City <input type="text" id="ng-city" value="Pallet Town" maxlength="22"></label>
           <label>Team name <input type="text" id="ng-nick" value="Trainers" maxlength="22"></label>
           <label>Seed <input type="text" id="ng-seed" placeholder="random"></label>
           <label>Difficulty <select id="ng-diff"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option><option value="legend">Legend</option></select></label>
+          <label>Legendaries per team <select id="ng-leg"><option value="0">No limit</option><option value="1">Max 1</option><option value="2">Max 2</option><option value="3">Max 3</option></select></label>
           <label>League teams <select id="ng-teams">${[30, 24, 18, 12].filter(n => n * 12 <= PB.MONS.length).map(n => `<option value="${n}" ${n === 30 ? 'selected' : ''}>${n} teams</option>`).join('')}</select></label>
           ${fan ? `<label>Your draft position <select id="ng-pos"><option value="r">Random</option>${Array.from({ length: 30 }, (_, i) => `<option value="${i}">#${i + 1}</option>`).join('')}</select></label>` : ''}
           <div class="row"><button class="primary" data-act="startNew" data-mode="${p.mode}" autofocus>Start</button><button data-act="goMenu">Cancel</button></div>
@@ -71,6 +87,7 @@
     const G = PB.newGame(seed, d.mode, n, slot);
     G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: val('ng-diff') });
     PB.settings = G.settings; PB.Save.settingsSave(PB.settings);
+    G.rules = { legCap: +val('ng-leg') || 0 };
     const T = G.teams[G.userTeam];
     T.city = val('ng-city').trim() || T.city; T.nick = val('ng-nick').trim() || T.nick; T.name = T.city + ' ' + T.nick;
     T.abbr = (T.city.replace(/[^A-Za-z ]/g, '').split(' ').map(w => w[0]).join('') + T.city.replace(/[^A-Za-z]/g, '').slice(1, 3)).slice(0, 3).toUpperCase();
@@ -104,7 +121,11 @@
           <label>Volume <input type="range" min="0" max="1" step="0.05" value="${s.volume}" data-change="setOptNum" data-k="volume"></label>
           <label><input type="checkbox" ${s.sfx ? 'checked' : ''} data-change="setOptBool" data-k="sfx"> Sound effects</label>
           <label><input type="checkbox" ${s.shotMeter ? 'checked' : ''} data-change="setOptBool" data-k="shotMeter"> Shot timing meter</label>
+          <label>Meter skin <select data-change="setOpt" data-k="meterSkin">${Object.entries(UI.meterSkins || {}).map(([k, v]) => `<option value="${k}" ${(s.meterSkin || 'bar') === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+            <select data-change="setOpt" data-k="meterColor">${Object.entries(UI.meterColors || {}).map(([k, v]) => `<option value="${k}" ${(s.meterColor || 'classic') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           <label>Camera <select data-change="setOpt" data-k="camera"><option value="behind" ${s.camera !== 'broadcast' ? 'selected' : ''}>2K (behind the play)</option><option value="broadcast" ${s.camera === 'broadcast' ? 'selected' : ''}>Broadcast (sideline)</option></select></label>
+          <label>Touch controls <select data-change="setOpt" data-k="touchControls">${[['auto', 'Automatic (touch devices)'], ['on', 'Always on'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${(s.touchControls || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label><input type="checkbox" ${s.autoReplay !== false ? 'checked' : ''} data-change="setOptBool" data-k="autoReplay"> Offer instant replays after big plays</label>
           <label><input type="checkbox" ${document.fullscreenElement ? 'checked' : ''} data-change="toggleFs"> Fullscreen</label>
           <h3 style="margin-top:8px">Show (drafted Pokémon and league menus; always hidden for draft prospects)</h3>
           <label><input type="checkbox" ${s.showRatings ? 'checked' : ''} data-change="setOptBool" data-k="showRatings"> Basketball ratings</label>

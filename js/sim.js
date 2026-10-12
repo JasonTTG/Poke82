@@ -41,7 +41,7 @@
 
   function mkPlayer(id, slot, starter) {
     const mon = PB.BYID[id];
-    return { id, mon, slot, en: 100, st: PB.newStat(), starter, dq: false, onCourt: false, restUntil: 0, gp: 0 };
+    return { id, mon, slot, en: 100, st: PB.newStat(), starter, dq: false, onCourt: false, restUntil: 0, gp: 0, hot: 0 };
   }
 
   // ------------------------------------------------------------------------
@@ -62,7 +62,7 @@
       this.firstPoss = this.poss;
       this.form = [this.rng.gauss() * 0.006, this.rng.gauss() * 0.006]; // per-game shooting variance
       this.teamFouls = [0, 0];
-      this.diff = opts.diff || [0, 0];     // difficulty rating adjust (fraction) per side
+      this.diff = opts.diff || [0, 0]; this.noPos = !!opts.noPos;     // difficulty rating adjust (fraction) per side
       this.over = false;
       this.refresh(0); this.refresh(1);
     }
@@ -79,23 +79,24 @@
     refresh(si) {
       const s = this.sides[si];
       const L = s.court;
-      const e = (p, k) => p.mon.r[k] * Rules.fatigueMult(p.en) * (1 - PB.slotPenalty(p.mon, p.slot));
+      const e = (p, k) => p.mon.r[k] * Rules.fatigueMult(PB.Abil.fatigueEn(p.id, p.en, this)) * (this.noPos ? 1 : 1 - PB.slotPenalty(p.mon, p.slot)) * ((k === 'speed' || k === 'accel') ? PB.Abil.mult(p.id, 'speed') : 1);
       s.R = L.map(p => {
         const o = {}; for (const k in p.mon.r) { if (k === 'sH' || k === 'sW' || k === 'hands' || k === 'mob' || k === 'rawOvr' || k === 'posC' || k === 'pos1' || k === 'pos2') continue; o[k] = e(p, k); }
         return o;
       });
       const R = s.R;
       const sum = f => { let t = 0; for (let i = 0; i < R.length; i++) t += f(R[i], i); return t; };
+      const nn = Math.max(1, R.length);
       const playm = R.map(r => 0.55 * r.pass + 0.45 * r.handle).sort((a, b) => b - a);
       const rim = R.map((r, i) => 0.5 * r.block + 0.5 * r.intD * (0.85 + 0.3 * L[i].mon.r.sH)).sort((a, b) => b - a);
       s.ctx = {
         spacing: sum(r => clamp((r.three - 45) / 30, 0, 1)),
-        playm: playm[0] * 0.7 + playm[1] * 0.3,
-        rimProtD: rim[0] * 0.65 + rim[1] * 0.35,
-        perD: sum(r => r.perD) / 5, steal: sum(r => r.steal) / 5, speed: sum(r => r.speed) / 5,
-        passAvg: sum(r => r.pass) / 5, iq: sum(r => r.iq) / 5,
-        oreb: sum(r => r.oreb) / 5, dreb: sum(r => r.dreb) / 5,
-        handle: sum(r => r.handle) / 5, stamina: sum(r => r.stamina) / 5,
+        playm: (playm[0] || 0) * 0.7 + (playm[1] || playm[0] || 0) * 0.3,
+        rimProtD: (rim[0] || 0) * 0.65 + (rim[1] || rim[0] || 0) * 0.35,
+        perD: sum(r => r.perD) / nn, steal: sum(r => r.steal) / nn, speed: sum(r => r.speed) / nn,
+        passAvg: sum(r => r.pass) / nn, iq: sum(r => r.iq) / nn,
+        oreb: sum(r => r.oreb) / nn, dreb: sum(r => r.dreb) / nn,
+        handle: sum(r => r.handle) / nn, stamina: sum(r => r.stamina) / nn,
       };
       s.since = 0;
     }
@@ -120,7 +121,7 @@
       for (let si = 0; si < 2; si++) {
         const s = this.sides[si];
         const stratMult = (s.strat.def === 'press' ? 1.12 : s.strat.def === 'lockdown' ? 1.15 : 1) * (s.strat.off === 'fast' ? 1.04 : 1);
-        for (const p of s.court) { p.en = Math.max(0, p.en - Rules.drainPerSec(p.mon.r.stamina, stratMult) * dt); p.st.sec += dt; }
+        for (const p of s.court) { p.en = Math.max(0, p.en - Rules.drainPerSec(p.mon.r.stamina, stratMult) * PB.Abil.mult(p.id, 'drain') * dt); p.st.sec += dt; }
         for (const p of s.bench) { p.en = Math.min(100, p.en + Rules.recoverPerSec(p.mon.r.stamina) * dt); }
       }
       return dt;
@@ -142,7 +143,7 @@
         if (garbage) v += (p.starter ? -30 : 10) * (lead > 0 ? 1 : (p.starter ? 0.3 : 1));
         return v;
       };
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < s.court.length; i++) {
         const p = s.court[i];
         let best = null, bv = -1e9;
         for (const b of s.bench) {
@@ -190,7 +191,7 @@
       let made = 0;
       for (let k = 0; k < n; k++) {
         shooter.st.fta++;
-        const ok = this.rng.chance(clamp(Rules.ftProb(shooter.mon.r.ft * Rules.fatigueMult(shooter.en)) + this.form[si] * 0.3, 0.3, 0.97));
+        const ok = this.rng.chance(clamp((Rules.ftProb(shooter.mon.r.ft * Rules.fatigueMult(shooter.en)) + this.form[si] * 0.3) * PB.Abil.mult(shooter.id, 'ft'), 0.3, 0.97));
         if (ok) { shooter.st.ftm++; this._addPoints(si, 1, shooter); made++; }
         if (k === n - 1 && !ok && lastLive) return { made, miss: true };
       }
@@ -224,13 +225,13 @@
         if (secondChance) tov *= 0.4;
         tov = clamp(tov, 0.05, 0.24);
         if (rng.chance(tov)) {
-          const bi = this._weightedPlayer(oi, (r, p) => (110 - r.handle * 0.5 - r.pass * 0.3 - r.iq * 0.2) * (p.mon.tend.usage / 60));
+          const bi = this._weightedPlayer(oi, (r, p) => (100 - r.handle * 0.22 - r.pass * 0.13 - r.iq * 0.1) * Math.pow(p.mon.tend.usage / 60, 1.8));
           const bp = O.court[bi]; bp.st.tov++;
           const t = this._tick(Math.max(1, dur * rng.range(0.25, 0.8)));
           // steal?
           const stealP = clamp(0.52 + (dcs.steal - 55) * 0.006, 0.25, 0.8);
           if (rng.chance(stealP)) {
-            const si = this._weightedPlayer(di, (r) => Math.pow(r.steal, 3) / 1000);
+            const si = this._weightedPlayer(di, (r, p) => Math.pow(r.steal, 3) / 1000 * PB.Abil.mult(p.id, 'steal'));
             D.court[si].st.stl++;
             this._log('TOV+STL', oi, bp, D.court[si]);
           } else this._log('TOV', oi, bp);
@@ -285,10 +286,11 @@
         if (O.strat.off === 'fast' && type === 'rim') adj += 0.016 + 0.014 * clamp((ocs.speed - dcs.speed) / 12, -1, 1.5);
                         if (secondChance && type === 'rim') adj += 0.06;
                 const Tctx = { spacing: ocs.spacing, playm: ocs.playm, rimProtD: dcs.rimProtD };
+        { const dpl = D.court[dIdx]; adj += PB.Abil.shotAdj(this, oi, sp, dpl, { type, c: 0.45, fast: O.strat.off === 'fast' || secondChance, bigger: sp.mon.r.sH > dpl.mon.r.sH + 0.1 }); }
         // blocks
-        const blkIdx = this._weightedPlayer(di, (r, p, i) => Math.pow(r.block, 3) / 1000 * (i === dIdx ? 1.4 : 1));
+        const blkIdx = this._weightedPlayer(di, (r, p, i) => Math.pow(r.block, 3) / 1000 * (i === dIdx ? 1.4 : 1) * PB.Abil.mult(p.id, 'block'));
         const pBlk = Rules.blockProb(type, SR, D.R[blkIdx]) * (D.strat.def === 'zone' && type === 'rim' ? 1.1 : 1);
-        const pFoul = Rules.foulProb(type, SR, DR) * (D.strat.def === 'press' ? 1.1 : 1) * (secondChance ? 1.2 : 1);
+        const pFoul = Rules.foulProb(type, SR, DR) * (D.strat.def === 'press' ? 1.1 : 1) * (secondChance ? 1.2 : 1) * PB.Abil.mult(sp.id, 'foul');
         const tUsed = this._tick(Math.max(0.5, dur));
         clockUsed += tUsed;
         sp.st.fga += 1; if (type === 'three') sp.st.tpa++;
@@ -305,6 +307,7 @@
         let pMake = Rules.makeProb(type, SR, DR, Tctx, adj);
         if (fouled) pMake *= 0.82;
         const made = rng.chance(pMake);
+        PB.Abil.record(sp, made);
         if (fouled) {
           const fp = this._foulOn(di);
           this._log('SFOUL', di, fp);
@@ -350,10 +353,10 @@
 
     _assist(oi, shooterIdx, type) {
       const O = this.sides[oi];
-      const base = type === 'three' ? 0.90 : type === 'rim' ? 0.68 : type === 'mid' ? 0.56 : 0.36;
+      const base = type === 'three' ? 0.84 : type === 'rim' ? 0.62 : type === 'mid' ? 0.50 : 0.32;
       const p = clamp(base * Math.pow(O.ctx.passAvg / 58, 0.7), 0.1, 0.95);
       if (!this.rng.chance(p)) return;
-      const ai = this._weightedPlayer(oi, (r, pl, i) => i === shooterIdx ? 0 : Math.pow(r.pass / 60, 4.5) * Math.pow(r.handle / 60, 1.5) * (pl.mon.r.pos1 <= 1 ? 1.5 : pl.mon.r.pos1 >= 4 ? 0.6 : 1));
+      const ai = this._weightedPlayer(oi, (r, pl, i) => i === shooterIdx ? 0 : Math.pow(r.pass / 60, 2.6) * Math.pow(r.handle / 60, 0.9) * (pl.mon.r.pos1 <= 1 ? 1.25 : pl.mon.r.pos1 >= 4 ? 0.75 : 1));
       if (ai !== shooterIdx) O.court[ai].st.ast++;
     }
 
@@ -363,11 +366,11 @@
       po *= offMod * (D.strat.def === 'press' ? 1.06 : 1) * (O.strat.off === 'fast' ? 0.92 : 1) * (O.strat.off === 'inside' ? 1.06 : 1);
       po = clamp(po, 0.12, 0.42);
       if (this.rng.chance(po)) {
-        const i = this._weightedPlayer(oi, (r, p) => Math.pow(r.oreb, 3.2) / 1000);
+        const i = this._weightedPlayer(oi, (r, p) => Math.pow(r.oreb, 3.2) / 1000 * PB.Abil.mult(p.id, 'reb'));
         O.court[i].st.oreb++;
         return oi;
       }
-      const i = this._weightedPlayer(di, (r, p) => Math.pow(r.dreb, 3.2) / 1000);
+      const i = this._weightedPlayer(di, (r, p) => Math.pow(r.dreb, 3.2) / 1000 * PB.Abil.mult(p.id, 'reb'));
       D.court[i].st.dreb++;
       return di;
     }
@@ -409,7 +412,7 @@
       // DQ'd players still on court -> forced swap
       for (let si = 0; si < 2; si++) {
         const s = this.sides[si];
-        for (let i = 0; i < 5; i++) if (s.court[i].dq) {
+        for (let i = 0; i < s.court.length; i++) if (s.court[i].dq) {
           const cand = s.bench.filter(b => !b.dq).sort((a, b) => b.mon.ovr * Rules.fatigueMult(b.en) - a.mon.ovr * Rules.fatigueMult(a.en))[0];
           if (cand) this.swap(si, i, cand);
         }

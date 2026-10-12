@@ -40,6 +40,7 @@
       <div class="sprwrap">${spr(m, 96)}</div>
       <div class="row between"><div>${v.P ? posBadges(m) : ''}</div><div class="dim" style="font-size:11px">${PB.fmtHeight(m.h)} · ${PB.fmtWeight(m.w)}</div></div>
       ${v.A ? `<div class="arch"><b>${m.archOff}</b> · ${m.archDef}</div>` : ''}
+      <div class="arch" title="${esc(PB.Abil.describe(m.id).desc)}">⚡ <b>${esc(PB.Abil.describe(m.id).ability)}</b> · ${esc(PB.Abil.describe(m.id).badge)}</div>
       ${v.R ? miniBars(m) : baseBars(m)}
       <div>${legend ? '<span class="tag leg">' + (m.myth ? 'MYTHICAL' : 'LEGENDARY') + '</span>' : ''}</div>
       ${o.btn ? `<button class="${o.btnClass || 'primary'}" data-act="${o.btnAct}" data-id="${m.id}">${o.btn}</button>` : ''}
@@ -53,7 +54,9 @@
       <div class="col" style="align-items:center;min-width:170px">${spr(m, 160)}<div class="center"><b style="font-size:20px">${esc(m.dispName)}</b><div>${typePills(m)}</div><div class="dim" style="font-size:12px">#${m.id} · ${m.region} · ${PB.fmtHeight(m.h)} · ${PB.fmtWeight(m.w)} · ${m.shape}</div></div>
         ${v.O ? ovrBadge(m.ovr) : ''}${v.P ? `<div>${posBadges(m)}</div>` : ''}${v.A ? `<div class="dim center" style="font-size:12px"><b>${m.archOff}</b><br>${m.archDef}</div>` : ''}</div>
       <div class="grow" style="min-width:280px">
-        <h3>Base stats</h3>${baseBars(m)}<div class="dim" style="font-size:12px;margin-top:4px">Total ${m.bst}</div>
+        <h3>Base stats</h3>${baseBars(m)}<div class="dim" style="font-size:12px;margin-top:4px">Total ${m.bst}${m.reg ? ' · ' + m.region + ' regional form' : ''}</div>
+        <h3 style="margin-top:12px">Ability</h3>${UI.abilBlock(m.id)}
+        ${v.P ? `<h3 style="margin-top:12px">Position fit</h3>${UI.posFitHtml(m)}` : ''}
         ${v.R ? `<h3 style="margin-top:12px">Basketball ratings</h3><div class="bars" style="font-size:12px;gap:4px 8px">${keys.map(k => bar(PB.RLABELS[k], m.r[k])).join('')}</div>
         <div style="margin-top:8px">${m.strengths.map(s => `<span class="tag good">${s}</span>`).join('')} ${m.weaknesses.map(s => `<span class="tag bad">${s}</span>`).join('')}</div>` : ''}
         ${extra || ''}
@@ -81,7 +84,7 @@
   };
   UI.inspect = function (id, actions) {
     const m = PB.BYID[id];
-    UI.modal(`${UI.fullCard(m, UI.honorsHtml(id))}<div class="row" style="margin-top:14px;justify-content:flex-end">${actions || ''}<button data-act="closeModal" autofocus>Close</button></div>`);
+    UI.modal(`${UI.fullCard(m, UI.honorsHtml(id))}<div class="row" style="margin-top:14px;justify-content:flex-end">${actions || ''}<button data-act="cmpStart" data-id="${id}">Compare</button><button data-act="closeModal" autofocus>Close</button></div>`);
   };
 
   // ---------- router ----------
@@ -99,7 +102,7 @@
     $('#screen').innerHTML = `<div class="screen" id="scr">${html}</div>`;
     if (sc.mount) sc.mount(UI.params);
     const f = $('#scr').querySelector('[autofocus]') || $('#scr').querySelector('.mcard, button:not([disabled]), [data-act]');
-    if (f && !sc.game) f.focus({ preventScroll: true });
+    if (f && !sc.game && !sc.noFocus) f.focus({ preventScroll: true });
   };
   UI.refresh = function () { const y = $('#scr') ? $('#scr').scrollTop : 0; UI.render(); const s = $('#scr'); if (s) s.scrollTop = y; };
   UI.defaultTop = () => `<div class="logo">POKÉ<b>HOOPS</b> 82</div><div class="spacer"></div>
@@ -140,5 +143,5 @@
   };
   UI.pct = (a, b) => b ? (a / b * 100).toFixed(1) : '0.0';
   UI.fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
-  UI.teamLabel = (G, id) => { const t = G.teams[id]; return `<span style="${t.user ? 'color:var(--gold);font-weight:700' : ''}">${esc(t.name)}</span>`; };
+  UI.teamLabel = (G, id) => { const t = G.teams[id]; return `<span style="${t.user ? 'color:var(--gold);font-weight:700' : ''}">${UI.logo ? UI.logo(t, 16) + ' ' : ''}${esc(t.name)}</span>`; };
 })(window.PB);

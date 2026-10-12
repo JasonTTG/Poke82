@@ -7,7 +7,7 @@
   const C = PB.Court;
   const ATTACK_X = C.ATTACK_X, DEFEND_X = C.DEFEND_X, DIR = C.DIR;
   const BODY_H = M.consts.BODY_H;
-  const A = (s, x, y) => ({ x: s === 0 ? x : W - x, y });     // attack-frame -> world
+  const A = (s, x, y) => ({ x: C.fx(s, x), y });     // attack-frame -> world
 
   // ---- shot estimation (expected points) used for AI decisions -----------------------------------
   M.prototype.estimateShot = function (b, hypo) {
@@ -62,6 +62,7 @@
     for (let s = 0; s < 2; s++) {
       for (const b of m.bodies[s]) {
         if (b.ctl && !m.auto) continue;
+        if (b.passive) { b.intent = { tx: b.x, ty: b.y, sp: 0 }; continue; }
         if (ball.state === 'flight' && ball.flight && ball.flight.type === 'pass' && ball.flight.to === b && m.phase !== 'ft') {
           // receiver tracks the incoming pass
           const f = ball.flight; const sp = Math.hypot(ball.vx, ball.vy) || 1;
@@ -95,7 +96,7 @@
       if (sh.shootT > 0 && sh.shootT < 90 && !sh.ai.blkChecked) {
         sh.ai.blkChecked = t;
         for (const d of m.bodies[1 - poss]) {
-          if (d.ctl && !m.auto) continue;
+          if ((d.ctl && !m.auto) || d.passive) continue;
           const dd = dist(d, sh);
           if (dd < 5.2 && !d.jump) {
             const pj = clamp(0.32 + (m.eff(d, 'block') - 55) * 0.008 + (m.eff(d, 'iq') - 55) * 0.004 + (sh.shotType === 'rim' ? 0.15 : 0), 0.03, 0.7);
@@ -110,7 +111,7 @@
   // ---- inbound ------------------------------------------------------------------------------------
   function planInbound(m, b, s) {
     const poss = m.inboundSide;
-    if (b === m.inbounder) { b.intent = { tx: b.x, ty: b.y, sp: 0 }; return; }
+    if (b === m.inbounder || m.half) { b.intent = { tx: b.x, ty: b.y, sp: 0 }; return; }
     const bx = ATTACK_X(poss);
     if (s === poss) {
       // offense: the best ball handler comes to get the inbound; everyone else heads up the floor into lanes
@@ -143,7 +144,7 @@
     }
     if (best) m.passTo(ib, best, 'chest', 0.6);
   };
-  const fxv = (s, x) => s === 0 ? x : W - x;
+  const fxv = (s, x) => C.fx(s, x);
 
   // ---- loose ball / rebound ----------------------------------------------------------------------
   function planLoose(m, b, s) {
@@ -303,6 +304,9 @@
       ai.decideT = t + 0.28 + m.rng.range(0, 0.25);
       const sh = m.estimateShot(b);
       const pas = bestPass(m, b, sh.ev);
+      // alley-oop to a cutter at the rim
+      { const cutter = m.bodies[s].find(x => x !== b && x.ai.cut && Math.hypot(x.x - bx, x.y - 25) < 10 && !m.laneBlocked(b, x) && m.eff(x, 'dunk') > 50);
+        if (cutter && t - (m._lastAlley || -9) > 7 && t - (ai.lastPass || 0) > 0.7 && m.rng.chance(0.28 + (m.eff(b, 'pass') - 55) * 0.004)) { m._lastAlley = t; cutter.ai.alley = t + 2; ai.lastPass = t; m.passTo(b, cutter, 'lob', 0.8); return; } }
       const usage = b.mon.tend.usage;
       const clockLeft = m.shotClock;
       const urgent = clockLeft < 4.2;
@@ -342,7 +346,7 @@
         const away = Math.sign(b.y - dfd.y) || 1;
         const dToB = Math.hypot(b.x - bx, b.y - 25);
         ty = clamp(25 + away * Math.min(6, dToB * 0.15), 3, 47);
-        if (dist(b, dfd) < 3 && b.moveCd !== undefined && t > (b.moveCd || 0) && m.rng.chance(0.05)) m.evadeMove(b, Math.atan2(ty - b.y, tx - b.x) + (away * 0.6), 'cross');
+        if (dist(b, dfd) < 3 && b.moveCd !== undefined && t > (b.moveCd || 0) && m.rng.chance(0.05)) { const near = Math.hypot(b.x - bx, b.y - 25) < 13; m.evadeMove(b, Math.atan2(ty - b.y, tx - b.x) + (away * 0.6), near && m.rng.chance(0.5) ? 'euro' : 'cross'); if (near) b.euro = { t, kind: 'euro' }; }
         b.moveCd = Math.max(b.moveCd || 0, 0);
       }
       b.intent = { tx, ty, sp: 1.0 };
@@ -354,7 +358,7 @@
       return;
     }
     // post-up play
-    if (ai.act === 'post') { b.intent = { tx: bx - dir * 7, ty: 25 + (b.y < 25 ? -6 : 6), sp: 0.7 }; if (Math.hypot(b.x - bx, b.y - 25) < 9.5) { ai.act = 'shoot'; b.postUp = true; m.startShot(b, false); } return; }
+    if (ai.act === 'post') { b.intent = { tx: bx - dir * 7, ty: 25 + (b.y < 25 ? -6 : 6), sp: 0.7 }; if (Math.hypot(b.x - bx, b.y - 25) < 9.5) { ai.act = 'shoot'; b.postUp = true; b.shotFlag = m.rng.chance(0.5) ? 'hook' : 'fade'; b.shotFlagT = t; b.moveWin = true; m.startShot(b, false); } return; }
     // probing: dribble toward the top/wing, circle slowly
     const k = m.bodies[s].indexOf(b);
     const px = A(s, 64 + Math.sin(t * 0.8 + k) * 4, 25 + Math.cos(t * 0.6 + k) * 9);
@@ -473,7 +477,7 @@
       }
     }
     // user help call shifts a defender
-    { const hc = m.U[s].helpCall; if (hc && m.t - hc.t < 0.4) { tx += hc.x * 3.5; ty += hc.y * 3.5; } }
+    { const hu = m.U.find(x => x.side === s); const hc = hu && hu.helpCall; if (hc && m.t - hc.t < 0.4) { tx += hc.x * 3.5; ty += hc.y * 3.5; } }
     // jump passing lanes sometimes (steal intent)
     b.intent = { tx: clamp(tx, 1, W - 1), ty: clamp(ty, 1, H - 1), sp: (m.eff(b, 'speed') > 40 ? 1.08 : 0.95) };
   }

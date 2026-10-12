@@ -34,6 +34,7 @@
     const D = G.fdraft;
     if (F.done(G)) throw new Error('Draft is complete');
     if (F.teamAt(G, D.pick) !== teamId) throw new Error('Not this team\'s pick');
+    if (!PB.legalAdd(G, teamId, monId)) throw new Error('Legendary limit reached (' + G.rules.legCap + ' per team)');
     PB.Registry.claim(G, monId, teamId);            // throws on duplicates
     D.history.push({ pick: D.pick, round: F.round(G), team: teamId, mon: monId });
     D.pick++;
@@ -51,7 +52,7 @@
     const team = G.teams[teamId], rng = G.rng;
     const D = G.fdraft;
     const cands = [];
-    for (const id of D.byOvr) { if (G.claimed[id] == null) { cands.push(PB.BYID[id]); if (cands.length >= 26) break; } }
+    for (const id of D.byOvr) { if (G.claimed[id] == null && PB.legalAdd(G, teamId, id)) { cands.push(PB.BYID[id]); if (cands.length >= 26) break; } }
     const round = F.round(G);
     const tw = round < 3 ? 1.0 : round < 6 ? 0.85 : 0.7;     // weight on raw talent vs fit
     let best = null, bv = -1e9;

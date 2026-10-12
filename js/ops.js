@@ -69,6 +69,9 @@
     else F().news(G, G.teams[o.b].abbr + ' declined a trade offer from ' + G.teams[o.a].abbr + '.', true);
   };
 
+  H.scout = (G, a, m) => { mine(G, a, m); F().scout(G, a.tid, a.id); };
+  H.rules = (G, a) => { F().setRules(G, a.rules || {}); };
+
   // ---- offseason ----
   H.beginOffseason = (G) => { F().beginOffseason(G); };
   H.startDraft = (G) => { F().startDraft(G); F().draftRunToHuman(G); };

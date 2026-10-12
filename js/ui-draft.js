@@ -71,7 +71,7 @@
     const G = PB.G, D = G.draft;
     if (D.roll || UI._rolling) return;
     const combo = PB.rollCombo(G, G.rng);
-    D.roll = combo; D.cands = PB.genCandidates(G, G.rng, D.pick, combo.gen, combo.type).map(m => m.id);
+    D.roll = combo; D.cands = PB.genCandidates(G, G.rng, D.pick, combo.gen, combo.type, undefined, G.userTeam).map(m => m.id);
     animateRoll('both', combo);
   };
   A.reroll = (el, d) => {
@@ -81,7 +81,7 @@
     const combo = PB.rerollCombo(G, G.rng, D.roll, d.w);
     if (!combo) { PB.toast('No other option'); return; }
     rr[d.w]--;
-    D.roll = combo; D.cands = PB.genCandidates(G, G.rng, D.pick, combo.gen, combo.type).map(m => m.id);
+    D.roll = combo; D.cands = PB.genCandidates(G, G.rng, D.pick, combo.gen, combo.type, undefined, G.userTeam).map(m => m.id);
     animateRoll(d.w, combo);
   };
 

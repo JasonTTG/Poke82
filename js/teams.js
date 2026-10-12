@@ -196,6 +196,14 @@
     while (bn.length < 7 && rest.length) bn.push(rest.shift().id);
     team.bench = bn.slice(0, 7);
   };
+  // legendary cap: a rule per league (G.rules.legCap, 0 = no limit)
+  PB.isLegend = m => !!(m.leg || m.myth);
+  PB.legalAdd = function (G, tid, monId, removing) {
+    const cap = G && G.rules && G.rules.legCap;
+    if (!cap || !PB.isLegend(PB.BYID[monId])) return true;
+    const rem = removing || [];
+    return G.teams[tid].roster.filter(id => !rem.includes(id) && PB.isLegend(PB.BYID[id])).length < cap;
+  };
   PB.reserves = team => { const a = new Set(team.starters.concat(team.bench)); return team.roster.filter(id => !a.has(id)); };
 
   // the lineup that actually takes the floor: injured Pokemon are replaced by the best healthy option
