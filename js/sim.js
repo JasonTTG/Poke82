@@ -32,7 +32,7 @@
       const base = type === 'rim' ? 0.165 : type === 'post' ? 0.145 : type === 'mid' ? 0.055 : 0.028;
       return clamp(base + (S.strength - D.strength) * 0.0006 + (S.handle - 50) * 0.0003 - (D.iq - 55) * 0.0008, 0.005, 0.3);
     },
-    nonShootingFoulProb: 0.075,
+    nonShootingFoulProb: 0.092,
   };
 
   const STAT_KEYS = ['pts', 'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta', 'oreb', 'dreb', 'ast', 'stl', 'blk', 'tov', 'pf', 'sec', 'pm'];
@@ -216,6 +216,20 @@
         let dur = secondChance ? clamp(rng.range(2, 9), 1, 24) : total;
         dur = Math.min(dur, this.clock);
         const lastShot = dur >= this.clock - 0.01;
+        // ---- late-game intentional foul: the trailing defense stops the clock and sends them to the line
+        if (loop === 0 && !secondChance && this.q >= 4 && this.clock <= 48 && this.clock > 3 && this.score[oi] - this.score[di] >= 1 && this.score[oi] - this.score[di] <= 11 && rng.chance(0.85)) {
+          const fp = this._foulOn(di);
+          this._tick(Math.max(1, rng.range(1.5, 4)));
+          this._log('FOUL', di, fp);
+          if (this.teamFouls[di] >= 5) {
+            const sh = O.court[this._weightedPlayer(oi, (r, p) => Math.pow(r.handle, 2) / 100 * (p.mon.tend.usage / 60))];
+            const res = this._freeThrows(oi, sh, 2, true);
+            let np = di;
+            if (res.miss) { np = this._ftRebound(oi, di); if (np === oi) { secondChance = true; total = Math.min(14, total); continue; } }
+            return this._endPoss(np);
+          }
+          secondChance = true; total = Math.min(14, total); continue;
+        }
         // ---- non-shooting foul / turnover happen at some point before the shot
         const ocs = O.ctx, dcs = D.ctx;
         const pressure = (D.strat.def === 'press' ? 0.034 : D.strat.def === 'lockdown' ? 0.004 : D.strat.def === 'zone' ? -0.010 : 0);

@@ -21,7 +21,7 @@
 
   PB.eligible = function (G, gen, type) {
     const out = [];
-    for (const m of PB.MONS) if (m.gen === gen && m.types.includes(type) && G.claimed[m.id] == null) out.push(m);
+    for (const m of PB.MONS) if (m.gen === gen && m.types.includes(type) && G.claimed[m.id] == null && PB.modAllows(G, m)) out.push(m);
     return out;
   };
 
@@ -109,6 +109,7 @@
         let combo, cands, tries = 0;
         do { combo = PB.rollCombo(G, rng); cands = PB.genCandidates(G, rng, pick, combo.gen, combo.type, undefined, tid); } while (cands.every(m => !PB.legalAdd(G, tid, m.id)) && ++tries < 25);
         const m = PB.aiChoose(team, cands, rng);
+        if (PB.logPick) PB.logPick(G, 'main', 'main', G.daily ? 'Daily draft' : 'Random draft', { n: pick, t: tid, id: m.id, alts: cands.map(c => c.id).filter(x => x !== m.id) });
         PB.Registry.claim(G, m.id, tid);
       }
     }
@@ -129,5 +130,5 @@
     return G;
   };
 
-  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.5, sfx: true, showHints: true, shotMeter: true, camera: 'behind', meterSkin: 'bar', meterColor: 'classic', autoReplay: true, touchControls: 'auto', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
+  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.6, sfx: true, sfxVol: 0.8, music: true, musicVol: 0.3, crowd: true, mute: false, showHints: true, shotMeter: true, camera: 'behind', meterSkin: 'bar', meterColor: 'classic', autoReplay: true, challengeMode: false, touchControls: 'auto', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
 })(window.PB);

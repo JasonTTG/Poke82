@@ -508,6 +508,8 @@
   function stealLogic(m, d, h, s, mult) {
     if (m.phase !== 'live' || d.stealCd > 0 || (d.ctl && !m.auto)) return;
     if (dist(d, h) > 3.2) return;
+    // late and trailing: the AI defense fouls on purpose to stop the clock
+    if (!d.ctl && m.g.q >= 4 && m.clock <= 40 && m.clock > 3) { const lead = m.sc(1 - s) - m.sc(s); if (lead >= 1 && lead <= 11 && m.rng.chance(0.05)) { d.stealCd = 1.5; m.nonShootingFoul(d, h, 'Intentional foul'); return; } }
     const rate = (0.075 + (m.eff(d, 'steal') - 55) * 0.0025) * (m.gs(s).strat.def === 'press' ? 1.35 : m.gs(s).strat.def === 'lockdown' ? 1.15 : 1) * mult;
     if (m.rng.chance(clamp(rate, 0.1, 1.4) * dt60)) { d.stealCd = 0.9; d.reachT = 0.28; m.stealTry(d, h, 0.75 + (m.g.diff[m.gi[s]] ? 0.2 : 0)); }
   }

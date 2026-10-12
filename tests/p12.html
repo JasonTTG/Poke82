@@ -1,0 +1,84 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script><script>PB.UI=PB.UI||{esc:x=>x,actions:{},screens:{},hubTabs:{},addHubTab(){},spr(){return""},teamLabel(){return""}};</script><script src="../js/grades.js"></script><script src="../js/natures.js"></script><script src="../js/ops.js"></script>
+<script>
+// New franchise defaults: mixed-generation pool, conferences, classes with equal legends, protected picks, season-long scouting, how long a league runs.
+PB.buildDB();PB.settings=PB.defaultSettings();
+const F=PB.Franchise,L=PB.League,out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
+const q=new URLSearchParams(location.search),full=q.get('full')!=='0';
+{
+  const G=F.create(21,{});PB.G=G;const fr=G.fr,cfg=fr.cfg;
+  ck(G.teams.length===16&&cfg.teamCap===16&&cfg.rosterMax===15&&cfg.draftRounds===2&&cfg.playoffTeams===8&&cfg.pool==='mixed','new defaults '+JSON.stringify([G.teams.length,cfg.teamCap,cfg.rosterMax,cfg.draftRounds,cfg.playoffTeams,cfg.pool]));
+  ck(G.rules.legCap===1,'legendary cap 1 per team');
+  const E=G.teams.filter(t=>t.conf==='East').length,W=G.teams.filter(t=>t.conf==='West').length;ck(E===8&&W===8,'8 teams per conference '+E+'/'+W);
+  ck(G.teams.every(t=>t.roster.length===15),'every roster full at 15: '+G.teams.map(t=>t.roster.length).join(','));
+  const legPer=G.teams.map(t=>t.roster.filter(id=>PB.isLegend(PB.BYID[id])).length);ck(Math.max(...legPer)<=1,'at most 1 legend per team '+legPer);
+  const allIds=[].concat(...G.teams.map(t=>t.roster));ck(allIds.every(id=>PB.BYID[id].from_===0),'only unevolved Pokémon');
+  const gens=new Set(allIds.map(id=>PB.BYID[id].gen));ck(gens.size>=8,'mixed generations: '+[...gens].sort());
+  out.push('start: '+allIds.length+' on rosters ('+legPer.reduce((a,b)=>a+b,0)+' legendary), '+F.freeAgents(G).length+' free agents, generations '+[...gens].sort().join(''));
+  ck(fr.next&&fr.next.size===40&&fr.next.nLeg===4,'first class is planned: '+JSON.stringify(fr.next&&{size:fr.next.size,nLeg:fr.next.nLeg}));
+  const py=F.projectYears({});out.push('projection with the new defaults: '+py.seasons+' seasons ('+py.classes+' draft classes, sizes '+py.sizes.join('/')+'), left over: '+py.leftoverNormal+' regular + '+py.leftoverLegends+' legendary Pokémon');
+  // scouting works during the season, only for the upcoming class
+  const me=G.userTeam;G.teams[me].user=true;F.resetScouting(G);
+  const pid=fr.next.ids[0];F.scout(G,me,pid);ck(F.scouted(G,me,pid)&&fr.scoutPts[me]===9,'scouted during the season, points left '+fr.scoutPts[me]);
+  let thrown=false;try{F.scout(G,me,allIds[0])}catch(e){thrown=true}ck(thrown,'cannot scout a rostered Pokémon');
+  G.teams[me].user=false;
+  window.G0=G;
+}
+if(full){
+  // play the whole franchise out: every class has the same number of legends, the conference bracket works, rosters stay legal
+  const G=F.create(5,{});PB.G=G;const fr=G.fr;F.startLeague(G);
+  const classes=[],seasons=[];let guard=0;
+  while(guard++<20){
+    const lg=G.league;let d=0;while(lg.phase!=='done'&&d++<3000)L.simDay(G,false);
+    ck(lg.po&&lg.po.conf&&lg.po.nRounds===3&&lg.po.rounds[0].length===4,'conference bracket (round 1 has '+(lg.po&&lg.po.rounds[0].length)+' series)');
+    const sr=[].concat(...lg.po.rounds);ck(sr.every(s=>(s.w[0]===4)!==(s.w[1]===4)),'all series decided');
+    const eC=lg.po.seeds.East.length,wC=lg.po.seeds.West.length;ck(eC===4&&wC===4,'4 per conference '+eC+'/'+wC);
+    ck(lg.po.seeds.East.every(id=>G.teams[id].conf==='East')&&lg.po.seeds.West.every(id=>G.teams[id].conf==='West'),'seeds from their own conference');
+    seasons.push(fr.year);
+    F.beginOffseason(G);if(fr.stage==='over')break;
+    F.startDraft(G);const D=fr.draft;classes.push({size:D.prospects.length+D.history.length,nLeg:D.nLeg,picks:D.seq.length});
+    F.draftAutoAll(G);
+    for(const T of G.teams)F.aiTrim(G,T);
+    F.startNextSeason(G);
+    ck(G.teams.every(t=>t.roster.length<=15&&t.roster.length>=12),'rosters legal in season '+fr.year);
+    ck(G.teams.every(t=>t.roster.filter(id=>PB.isLegend(PB.BYID[id])).length<=1),'legend cap held in season '+fr.year);
+  }
+  const py=F.projectYears({});
+  out.push('ran '+seasons.length+' seasons; classes: '+classes.map(c=>c.size+'('+c.nLeg+'L,'+c.picks+'p)').join(' '));
+  ck(seasons.length===py.seasons,'simulated seasons '+seasons.length+' = projection '+py.seasons);
+  ck(new Set(classes.slice(0,-1).map(c=>c.nLeg)).size===1,'every class has the same number of legends');
+  const all=[].concat(...G.teams.map(t=>t.roster)).concat(Object.keys(fr.pool).map(Number));ck(new Set(all).size===all.length,'no Pokémon twice');
+  ck(fr.stage==='over','franchise ends when no class is left: '+fr.stage);
+  window.G1=G;
+}
+{
+  // protected picks: traded during the season; if the pick lands inside the protected range it stays and the new owner gets next year's pick instead
+  const run=(seed,N)=>{
+    const G=F.create(seed,{tradeDeadline:false});PB.G=G;F.startLeague(G);const fr=G.fr;
+    // play to the last day of the regular season, then the worst team trades its protected first-round pick
+    let g0=0;while(G.league.day<G.league.lastDay&&g0++<400)L.simDay(G,false);
+    const ord=L.sortTeams(G,G.teams.map(t=>t.id));const A=ord[ord.length-1],B=ord[0];
+    const key='p:'+fr.year+'.0.'+A,nextKey='p:'+(fr.year+1)+'.0.'+A;
+    F.ensurePicks(G);ck(fr.pk[key]===A&&fr.pk[nextKey]===A,'picks exist for this and next year');
+    const lo=F.evalTrade(G,A,B,[key],[],{[key]:N}),hi=F.evalTrade(G,A,B,[key],[],{});
+    ck(lo.vin<hi.vin,'protection lowers the pick value ('+lo.vin.toFixed(2)+' < '+hi.vin.toFixed(2)+')');
+    const bad=F.evalTrade(G,A,B,[key],[],{[key]:7});ck(!bad.ok&&bad.reason==='Bad protection.','odd protection rejected');
+    F.trade(G,A,B,[key],[],true,{[key]:N});ck(fr.pk[key]===B&&fr.prot[key]===N,'trade moved the pick and recorded the protection');
+    ck(F.pickLabel(G,key).indexOf('top-'+N+' protected')>0,'label shows the protection');
+    let d=0;while(G.league.phase!=='done'&&d++<3000)L.simDay(G,false);
+    F.beginOffseason(G);F.startDraft(G);const D=fr.draft;
+    const idx=D.slots.findIndex(s=>s.o===A&&s.r===0);
+    if(idx<N){ck(D.seq[idx]===A,'protected: the pick stayed with its original team (#'+(idx+1)+')');ck(fr.pk[nextKey]===B,'the new owner received next year\'s pick');ck(D.protectedPicks&&D.protectedPicks.length===1,'recorded on the draft')}
+    else{ck(D.seq[idx]===B,'not protected: the pick conveyed (#'+(idx+1)+')');ck(fr.pk[nextKey]===A,'next year\'s pick untouched')}
+    out.push('seed '+seed+': '+G.teams[A].abbr+' picked #'+(idx+1)+', top-'+N+' protected -> '+(idx<N?'kept it, '+G.teams[B].abbr+' got '+F.pickLabel(G,nextKey,0):'pick conveyed to '+G.teams[B].abbr));
+    return {G,D,idx};
+  };
+  const r1=run(9,5);const r2=run(13,10);
+  // drafting only on your own turn
+  const G=r1.G,D=r1.D,cur=F.draftCurrent(G),other=G.teams.find(t=>t.id!==cur).id;let t2=false;try{F.draftPick(G,other,D.prospects[0])}catch(e){t2=true}ck(t2,'cannot draft out of turn');
+  // an unprotected pick traded in-season goes to its new owner
+  const G2=F.create(11,{});PB.G=G2;F.startLeague(G2);const fr2=G2.fr;const A2=G2.teams[0].id,B2=G2.teams[1].id,k2='p:'+fr2.year+'.0.'+A2;
+  F.trade(G2,A2,B2,[k2],[],true,{});let d2=0;while(G2.league.phase!=='done'&&d2++<3000)L.simDay(G2,false);F.beginOffseason(G2);F.startDraft(G2);const i2=fr2.draft.slots.findIndex(s=>s.o===A2&&s.r===0);ck(fr2.draft.seq[i2]===B2,'unprotected pick conveys to the new owner');
+}
+document.getElementById('o').textContent=(fail.length?'FAILURES:\n'+fail.join('\n')+'\n\n':'ALL CHECKS PASSED\n\n')+out.join('\n');
+</script>

@@ -204,6 +204,19 @@
     const rem = removing || [];
     return G.teams[tid].roster.filter(id => !rem.includes(id) && PB.isLegend(PB.BYID[id])).length < cap;
   };
+  // daily-challenge modifiers: a seeded rule per UTC date, applied to who can be rolled in the draft (G.rules.mod)
+  PB.MODS = {
+    nolegend: { name: 'No legendaries', desc: 'Legendary and mythical Pokémon are out of the pool.', ok: m => !PB.isLegend(m) },
+    legcap1: { name: 'One legend', desc: 'At most one legendary or mythical per team.', rules: { legCap: 1 } },
+    oldschool: { name: 'Before Galar', desc: 'Generations 1 to 7 only.', ok: m => m.gen <= 7 },
+    hoenn: { name: 'Hoenn and later', desc: 'Generations 3 to 9 only.', ok: m => m.gen >= 3 },
+    roles: { name: 'Role players', desc: 'No Pokémon rated above 74 overall.', ok: m => m.ovr <= 74 },
+  };
+  PB.modAllows = (G, m) => { const k = G && G.rules && G.rules.mod, d = k && PB.MODS[k]; return !d || !d.ok || d.ok(m); };
+  PB.dailyMod = function (date) {
+    const h = [...('mod-' + date)].reduce((a, c) => (Math.imul(a, 31) + c.charCodeAt(0)) >>> 0, 11), r = new PB.RNG(h), keys = Object.keys(PB.MODS);
+    return r.next() < 0.35 ? null : keys[r.int(0, keys.length - 1)];
+  };
   PB.reserves = team => { const a = new Set(team.starters.concat(team.bench)); return team.roster.filter(id => !a.has(id)); };
 
   // the lineup that actually takes the floor: injured Pokemon are replaced by the best healthy option

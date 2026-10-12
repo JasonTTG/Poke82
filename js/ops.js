@@ -51,21 +51,21 @@
   };
 
   // ---- trades (the AI answers immediately; human partners answer through 'tradeOffer' / 'tradeReply') ----
-  H.trade = (G, a, m) => { mine(G, { tid: a.a }, m); F().trade(G, a.a, a.b, a.giveA, a.giveB); };
+  H.trade = (G, a, m) => { mine(G, { tid: a.a }, m); F().trade(G, a.a, a.b, a.giveA, a.giveB, false, a.prot); };
   H.tradeOffer = (G, a, m) => {
     mine(G, { tid: a.a }, m);
     const fr = G.fr; fr.offers = fr.offers || [];
     const blocked = F().tradeBlocked(G); if (blocked) throw new Error(blocked);
-    const ev = F().evalTrade(G, a.a, a.b, a.giveA, a.giveB); if (ev.reason && ev.vin == null) throw new Error(ev.reason);
+    const ev = F().evalTrade(G, a.a, a.b, a.giveA, a.giveB, a.prot); if (ev.reason && ev.vin == null) throw new Error(ev.reason);
     fr.offers = fr.offers.filter(o => !(o.a === a.a && o.b === a.b));
-    fr.offers.push({ id: (fr.offerSeq = (fr.offerSeq || 0) + 1), a: a.a, b: a.b, giveA: a.giveA.slice(), giveB: a.giveB.slice() });
+    fr.offers.push({ id: (fr.offerSeq = (fr.offerSeq || 0) + 1), a: a.a, b: a.b, giveA: a.giveA.slice(), giveB: a.giveB.slice(), prot: Object.assign({}, a.prot || {}) });
     F().news(G, G.teams[a.a].abbr + ' sent a trade offer to ' + G.teams[a.b].abbr + '.', true);
   };
   H.tradeReply = (G, a, m) => {
     const fr = G.fr; const o = (fr.offers || []).find(x => x.id === a.id); if (!o) throw new Error('Offer no longer exists');
     mine(G, { tid: o.b }, m);
     fr.offers = fr.offers.filter(x => x.id !== o.id);
-    if (a.accept) F().trade(G, o.a, o.b, o.giveA, o.giveB, true);
+    if (a.accept) F().trade(G, o.a, o.b, o.giveA, o.giveB, true, o.prot);
     else F().news(G, G.teams[o.b].abbr + ' declined a trade offer from ' + G.teams[o.a].abbr + '.', true);
   };
 

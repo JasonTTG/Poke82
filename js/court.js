@@ -878,7 +878,7 @@
     whistleShootingFoul(def, shooter) {
       def.pl.st.pf++; this.teamFouls[def.s]++; this.g.teamFouls[this.gi[def.s]] = this.teamFouls[def.s]; this.sfx.push('whistle');
       if (def.pl.st.pf >= 6) def.pl.dq = true;
-      this.say('Shooting foul on ' + def.mon.dispName, true);
+      this.say('Shooting foul on ' + def.mon.dispName + this.foulNote(def), true);
     }
 
     // ---------------------------------------------------------------- defensive actions
@@ -921,10 +921,11 @@
       c.jump = 1; c.jumpKind = 'reb'; c.vz = 9 + this.jumpH(c); c.rebJump = this.t;
     }
 
+    foulNote(b) { const pf = b.pl.st.pf; return pf >= 6 ? ' · FOULED OUT' : pf === 5 ? ' · foul trouble (5)' : pf === 4 ? ' · 4 fouls' : ''; }
     nonShootingFoul(def, off, text) {
       def.pl.st.pf++; this.teamFouls[def.s]++; this.g.teamFouls[this.gi[def.s]] = this.teamFouls[def.s]; this.sfx.push('whistle');
       if (def.pl.st.pf >= 6) def.pl.dq = true;
-      this.say((text || 'Foul') + ' on ' + def.mon.dispName, true);
+      this.say((text || 'Foul') + ' on ' + def.mon.dispName + this.foulNote(def), true);
       this.stopForFoul(def, off);
     }
     stopForFoul(def, off) {
@@ -937,7 +938,7 @@
     offensiveFoul(off, def) {
       this.sfx.push('whistle'); off.pl.st.pf++; off.pl.st.tov++; this.teamFouls[off.s]++; this.g.teamFouls[this.gi[off.s]] = this.teamFouls[off.s];
       if (off.pl.st.pf >= 6) off.pl.dq = true;
-      this.say('OFFENSIVE FOUL on ' + off.mon.dispName, true);
+      this.say('OFFENSIVE FOUL on ' + off.mon.dispName + this.foulNote(off), true);
       this.shot = null;
       this.changePoss(1 - off.s, false);
       this.setInbound(1 - off.s, off.x, off.y < 25 ? 0 : 50, 'foul');

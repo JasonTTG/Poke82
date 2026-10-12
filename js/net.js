@@ -3,7 +3,7 @@
   const N = PB.Net = {
     ws: null, id: null, room: null, url: '', name: '', connected: false, mode: 'p2p', link: null, peers: [], relay: null,
     session: null,                  // { league: bool, mode, teams: {pid: teamId}, host: bool }
-    listeners: {}, pending: {}, cid: 0, seq: 0, lastSeq: 0,
+    listeners: {}, pending: {}, cid: 0, seq: 0, lastSeq: 0, spectator: false,
   };
   try { N.name = localStorage.getItem('poke82_name') || ''; } catch (e) { }
   N.active = () => !!(N.connected && N.room);
@@ -16,7 +16,7 @@
   N.disconnect = function () {
     for (const p of N.peers) { try { p.destroy(); } catch (e) { } }
     N.peers = []; N.relay = null; N.link = null;
-    N.ws = null; N.connected = false; N.room = null; N.session = null; N.pending = {};
+    N.ws = null; N.connected = false; N.room = null; N.session = null; N.pending = {}; N.spectator = false;
   };
   N.send = obj => {
     if (N.link) N.link(obj);
@@ -27,7 +27,7 @@
     if (N.mode === 'p2p') {
       if (N.relay) N.relay.close(); else if (N.conn) { try { N.conn.close(); } catch (e) { } }
       for (const p of N.peers) { try { p.destroy(); } catch (e) { } }
-      N.peers = []; N.relay = null; N.link = null; N.conn = null; N.room = null; N.session = null; return;
+      N.peers = []; N.relay = null; N.link = null; N.conn = null; N.room = null; N.session = null; N.spectator = false; return;
     }
     N.send({ t: 'leave' }); N.room = null; N.session = null;
   };
@@ -57,14 +57,28 @@
   function Relay(code, mode, max, title) {
     this.code = code; this.mode = mode; this.max = max; this.title = title; this.members = []; this.started = false;
     this.nextId = 2; this.peer = null;
+    this.sStart = null; this.sFr = {};          // spectators: the running match's start message and every input frame so far
   }
   Relay.prototype = {
-    info() { return { code: this.code, mode: this.mode, host: 1, max: this.max, started: this.started, title: this.title, players: this.members.map(m => ({ id: m.id, name: m.name })) }; },
+    info() { return { code: this.code, mode: this.mode, host: 1, max: this.max, started: this.started, title: this.title, players: this.members.filter(m => !m.spec).map(m => ({ id: m.id, name: m.name })), spectators: this.members.filter(m => m.spec).length }; },
+    toSpec(d) { const out = { t: 'msg', from: 1, d }; for (const m of this.members) if (m.spec) m.send(out); },
+    // remember (and pass on) the input frames of the match being played so a spectator can join at any time and catch up
+    specTap(c, d) {
+      if (!d) return;
+      if (d.k === 'mstart') { this.sStart = d; this.sFr = {}; } else if (d.k === 'mend') { this.sStart = null; this.sFr = {}; }
+      this.toSpec(d);
+    },
+    specFrames(c, d) {
+      if (!this.sStart || !this.sStart.pids.includes(c.id) || !d.fr) return;
+      const mem = this.sFr[c.id] || (this.sFr[c.id] = new Map()), fresh = [];
+      for (const [t, f] of d.fr) if (!mem.has(t)) { mem.set(t, f); fresh.push([t, f]); }
+      if (fresh.length) this.toSpec({ k: 'msi', pid: c.id, fr: fresh });
+    },
     bcast(obj, skip) { for (const m of this.members.slice()) if (m !== skip) m.send(obj); },
     drop(c) {
       const i = this.members.indexOf(c); if (i < 0) return;
       this.members.splice(i, 1);
-      this.bcast({ t: 'room', room: this.info() }); this.bcast({ t: 'peerLeft', id: c.id });
+      this.bcast({ t: 'room', room: this.info() }); if (!c.spec) this.bcast({ t: 'peerLeft', id: c.id });
     },
     close() {
       for (const m of this.members.slice()) if (m.id !== 1) { m.send({ t: 'closed', why: 'The host left.' }); try { m.conn.close(); } catch (e) { } }
@@ -77,6 +91,11 @@
         case 'hello': c.name = String(msg.name || 'Player').slice(0, 20); break;
         case 'join': {
           if (String(msg.code || '').toUpperCase() !== this.code) { c.send({ t: 'error', err: 'No room with code ' + msg.code }); return; }
+          if (msg.spectate) {         // watchers can come and go at any time and never count as players
+            c.name = String(msg.name || c.name).slice(0, 20); c.spec = true; this.members.push(c);
+            this.bcast({ t: 'room', room: this.info() }); c.send({ t: 'joined', you: c.id, spectator: true });
+            N.hostSpectate(c, this); break;
+          }
           let back = null;
           if (this.started) {
             const names = (N.session && N.session.league && N.session.names) || {};
@@ -84,7 +103,7 @@
             if (old == null) { c.send({ t: 'error', err: 'That game has already started.' }); return; }
             back = +old;
           }
-          if (this.members.length >= this.max) { c.send({ t: 'error', err: 'That room is full.' }); return; }
+          if (this.members.filter(m => !m.spec).length >= this.max) { c.send({ t: 'error', err: 'That room is full.' }); return; }
           c.name = String(msg.name || c.name).slice(0, 20);
           this.members.push(c);
           this.bcast({ t: 'room', room: this.info() });
@@ -98,9 +117,12 @@
         case 'msg': {
           if (!this.members.includes(c)) return;
           const d = msg.d;
+          if (c.spec && !(d && d.k === 'resync')) return;           // spectators only listen
           if (d && d.k === 'start' && c.id === 1) { this.started = true; this.bcast({ t: 'room', room: this.info() }); }
           const out = { t: 'msg', from: c.id, d };
           const to = msg.to == null ? 'all' : msg.to;
+          if (to === 'spec') { this.specTap(c, d); return; }
+          if (d && d.k === 'mi') this.specFrames(c, d);
           if (to === 'all') this.bcast(out, c);
           else for (const m of this.members) if ((to === 'host' && m.id === 1 && c.id !== 1) || m.id === to) m.send(out);
           break;
@@ -140,7 +162,7 @@
     N.to(c.id, { k: 'rejoin', data: PB.Save.serialize(PB.G), teams: ses.teams, names: ses.names, mode: ses.mode, seq: N.seq });
     fire('teams', { teams: ses.teams, names: ses.names });
   };
-  N.p2pJoin = async function (code, rejoin) {
+  N.p2pJoin = async function (code, rejoin, spectate) {
     try {
       if (rejoin) { for (const p of N.peers) { try { p.destroy(); } catch (e) { } } N.peers = []; }
       N.lastCode = code;
@@ -151,7 +173,7 @@
       peer.on('error', e => { clearTimeout(t); fire('error', e && e.type === 'peer-unavailable' ? 'No room with code ' + code : 'Connection problem: ' + (e && e.type)); });
       conn.on('open', () => {
         const direct = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } };
-        direct({ t: 'hello', name: N.name }); direct({ t: 'join', code, name: N.name, rejoin: !!rejoin });
+        direct({ t: 'hello', name: N.name }); direct({ t: 'join', code, name: N.name, rejoin: !!rejoin, spectate: !!spectate });
       });
       // only the connection the host accepted becomes the live link (a retry that loses the race must not replace it)
       conn.on('data', raw => { const m = J(raw); if (m && m.t === 'joined') { clearTimeout(t); N.conn = conn; N.link = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } }; } N._recv(m); });
@@ -159,6 +181,16 @@
     } catch (e) { fire('error', e.message || 'Could not connect'); }
   };
   N.toAll = d => N.send({ t: 'msg', to: 'all', d });
+  N.toSpec = d => N.send({ t: 'msg', to: 'spec', d });
+  // a spectator joins: the current league (if any) and, if a match is under way, its start and every input so far
+  N.hostSpectate = function (c, relay) {
+    const ses = N.session;
+    if (ses && ses.league && PB.G) N.to(c.id, { k: 'spectate', data: PB.Save.serialize(PB.G), teams: ses.teams, names: ses.names, mode: ses.mode, seq: N.seq });
+    if (relay.sStart) {
+      c.send({ t: 'msg', from: 1, d: relay.sStart });
+      for (const pid in relay.sFr) { const all = Array.from(relay.sFr[pid]); for (let i = 0; i < all.length; i += 400) c.send({ t: 'msg', from: 1, d: { k: 'msi', pid: +pid, fr: all.slice(i, i + 400) } }); }
+    }
+  };
   N.toHost = d => N.send({ t: 'msg', to: 'host', d });
   N.to = (id, d) => N.send({ t: 'msg', to: id, d });
   N.nameOf = id => { const p = N.room && N.room.players.find(x => x.id === id); return p ? p.name : 'Player'; };
@@ -167,7 +199,7 @@
     switch (m.t) {
       case 'welcome': N.id = m.id; break;
       case 'room': N.room = m.room; fire('room', m.room); break;
-      case 'joined': fire('joined', m); break;
+      case 'joined': N.spectator = !!m.spectator; fire('joined', m); break;
       case 'rooms': fire('rooms', m.rooms); break;
       case 'error': fire('error', m.err); break;
       case 'closed': N.room = null; N.session = null; fire('closed', m.why); break;
@@ -199,6 +231,7 @@
     return h;
   };
   N.sendOp = function (name, args, cb) {
+    if (N.spectator) { const m = 'You are spectating: only the players can change things.'; if (cb) cb(m); else if (PB.toast) PB.toast(m, 3000); return; }
     const cid = ++N.cid;
     if (cb) N.pending[cid] = cb;
     if (N.isHost()) N._hostExec(name, args, N.id, cid);

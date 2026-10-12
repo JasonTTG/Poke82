@@ -99,7 +99,12 @@
       userBoxes: [], po: null, champion: null, seed: (G.seed * 7 + 13) >>> 0, simSeq: 0,
       awards: null, ach: null, lastTeam: {},
     };
-    if (G.fr) { lg.single = true; lg.need = ((G.fr.cfg.seriesLen + 1) / 2) | 0; lg.poN = PB.Franchise.playoffN(G.teams.length, G.fr.cfg); }
+    if (G.fr) {
+      lg.single = true; lg.need = ((G.fr.cfg.seriesLen + 1) / 2) | 0; lg.poN = PB.Franchise.playoffN(G.teams.length, G.fr.cfg);
+      // East / West conferences: the playoff field is split evenly between them (needs at least 4 teams in the field and enough teams per conference)
+      const nE = G.teams.filter(t => t.conf === 'East').length, nW = G.teams.filter(t => t.conf === 'West').length;
+      lg.conf = G.fr.cfg.conferences !== false && nE + nW === G.teams.length && lg.poN >= 4 && Math.min(nE, nW) >= lg.poN / 2;
+    }
     lg.lastDay = lg.sched[lg.sched.length - 1].day;
     { const cnt = {}; for (const g of lg.sched) { cnt[g.h] = (cnt[g.h] || 0) + 1; cnt[g.a] = (cnt[g.a] || 0) + 1; } lg.games = Math.max(...Object.values(cnt)); }
     return lg;
@@ -269,7 +274,41 @@
   const PATTERNS = { 1: [1], 2: [1, 1, 0], 3: [1, 1, 0, 0, 1], 4: HOME_PATTERN };
   // bracket seed order for a power-of-two field: 1v8, 4v5, 2v7, 3v6 ...
   L.seedOrder = q => { let o = [1]; while (o.length < q) { const m2 = o.length * 2; o = [].concat(...o.map(x => [x, m2 + 1 - x])); } return o; };
+  L.playoffTeams = lg => lg.po ? (lg.po.seeds.League || [].concat(lg.po.seeds.East || [], lg.po.seeds.West || [])) : [];
+  // franchise leagues with conferences: the top q/2 of each conference, bracket inside each conference, then the Finals
+  L.startPlayoffsConf = function (G) {
+    const lg = G.league, q = lg.poN, k = q / 2, need = lg.need || 4;
+    const E = L.confStandings(G, 'East').slice(0, k), W = L.confStandings(G, 'West').slice(0, k), ord = L.seedOrder(k);
+    const mk = (conf, seeds) => { const out = []; for (let i = 0; i < k; i += 2) out.push({ conf, hi: seeds[ord[i] - 1], lo: seeds[ord[i + 1] - 1], hiSeed: ord[i], loSeed: ord[i + 1], w: [0, 0], games: [], need }); return out; };
+    const nRounds = Math.round(Math.log2(q)), rounds = []; for (let i = 0; i < nRounds; i++) rounds.push([]);
+    rounds[0] = mk('East', E).concat(mk('West', W));
+    lg.po = { round: 1, day: 0, rounds, gameNo: 1, seeds: { East: E, West: W }, single: true, conf: true, q, need, nRounds };
+    lg.day = lg.lastDay + 2;
+    lg.po.day = lg.day;
+  };
+  L.poAdvanceConf = function (G) {
+    const lg = G.league, po = lg.po, need = po.need, cur = po.rounds[po.round - 1];
+    if (!cur.every(s => s.w[0] === need || s.w[1] === need)) { lg.day++; return; }
+    const win = s => s.w[0] === need ? s.hi : s.lo;
+    if (po.round === po.nRounds) { lg.champion = win(cur[0]); lg.day++; L.finishSeason(G); return; }
+    const next = [];
+    if (po.round === po.nRounds - 1) {      // conference finals are done: the Finals, home court to the better record
+      const eT = win(cur.find(s => s.conf === 'East')), wT = win(cur.find(s => s.conf === 'West')), eR = lg.rec[eT], wR = lg.rec[wT];
+      const hi = (L.pct(eR) > L.pct(wR) || (L.pct(eR) === L.pct(wR) && eT < wT)) ? eT : wT, lo = hi === eT ? wT : eT;
+      next.push({ conf: 'Finals', hi, lo, hiSeed: 1, loSeed: 1, w: [0, 0], games: [], need });
+    } else {
+      for (const conf of ['East', 'West']) {
+        const ws = cur.filter(s => s.conf === conf).map(win), seeds = po.seeds[conf];
+        for (let i = 0; i < ws.length; i += 2) {
+          const a = ws[i], b = ws[i + 1], hi = seeds.indexOf(a) < seeds.indexOf(b) ? a : b, lo = hi === a ? b : a;
+          next.push({ conf, hi, lo, hiSeed: seeds.indexOf(hi) + 1, loSeed: seeds.indexOf(lo) + 1, w: [0, 0], games: [], need });
+        }
+      }
+    }
+    po.round++; po.rounds[po.round - 1] = next; lg.day += 2;
+  };
   L.startPlayoffsSingle = function (G) {
+    if (G.league.conf) return L.startPlayoffsConf(G);
     const lg = G.league, q = lg.poN;
     const seeds = L.sortTeams(G, G.teams.map(t => t.id)).slice(0, q);
     const ord = L.seedOrder(q), need = lg.need || 4;
@@ -283,6 +322,7 @@
     lg.po.day = lg.day;
   };
   L.poAdvanceSingle = function (G) {
+    if (G.league.po.conf) return L.poAdvanceConf(G);
     const lg = G.league, po = lg.po, need = po.need;
     const cur = po.rounds[po.round - 1];
     if (!cur.every(s => s.w[0] === need || s.w[1] === need)) { lg.day++; return; }

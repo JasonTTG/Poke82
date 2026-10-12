@@ -190,20 +190,26 @@
       let streak = 0; { const t = new Date(); for (;;) { const k = t.toISOString().slice(0, 10); if (hist[k]) { streak++; t.setUTCDate(t.getUTCDate() - 1); } else break; } }
       return `<div class="panel" style="max-width:700px;margin:16px auto"><h2>Daily Challenge · ${d}</h2>
         <div class="dim" style="margin-bottom:10px">Everyone gets the same draft rolls today: a 30-team league. You only draft: your team plays its 82 games and the playoffs automatically, then you get a result code to share.</div>
+        ${(() => { const k = PB.dailyMod(d), M = k && PB.MODS[k]; return `<div class="panel" style="background:var(--bg2);margin-bottom:10px"><b class="gold">Today's modifier:</b> ${M ? `<b>${esc(M.name)}</b> <span class="dim">${esc(M.desc)}</span>` : '<span class="dim">None, a standard draft</span>'}</div>`; })()}
+        ${today ? '' : `<label style="display:block;margin-bottom:10px"><input type="checkbox" ${(PB.settings || {}).challengeMode ? 'checked' : ''} data-change="dailyChal"> <b>Challenge mode</b> <span class="dim">hide the suggested positions while you draft (your result code says so)</span></label>`}
         <div class="kpi"><div><b>${streak}</b><span>Day streak</span></div><div><b>${today ? today.w + '-' + today.l : '—'}</b><span>Today</span></div><div><b>${dates.length ? Math.max(...dates.map(k => hist[k].w)) : '—'}</b><span>Best wins</span></div></div>
         <div class="row" style="margin-top:12px">${today ? `<button class="primary" data-act="dailyCopy" data-d="${d}" autofocus>Copy today's result</button><button disabled>Come back tomorrow for a new draft</button>` : '<button class="primary" data-act="dailyStart" autofocus>Start the challenge</button>'}<button data-act="goMenu">Back</button></div>
         ${dates.length ? `<h3 style="margin-top:14px">History</h3>${dates.map(k => `<div class="row between"><span>${k}</span><span>${hist[k].w}-${hist[k].l}</span><span class="dim">${esc(hist[k].res)}</span><button class="small" data-act="dailyCopy" data-d="${k}">Copy code</button></div>`).join('')}` : ''}</div>`;
     },
   };
   const DLINK = 'https://poke82-beta.vercel.app/';
-  const dailyCode = (d, r) => `PokeHoops 82 Daily ${d}: ${r.w}-${r.l}, ${r.res}\n${DLINK}`;
+  const dailyCode = (d, r) => { const k = r.mod !== undefined ? r.mod : PB.dailyMod(d), M = k && PB.MODS[k], tags = (M ? [M.name] : []).concat(r.chal ? ['Challenge mode'] : []); return `PokeHoops 82 Daily ${d}${tags.length ? ' [' + tags.join(' · ') + ']' : ''}: ${r.w}-${r.l}, ${r.res}\n${DLINK}`; };
+  A.dailyChal = el => { PB.settings = PB.settings || {}; PB.settings.challengeMode = el.checked; PB.Save.settingsSave(PB.settings); };
   A.dailyCopy = (el, d) => { const r = loadDaily()[d.d]; if (!r) return; (navigator.clipboard ? navigator.clipboard.writeText(dailyCode(d.d, r)) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(dailyCode(d.d, r).replace(/\n/g, ' '), 6000)); };
   A.dailyStart = () => {
     if (loadDaily()[dayStr()]) { PB.toast("You already played today's challenge. Come back tomorrow!", 3500); return; }
     const d = dayStr(), seed = daySeed(d);
     const G = PB.newGame(seed, 'main', 30, (seed >>> 3) % 30);
     G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal' });
-    G.daily = { date: d, games: 82 };
+    const mod = PB.dailyMod(d), MD = mod && PB.MODS[mod];
+    G.rules = { legCap: (MD && MD.rules && MD.rules.legCap) || 0, mod: mod || null };
+    G.challenge = !!(PB.settings && PB.settings.challengeMode);
+    G.daily = { date: d, games: 82, mod: mod || null, chal: G.challenge };
     const T = G.teams[G.userTeam]; T.city = 'Daily'; T.nick = d.slice(5); T.name = T.city + ' ' + T.nick;
     PB.G = G; UI.stack = [];
     G.draft = { phase: 'starters', pick: 0, roll: null, cands: null, picked: [], rerolls: { region: 1, type: 1 } };
@@ -214,7 +220,7 @@
     const lg = G.league, r = lg.rec[G.userTeam], hist = loadDaily();
     const res = lg.champion === G.userTeam ? 'Champions' : lg.po && (lg.po.seeds.East.concat(lg.po.seeds.West).includes(G.userTeam)) ? 'Playoffs' : 'Missed playoffs';
     const cur = hist[G.daily.date];
-    if (!cur) hist[G.daily.date] = { w: r.w, l: r.l, res, team: G.teams[G.userTeam].starters.slice(0, 3).map(id => PB.BYID[id].dispName).join('/') };
+    if (!cur) hist[G.daily.date] = { w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal, team: G.teams[G.userTeam].starters.slice(0, 3).map(id => PB.BYID[id].dispName).join('/') };
     try { localStorage.setItem(DKEY, JSON.stringify(hist)); } catch (e) { }
   };
   // ---------- daily challenge: the season plays out on screen ----------
@@ -246,8 +252,8 @@
     else {
       const res = dailyRes(G);
       head = `<div class="gold" style="font-weight:800;font-size:18px">${res === 'Champions' ? '🏆 Champions!' : res}</div>`;
-      foot = `<div class="panel" style="margin-top:10px;white-space:pre-line;font-family:monospace">${esc(dailyCode(G.daily.date, { w: r.w, l: r.l, res }))}</div>
-        <div class="row" style="margin-top:10px"><button class="primary" data-act="dailyCopyRun" autofocus>Copy result</button><button data-act="dailyLeague">View the league</button><button data-act="goMenu">Back to menu</button></div>`;
+      foot = `<div class="panel" style="margin-top:10px;white-space:pre-line;font-family:monospace">${esc(dailyCode(G.daily.date, { w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal }))}</div>
+        <div class="row" style="margin-top:10px"><button class="primary" data-act="dailyCopyRun" autofocus>Copy result</button><button data-act="teamCard" data-tid="${G.userTeam}" data-daily="1" data-title="${esc(r.w + '-' + r.l + ' · ' + res)}" data-foot="Daily ${G.daily.date}">🖼 Team card</button><button data-act="dailyLeague">View the league</button><button data-act="goMenu">Back to menu</button></div>`;
     }
     el.innerHTML = `<div style="font-size:34px;font-weight:900;margin:4px 0">${mine}</div>${head}<div style="margin-top:8px">${chartSvg()}</div>${D.stage === 'reg' ? '' : bracketHtml()}${foot}`;
   }
@@ -273,7 +279,7 @@
     mount() { dailyDraw(); clearInterval(D.iv); if (D.stage === 'reg') D.iv = setInterval(dailyTick, 60); else if (D.stage === 'po') D.iv = setInterval(dailyTick, 650); },
   };
   A.dailyPlayoffs = () => { D.stage = 'po'; clearInterval(D.iv); D.iv = setInterval(dailyTick, 650); dailyDraw(); };
-  A.dailyCopyRun = () => { const G = D.G, r = G.league.rec[G.userTeam], t = dailyCode(G.daily.date, { w: r.w, l: r.l, res: dailyRes(G) }); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(t.replace(/\n/g, ' '), 6000)); };
+  A.dailyCopyRun = () => { const G = D.G, r = G.league.rec[G.userTeam], t = dailyCode(G.daily.date, { w: r.w, l: r.l, res: dailyRes(G), mod: G.daily.mod || null, chal: !!G.daily.chal }); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(t.replace(/\n/g, ' '), 6000)); };
   A.dailyLeague = () => { UI.stack = []; UI.go('hub', { tab: 'home' }, true); };
   const homeTab = UI.hubTabs.home;
   UI.hubTabs.home = function (G, lg, p) {

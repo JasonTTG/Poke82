@@ -84,7 +84,7 @@
     const G = PB.G; if (!G) return;
     if (G.fr && G.fr.draft && /^draft|^startDraft/.test(name)) {
       const D = G.fr.draft;
-      if (name === 'startDraft') { seenFr = 0; UI.lotteryShow(G); return; }
+      if (name === 'startDraft') { seenFr = 0; return; }       // the lottery animation opens from the draft screen (js/ui-franchise3.js)
       const fresh = D.history.slice(seenFr); seenFr = D.history.length;
       let shown = 0;
       for (const h of fresh) if ((h.t === G.userTeam || h.n < 3) && shown++ < 4) UI.pickReveal(G, h.t, h.mon, h.n + 1, G.fr.scouted && G.fr.scouted[G.userTeam + ':' + h.mon] ? 'scouting grade ' + PB.Franchise.scoutGrade(G, h.mon) : '');
@@ -95,15 +95,4 @@
       for (const h of fresh) if ((h.team === G.userTeam || h.pick < 3) && shown++ < 3) UI.pickReveal(G, h.team, h.mon, h.pick + 1);
     }
   });
-  UI.lotteryShow = function (G) {
-    const D = G.fr.draft, L = D.lottery;
-    if (!L || !L.teams.length) return;
-    const lines = L.drawn.map((t, i) => ({ n: D.added.length + i + 1, t }));
-    let html = `<h2>Draft lottery</h2><div class="dim" style="margin-bottom:8px">${esc(PB.REGIONS[D.gen])} draft class · worst records have the best odds</div><div id="lot-odds" style="font-size:12px;margin-bottom:10px">${L.odds.map(o => `<span class="tag">${UI.logo(G.teams[o.t], 14)} ${esc(G.teams[o.t].abbr)} ${Math.round(o.p * 100)}%</span>`).join(' ')}</div><div id="lot-res" style="min-height:${40 + lines.length * 30}px"></div><div class="row" style="justify-content:flex-end"><button class="gold" data-act="closeModal" autofocus>To the draft</button></div>`;
-    UI.modal(html);
-    const box = document.getElementById('lot-res');
-    const order = lines.slice().reverse();
-    order.forEach((l, i) => setTimeout(() => { const e = document.getElementById('lot-res'); if (!e) return; e.insertAdjacentHTML('afterbegin', `<div class="lot-line">Pick #${l.n}: ${UI.logo(G.teams[l.t], 22)} <b>${esc(G.teams[l.t].name)}</b></div>`); }, 600 + i * 900));
-    if (!order.length) box.innerHTML = '<div class="dim">No lottery picks this year.</div>';
-  };
 })(window.PB);

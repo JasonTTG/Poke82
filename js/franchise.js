@@ -5,12 +5,19 @@
   const F = PB.Franchise = {};
 
   F.DEFAULTS = {
-    startGen: 1, startRegions: 2, startTeams: 6, teamCap: 16, rosterMax: 20,
-    playoffTeams: 0,          // 0 = automatic
+    pool: 'mixed',            // 'mixed': a random list of unevolved Pokémon from every generation, drafted in mixed classes; 'regions': one region at a time
+    startGen: 1, startRegions: 2, startTeams: 16, teamCap: 16, rosterMax: 15,   // team cap = starting teams: no expansion unless you raise it
+    conferences: true,        // East / West; the playoff field is split between them
+    playoffTeams: 8,          // 0 = automatic (8 = the top 4 of each conference)
     games: 0,                 // 0 = scaled with the number of teams
     seriesLen: 7,
     injuries: true, injRate: 1,
-    evoSpeed: 1, draftRounds: 3, tradeDeadline: true,
+    evoSpeed: 1, draftRounds: 2, tradeDeadline: true,
+    classExtras: 8,           // extra prospects in every draft class beyond the picks; the undrafted become free agents (injury cover)
+    startExtras: 0,           // extra Pokémon in the starting pool beyond full rosters (0 = one per team)
+    legPerClass: 0,           // legendaries / mythicals per draft class (0 = about a quarter of the number of teams)
+    legCap: 1,                // legendaries per team
+    scoutPts: 10,             // scouting points each season
   };
 
   // ---------- evolution graph ----------
@@ -31,7 +38,8 @@
   const evenDown = n => n - (n % 2);
   const evenUp = n => n + (n % 2);
   F.cfg = G => G.fr.cfg;
-  F.gamesFor = (n, cfg) => (cfg.games > 0 ? cfg.games : clamp(Math.round(10 + 4.5 * n), 24, 82));
+  // the season scales with the league: about 2.2 games against every other team (16 teams: 34 games, 30 teams: 64), never fewer than 20 or more than 82
+  F.gamesFor = (n, cfg) => (cfg.games > 0 ? cfg.games : clamp(Math.round((n - 1) * 1.1) * 2, 20, 82));
   F.playoffN = (n, cfg) => {
     if (cfg.playoffTeams > 0) return Math.min(cfg.playoffTeams, evenDown(n)) >= 2 ? Math.pow(2, Math.floor(Math.log2(Math.min(cfg.playoffTeams, n)))) : 2;
     return n >= 14 ? 8 : n >= 6 ? 4 : 2;
@@ -49,7 +57,8 @@
     const cs = PB.CITIES.filter(c => !usedC.has(c)), ns = PB.NICKS.filter(c => !usedN.has(c));
     const city = rng.pick(cs.length ? cs : PB.CITIES), nick = rng.pick(ns.length ? ns : PB.NICKS);
     const idKey = rng.pick(Object.keys(PB.IDENTITIES));
-    const t = { id: G.teams.length, city, nick, conf: 'League', div: 'League', identity: idKey, user: false, roster: [], starters: [], bench: [], strat: { off: PB.IDENTITIES[idKey].off, def: PB.IDENTITIES[idKey].def } };
+    const nE = G.teams.filter(x => x.conf === 'East').length, nW = G.teams.filter(x => x.conf === 'West').length, cf = G.fr && G.fr.cfg.conferences !== false && (nE || nW) ? (nE <= nW ? 'East' : 'West') : 'League';
+    const t = { id: G.teams.length, city, nick, conf: cf, div: cf, identity: idKey, user: false, roster: [], starters: [], bench: [], strat: { off: PB.IDENTITIES[idKey].off, def: PB.IDENTITIES[idKey].def } };
     t.name = city + ' ' + nick; t.abbr = PB.teamAbbr(city);
     const seen = new Set(G.teams.map(x => x.abbr));
     while (seen.has(t.abbr)) t.abbr = t.abbr.slice(0, 2) + String.fromCharCode(65 + Math.floor(rng.next() * 26));
@@ -80,21 +89,31 @@
     cfg = Object.assign({}, F.DEFAULTS, cfg);
     cfg.startTeams = clamp(evenUp(cfg.startTeams | 0), 2, 30); cfg.teamCap = clamp(evenUp(cfg.teamCap | 0), cfg.startTeams, 30);
     cfg.rosterMax = clamp(cfg.rosterMax | 0, 13, 30); cfg.startRegions = clamp(cfg.startRegions | 0, 1, 9);
-    const rng = new PB.RNG(seed);
-    const order = []; for (let i = 0; i < 9; i++) order.push(((cfg.startGen - 1 + i) % 9) + 1);
-    const gens = order.slice(0, cfg.startRegions);
-    const pool = F.unevolvedOf(gens);
-    if (pool.length < cfg.startTeams * 12) throw new Error('Those regions only have ' + pool.length + ' unevolved Pokemon: too few for ' + cfg.startTeams + ' teams. Use fewer teams or more starting regions.');
+    const rng = new PB.RNG(seed), mixed = cfg.pool !== 'regions';
+    let order = [], gens = [], pool, queues = null;
+    if (mixed) {
+      const U = F.universe(cfg, rng); pool = U.start; queues = U;
+      if (pool.length < cfg.startTeams * 12) throw new Error('Not enough Pokémon for ' + cfg.startTeams + ' teams.');
+    } else {
+      for (let i = 0; i < 9; i++) order.push(((cfg.startGen - 1 + i) % 9) + 1);
+      gens = order.slice(0, cfg.startRegions);
+      pool = F.unevolvedOf(gens);
+      if (pool.length < cfg.startTeams * 12) throw new Error('Those regions only have ' + pool.length + ' unevolved Pokemon: too few for ' + cfg.startTeams + ' teams. Use fewer teams or more starting regions.');
+    }
     const slot = humans && humans.length ? humans[0] : rng.int(0, cfg.startTeams - 1);
     const G = { version: 1, seed, mode: 'franchise', nTeams: cfg.startTeams, rng, claimed: {}, teams: PB.makeTeams(rng, cfg.startTeams, slot), userTeam: slot, draft: null, league: null, settings: PB.defaultSettings() };
     // online leagues: every person's team is flagged before the Pokemon are handed out
     if (humans) for (const h of humans) { const T = G.teams[h]; T.user = true; T.identity = 'user'; T.strat = { off: 'balanced', def: 'man' }; }
-    for (const t of G.teams) { t.conf = 'League'; t.div = 'League'; }
-    G.rules = { legCap: cfg.legCap || 0 };
-    G.fr = { cfg, order, gens, nextIdx: gens.length, pool: {}, dev: {}, inj: {}, focus: {}, year: 1, stage: 'season', draft: null, history: [], evoLog: [], news: [], hall: [] };
+    if (cfg.conferences !== false && G.teams.length >= 4) { const cr = new PB.RNG((seed ^ 0xc0f0) >>> 0), ids = cr.shuffle(G.teams.map(t => t.id)); ids.forEach((id, i) => { const c = i < ids.length / 2 ? 'East' : 'West'; G.teams[id].conf = c; G.teams[id].div = c; }); }
+    else for (const t of G.teams) { t.conf = 'League'; t.div = 'League'; }
+    G.rules = { legCap: cfg.legCap != null ? cfg.legCap : 0 };
+    G.fr = { cfg, order, gens, nextIdx: gens.length, pool: {}, dev: {}, inj: {}, focus: {}, year: 1, stage: 'season', draft: null, history: [], evoLog: [], news: [], hall: [], mixed, classNo: 0, scoutPts: {}, scouted: {} };
+    if (mixed) { G.fr.qNorm = queues.norm; G.fr.qLeg = queues.leg; }
     PB.G = G;                                   // applies this league's talent variance before anyone is picked
     distribute(G, pool, rng);
     for (const t of G.teams) PB.autoLineup(t);
+    if (mixed) F.planClass(G);
+    F.resetScouting(G);
     return G;
   };
   // the first season starts once the user has named their team
@@ -105,6 +124,7 @@
   F.afterGame = function (G, game, result) {
     const fr = G.fr, cfg = fr.cfg, lg = G.league;
     const rng = new PB.RNG((lg.seed * 31 + game.day * 7919 + game.h * 131 + game.a * 17 + (lg.po ? lg.po.round : 0)) >>> 0);
+    const devScale = clamp(Math.sqrt(82 / (lg.games || 82)), 1, 2);       // shorter seasons give a little more development per game
     for (let s = 0; s < 2; s++) {
       const T = G.teams[s === 0 ? game.h : game.a];
       const box = result.box[s];
@@ -115,7 +135,7 @@
       for (const id of T.roster) {
         const b = box[id]; const sec = b ? b.sec : 0;
         // development: practice for everyone, game minutes for the rotation
-        fr.dev[id] = (fr.dev[id] || 0) + (0.5 + sec / 60 * 0.07) * (PB.Var ? PB.Var.devMul(G, id) : 1);
+        fr.dev[id] = (fr.dev[id] || 0) + (0.5 + sec / 60 * 0.07) * devScale * (PB.Var ? PB.Var.devMul(G, id) : 1);
         if (!cfg.injuries || sec <= 0 || fr.inj[id]) continue;
         const m = PB.BYID[id];
         const p = 0.00028 * (sec / 60) * (cfg.injRate || 1) * (1 + (60 - m.r.stamina) / 160);
@@ -171,7 +191,7 @@
   F.onSeasonEnd = function (G) {
     const fr = G.fr, lg = G.league;
     const ut = G.userTeam, rec = lg.rec[ut];
-    const poTeams = lg.po ? (lg.po.seeds.League || []) : [];
+    const poTeams = lg.po ? PB.League.playoffTeams(lg) : [];
     let result = poTeams.includes(ut) ? 'Made the playoffs' : 'Missed the playoffs';
     if (lg.champion === ut) result = 'Champions';
     else if (lg.po) { const last = lg.po.rounds.map((r, i) => ({ r, i })).filter(x => x.r.some(s => s.hi === ut || s.lo === ut)).pop(); if (last) result = 'Lost in ' + F.roundName(lg.po, last.i + 1); }
@@ -182,9 +202,13 @@
   };
   F.roundName = (po, r) => {
     const left = po.nRounds - r;
+    if (po.conf) return left === 0 ? 'the Finals' : left === 1 ? 'the Conference Finals' : left === 2 ? 'the Conference Semifinals' : 'Round ' + r;
     return left === 0 ? 'the Finals' : left === 1 ? 'the Semifinals' : left === 2 ? 'the Quarterfinals' : 'Round ' + r;
   };
-  F.nextRegion = G => G.fr.order[G.fr.nextIdx];
+  F.nextRegion = G => G.fr.mixed ? (G.fr.next ? 'mixed' : null) : G.fr.order[G.fr.nextIdx];
+  F.hasNext = G => F.nextRegion(G) != null;
+  F.nextLabel = G => G.fr.mixed ? 'mixed-generation' : PB.REGIONS[F.nextRegion(G)];
+  F.draftLabel = (G, D) => D && D.label ? D.label : PB.REGIONS[D.gen] + ' draft class';
   F.isOver = G => G.fr.stage === 'over';
 
   // review -> dev (or over when there is nothing left to draft)
@@ -212,17 +236,23 @@
     if (fr.stage !== 'dev') throw new Error('Not in the development phase');
     const gen = F.nextRegion(G);
     if (gen == null) { fr.stage = 'over'; return null; }
-    fr.gens.push(gen); fr.nextIdx++;
-    const klass = F.unevolvedOf([gen]).filter(m => G.claimed[m.id] == null);
-    // expansion teams: as many as the grown pool can support, up to the cap
-    const totalPool = F.unevolvedOf(fr.gens).length;
-    const want = Math.min(cfg.teamCap, evenDown(Math.floor(totalPool / cfg.rosterMax)));
-    let k = Math.max(0, want - G.teams.length);
-    const oldPicks = G.teams.length * cfg.draftRounds;
-    const avail = klass.length + F.freeAgents(G).length - oldPicks;
-    k = Math.min(k, Math.max(0, Math.floor(avail / 14)));
-    if ((G.teams.length + k) % 2) k--;
-    k = Math.max(0, k);
+    let klass, k;
+    if (fr.mixed) {
+      const cls = fr.next; fr.next = null; fr.classNo++; fr.nextIdx++;
+      klass = cls.ids.filter(id => G.claimed[id] == null).map(id => PB.BYID[id]); k = cls.added || 0;
+    } else {
+      fr.gens.push(gen); fr.nextIdx++;
+      klass = F.unevolvedOf([gen]).filter(m => G.claimed[m.id] == null);
+      // expansion teams: as many as the grown pool can support, up to the cap
+      const totalPool = F.unevolvedOf(fr.gens).length;
+      const want = Math.min(cfg.teamCap, evenDown(Math.floor(totalPool / cfg.rosterMax)));
+      k = Math.max(0, want - G.teams.length);
+      const oldPicks = G.teams.length * cfg.draftRounds;
+      const avail = klass.length + F.freeAgents(G).length - oldPicks;
+      k = Math.min(k, Math.max(0, Math.floor(avail / 14)));
+      if ((G.teams.length + k) % 2) k--;
+      k = Math.max(0, k);
+    }
     const added = [];
     for (let i = 0; i < k; i++) added.push(F.newTeam(G).id);
     // order: expansion teams first, then the worst records of last season
@@ -240,7 +270,7 @@
     }
     seq.length = Math.min(seq.length, klass.length);
     const prospects = klass.slice().sort((a, b) => F.mval(b) - F.mval(a)).map(m => m.id);
-    fr.draft = { gen, prospects, seq, pick: 0, history: [], added, nOld: old.length };
+    fr.draft = { gen: fr.mixed ? null : gen, label: fr.mixed ? 'Season ' + fr.year + ' draft class' : null, nLeg: klass.filter(m => PB.isLegend(m)).length, prospects, seq, pick: 0, history: [], added, nOld: old.length };
     if (added.length) F.news(G, added.length + ' expansion team' + (added.length > 1 ? 's join' : ' joins') + ' the league: ' + added.map(id => G.teams[id].name).join(', ') + '.');
     fr.stage = 'draft';
     return fr.draft;
@@ -426,6 +456,8 @@
     for (const T of G.teams) { if (isHuman(G, T.id)) PB.fixLineup(T); else { F.aiTrim(G, T); PB.autoLineup(T); } }
     for (const T of G.teams) if (T.roster.length < 12) throw new Error(T.name + ' cannot field a team (not enough free agents).');
     fr.year++; fr.stage = 'season'; fr.draft = null;
+    if (fr.mixed) F.planClass(G);
+    F.resetScouting(G);
     G.league = PB.League.create(G, F.gamesFor(G.teams.length, fr.cfg));
     G.league.season = fr.year;
     F.news(G, 'Season ' + fr.year + ' begins with ' + G.teams.length + ' teams and ' + G.league.games + ' games each.');
@@ -438,4 +470,54 @@
     if (Object.keys(fr.focus).length >= 3) return false;
     fr.focus[id] = 1; return true;
   };
+
+  // ---------- mixed-generation pools and draft classes ----------
+  // Every unevolved Pokémon from every generation, shuffled: legendaries / mythicals and the rest are queued separately so each class gets the same number of legends.
+  F.legendsPerClass = (cfg, n) => cfg.legPerClass > 0 ? cfg.legPerClass : Math.max(1, Math.round(n * 0.25));
+  F.universe = function (cfg, rng) {
+    const all = PB.MONS.filter(m => m.from_ === 0), leg = rng.shuffle(all.filter(m => PB.isLegend(m))).map(m => m.id), norm = rng.shuffle(all.filter(m => !PB.isLegend(m))).map(m => m.id);
+    const n = cfg.startTeams, want = n * cfg.rosterMax + (cfg.startExtras > 0 ? cfg.startExtras : n);
+    const nLeg = Math.min(leg.length, Math.round(n * Math.max(1, cfg.legCap || 1)), Math.floor(want * 0.4));
+    const start = leg.splice(0, nLeg).concat(norm.splice(0, Math.min(norm.length, want - nLeg))).map(id => PB.BYID[id]);
+    return { start, norm, leg };
+  };
+  // the next draft class, fixed as soon as the season starts so it can be scouted: legends + everyone else, sized for the picks plus the extras
+  F.planClass = function (G) {
+    const fr = G.fr, cfg = fr.cfg; if (!fr.mixed) return null;
+    const n = G.teams.length, rng = new PB.RNG((G.seed ^ Math.imul(fr.year + 3, 2654435761) ^ 0x5ca1ab1e) >>> 0);
+    let k = Math.max(0, Math.min(cfg.teamCap - n, 30 - n)); k -= k % 2;
+    const nLegWant = F.legendsPerClass(cfg, n);
+    const plan = kk => { const picks = cfg.draftRounds * n + kk * cfg.rosterMax, nl = Math.min(fr.qLeg.length, nLegWant), needNorm = Math.max(0, picks - nl); return { picks, nl, needNorm, ok: fr.qNorm.length >= needNorm }; };
+    let p = plan(k);
+    while (!p.ok && k > 0) { k = Math.max(0, k - 2); p = plan(k); }
+    if (!p.ok) { fr.next = null; return null; }
+    const extras = Math.min(cfg.classExtras, fr.qNorm.length - p.needNorm);
+    const ids = rng.shuffle(fr.qLeg.splice(0, p.nl).concat(fr.qNorm.splice(0, p.needNorm + extras)));
+    return (fr.next = { ids, nLeg: p.nl, added: k, picks: p.picks, size: ids.length });
+  };
+  // how many seasons a league with this setup can run (the franchise ends when no full class is left to draft)
+  F.projectYears = function (cfgIn) {
+    const cfg = Object.assign({}, F.DEFAULTS, cfgIn), n = cfg.startTeams;
+    const all = PB.MONS.filter(m => m.from_ === 0), legN = all.filter(m => PB.isLegend(m)).length, normN = all.length - legN;
+    if (cfg.pool === 'regions') { const left = Math.max(0, 9 - cfg.startRegions); return { seasons: 1 + left, classes: left, mixed: false }; }
+    const want = n * cfg.rosterMax + (cfg.startExtras > 0 ? cfg.startExtras : n), nLeg0 = Math.min(legN, Math.round(n * Math.max(1, cfg.legCap || 1)), Math.floor(want * 0.4));
+    let norm = normN - (want - nLeg0), leg = legN - nLeg0, teams = n, classes = 0; const sizes = [];
+    for (;;) {
+      let k = Math.max(0, Math.min(cfg.teamCap - teams, 30 - teams)); k -= k % 2;
+      const nl0 = F.legendsPerClass(cfg, teams);
+      const fit = kk => { const picks = cfg.draftRounds * teams + kk * cfg.rosterMax, nl = Math.min(leg, nl0); return { picks, nl, needNorm: Math.max(0, picks - nl) }; };
+      let f = fit(k); while (norm < f.needNorm && k > 0) { k = Math.max(0, k - 2); f = fit(k); }
+      if (norm < f.needNorm) break;
+      const extras = Math.min(cfg.classExtras, norm - f.needNorm);
+      norm -= f.needNorm + extras; leg -= f.nl; teams += k; classes++; sizes.push(f.picks + extras);
+      if (classes > 400) break;
+    }
+    return { seasons: 1 + classes, classes, mixed: true, sizes, leftoverNormal: norm, leftoverLegends: leg, startPool: want, legPerClass: F.legendsPerClass(cfg, n) };
+  };
+  // scouting points reset every season; what you learned about a prospect stays
+  F.resetScouting = function (G) {
+    const fr = G.fr; fr.scoutPts = fr.scoutPts || {}; fr.scouted = fr.scouted || {};
+    for (const t of G.teams) if (isHuman(G, t.id)) fr.scoutPts[t.id] = fr.cfg.scoutPts != null ? fr.cfg.scoutPts : 10;
+  };
+  F.nextClassIds = G => { const fr = G.fr; if (fr.stage === 'draft' && fr.draft) return fr.draft.prospects.slice(); if (fr.mixed) return fr.next ? fr.next.ids.filter(id => G.claimed[id] == null) : []; const g = F.nextRegion(G); return g == null ? [] : F.unevolvedOf([g]).filter(m => G.claimed[m.id] == null).map(m => m.id); };
 })(window.PB);

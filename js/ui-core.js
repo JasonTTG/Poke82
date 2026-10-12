@@ -24,9 +24,17 @@
   // ratings, positions, archetypes and overall show for drafted Pokemon and in league menus, never for draft prospects.
   // vis(true) = hide everything (draft tables); vis(mon) = hide only if that mon is an undrafted prospect on a draft screen
   UI.inDraft = () => UI.cur === 'draft' || UI.cur === 'fantasy' || (UI.cur === 'hub' && UI.params && UI.params.tab === 'offseason' && PB.G && PB.G.fr && PB.G.fr.stage === 'draft');
+  // what a draft prospect shows depends on the mode: Daily / Endless show the suggested positions (unless challenge mode), franchise adds archetypes,
+  // fantasy shows whatever the league settings turned on. Ratings and overall stay hidden until a Pokémon is drafted (except in fantasy if allowed).
+  UI.draftVis = () => {
+    const G = PB.G, s = PB.settings || {}, on = k => s[k] !== false;
+    if (G && G.mode === 'fantasy') { const d = G.draftInfo || { R: true, P: true, A: true, O: true }; return { R: !!d.R, P: !!d.P, A: !!d.A, O: !!d.O }; }
+    if (G && G.mode === 'franchise') return { R: false, P: on('showPositions'), A: on('showArchetypes'), O: false };
+    return { R: false, P: !(G && G.challenge) && on('showPositions'), A: false, O: false };
+  };
   UI.vis = hide => {
     const s = PB.settings || {};
-    if (hide === true || (hide && hide.id && UI.inDraft() && !(PB.G && PB.G.claimed[hide.id] != null))) return { R: false, P: false, A: false, O: false };
+    if (hide === true || (hide && hide.id && UI.inDraft() && !(PB.G && PB.G.claimed[hide.id] != null))) return UI.draftVis();
     return { R: s.showRatings !== false, P: s.showPositions !== false, A: s.showArchetypes !== false, O: s.showOverall !== false };
   };
   Object.assign(UI, { spr, tier, ovrBadge, typePills, posBadges, bar, miniBars, KEYBARS, baseBars, BASE });

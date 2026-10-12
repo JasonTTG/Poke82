@@ -46,7 +46,8 @@
           ${rolling ? '' : `<div class="row center" style="margin-bottom:12px"><button data-act="reroll" data-w="region" ${rr.region ? '' : 'disabled'}>Reroll region (${rr.region})</button><button data-act="reroll" data-w="type" ${rr.type ? '' : 'disabled'}>Reroll type (${rr.type})</button></div>
           <div class="cards">${cands.map(m => UI.mcard(m, { btn: 'Draft', btnAct: 'draftPick' })).join('')}</div>`}`;
       }
-      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">${info.name} — Pick ${info.n} of ${info.of}</h2></div></div>
+      const MD = G.daily && G.daily.mod && PB.MODS[G.daily.mod];
+      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">${info.name} — Pick ${info.n} of ${info.of}</h2></div>${MD ? `<div class="tag" title="${esc(MD.desc)}">Daily modifier: <b>${esc(MD.name)}</b> · ${esc(MD.desc)}</div>` : ''}</div>
         <div class="layout2"><div>${main}</div>${sidebar(G, D)}</div>`;
     },
     inspectActions(id) {
@@ -89,6 +90,7 @@
     const G = PB.G, D = G.draft, id = +d.id;
     if (!D.cands || !D.cands.includes(id)) return;
     if (UI.modalOpen()) UI.closeModal();
+    if (PB.logPick) PB.logPick(G, 'main', 'main', G.daily ? 'Daily draft' : 'Random draft', { n: D.pick, t: G.userTeam, id, alts: D.cands.filter(x => x !== id) });
     PB.Registry.claim(G, id, G.userTeam);
     D.roll = null; D.cands = null; D.pick++;
     PB.toast('Drafted ' + PB.BYID[id].dispName + '!');

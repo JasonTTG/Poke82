@@ -1,0 +1,160 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script><script src="../js/court.js"></script><script src="../js/court-ai.js"></script><script>PB.UI=PB.UI||{esc:x=>x,actions:{},screens:{},hubTabs:{},addHubTab(){},spr(){return""},teamLabel(){return""}};</script><script src="../js/grades.js"></script><script src="../js/natures.js"></script><script src="../js/advstats.js"></script><script>PB.UI.inspect=PB.UI.inspect||function(){};PB.UI.inDraft=()=>false;</script><script src="../js/career.js"></script><script src="../js/shotzones.js"></script><script>PB.UI.logo=()=>"";</script><script src="../js/recordbook.js"></script><script src="../js/ops.js"></script><script src="../js/logos.js"></script><script src="../js/teamlook.js"></script>
+<script>
+// Work-list features: position spread, ...
+PB.buildDB();PB.settings=PB.defaultSettings();
+const out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
+{
+  const cnt=[0,0,0,0,0],raw=[0,0,0,0,0],sec=[0,0,0,0,0];
+  for(const m of PB.MONS){cnt[m.r.pos1]++;raw[Math.max(0,Math.min(4,Math.round(m.r.posRaw)))]++;sec[m.r.pos2]++}
+  const n=PB.MONS.length;
+  out.push('primary positions PG..C (now): '+cnt.map(c=>(100*c/n).toFixed(0)+'%').join(' ')+'   (before rebalance: '+raw.map(c=>(100*c/n).toFixed(0)+'%').join(' ')+')');
+  ck(cnt.every(c=>c/n>0.14&&c/n<0.27),'position mix balanced '+cnt);
+  // drafted teams: starters' primary positions
+  const G=PB.newGame(5,'main',30,0);PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+  const tc=[0,0,0,0,0];for(const t of G.teams)for(const id of t.starters)tc[PB.BYID[id].r.pos1]++;
+  out.push('AI starters by position: '+tc.join(' ')+' (of '+30*5+')');
+  ck(tc.every(c=>c>=20),'AI starters not skewed '+tc);
+  ck(G.teams.every(t=>PB.validateLineup(t).length===0),'lineups valid');
+}
+
+// daily modifiers: every modifier can complete a 30-team draft and respects its rule
+{
+  for(const k of Object.keys(PB.MODS)){
+    const MD=PB.MODS[k];let err=null,bad=0,n=0;
+    try{
+      const G=PB.newGame(77,'main',30,3);G.rules={legCap:(MD.rules&&MD.rules.legCap)||0,mod:k};PB.G=G;
+      PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+      for(const t of G.teams)for(const id of t.roster){n++;if(!PB.modAllows(G,PB.BYID[id]))bad++}
+      if(MD.rules&&MD.rules.legCap)for(const t of G.teams)if(t.roster.filter(id=>PB.isLegend(PB.BYID[id])).length>MD.rules.legCap)bad++;
+      if(n!==360)err='roster count '+n;
+    }catch(e){err=e.message}
+    ck(!err&&!bad,'modifier '+k+': '+(err||bad+' violations'));
+  }
+  const dist={none:0};for(let d=0;d<365;d++){const k=PB.dailyMod('2026-'+String(1+Math.floor(d/31)).padStart(2,'0')+'-'+String(1+d%31).padStart(2,'0'));dist[k||'none']=(dist[k||'none']||0)+1}
+  out.push('modifier mix over 365 dates: '+JSON.stringify(dist));
+  ck(dist.none>60&&dist.none<190,'some days have no modifier');
+}
+
+// fouls: sim foul totals look sane, late intentional fouls happen, live engine runs a close game
+{
+  const G=PB.newGame(41,'main',30,0);G.settings=PB.settings;PB.G=G;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);
+  let pf=0,n=0,fta=0,maxPf=0,dq=0;
+  for(let i=0;i<60;i++){
+    const a=G.teams[i%30],b=G.teams[(i*7+3)%30];if(a===b)continue;
+    const res=PB.simGame(a,b,{rng:new PB.RNG(1000+i),quarterMin:12});
+    for(const side of [0,1])for(const id in res.box[side]){const x=res.box[side][id];pf+=x.pf;fta+=x.fta;maxPf=Math.max(maxPf,x.pf);if(x.pf>=6)dq++}
+    n++;
+  }
+  const perTeam=pf/(2*n);out.push('sim fouls per team per game '+perTeam.toFixed(1)+', FTA per team '+(fta/(2*n)).toFixed(1)+', max PF by one player '+maxPf+', foul-outs '+dq+' in '+n+' games');
+  ck(perTeam>16&&perTeam<27,'team fouls realistic '+perTeam);ck(maxPf<=6,'nobody over 6 fouls '+maxPf);
+  // intentional fouls: trailing team fouls in the final minute (count FOUL log entries with q>=4 and clock<=48)
+  let late=0,games=0;
+  for(let i=0;i<40;i++){const a=G.teams[(i*3)%30],b=G.teams[(i*5+1)%30];if(a===b)continue;const g=new PB.Game(a,b,{rng:new PB.RNG(500+i),quarterMin:12,verbose:true});g.run();const L=g.log||[];late+=L.filter(e=>e.kind==='FOUL'&&e.q>=4&&e.c<=48).length;games++}
+  out.push('late fouls (Q4+, last 48s) per game: '+(late/games).toFixed(2));
+  // live engine: close auto game runs without errors, records fouls
+  const T=G.teams[0],O=G.teams[4];let err=null,fl=0,intent=0;
+  try{const m=new PB.Match(G,{oppId:4,auto:true,rng:new PB.RNG(8),quarterMin:2});const say=m.say.bind(m);m.say=function(t,b){if(/Intentional/.test(t))intent++;return say(t,b)};let f=0;while(!m.over&&f<80000){m.update(1/30,null);f++}
+    for(const s of [0,1])for(const p of m.g.sides?m.g.sides[s].court:[]){}
+    fl=m.teamFouls?m.teamFouls[0]+m.teamFouls[1]:0;ck(m.over,'live auto game finishes')}catch(e){err=e.message}
+  ck(!err,'live engine ran: '+err);out.push('live game ok, intentional fouls called: '+intent);
+}
+
+// grades: picks and trades are logged and gradable (franchise, fantasy, main)
+{
+  const GR=PB.Grades;
+  ck(GR&&GR.gradePick,'grades module loaded');
+  const F=PB.Franchise,L=PB.League;
+  const G=F.create(6,{variance:1});F.startLeague(G);
+  let d=0;while(G.league.phase!=='done'&&d++<2000)L.simDay(G,false);
+  F.beginOffseason(G);F.startDraft(G);
+  // a trade during the draft stage: swap two picks between teams 0 and 1
+  const mine=F.ownedPicks(G,0),his=F.ownedPicks(G,1);let tr=0;
+  if(mine.length&&his.length){try{F.trade(G,0,1,[mine[mine.length-1]],[his[his.length-1]],true);tr=1}catch(e){out.push('trade skipped: '+e.message)}}
+  F.draftAutoAll(G);
+  const dr=G.grades&&G.grades['drafts']&&G.grades.drafts['f'+G.fr.year];
+  ck(dr&&dr.picks.length>0,'franchise draft logged');
+  if(dr){const rows=GR.teamDraft(G,dr,0);ck(rows.rows.length>0&&rows.letter!=='-','team draft grade '+rows.letter);
+    const all=G.teams.map(t=>GR.teamDraft(G,dr,t.id).letter).filter(x=>x!=='-');out.push('franchise draft: '+dr.picks.length+' picks; grades '+all.join(' '));
+    // the best pick on the board always grades A or A+
+    const p=dr.picks[0];const g=GR.gradePick(G,p);ck(['A+','A','A-','B+','B','B-','C+','C','C-','D','F'].includes(g.grade),'pick grade valid');
+    const top=dr.picks.map(x=>GR.gradePick(G,x)).filter(x=>x.rank===1);ck(top.every(x=>x.grade==='A'||x.grade==='A+'),'best pick grades A');}
+  if(tr){ck(G.grades.trades.length===1,'trade logged');const tg=GR.gradeTrade(G,G.grades.trades[0]);out.push('trade grades '+tg.a.grade+' / '+tg.b.grade);ck(!!tg.a.grade&&!!tg.b.grade,'trade graded')}
+  // main draft + fantasy are logged too
+  const M=PB.newGame(9,'main',30,0);PB.G=M;PB.aiDraftRounds(M,M.rng,M.teams.map(t=>t.id),0);
+  ck(M.grades&&M.grades.drafts.main&&M.grades.drafts.main.picks.length===360,'main draft logged: '+(M.grades&&M.grades.drafts.main&&M.grades.drafts.main.picks.length));
+  const FF=PB.newGame(10,'fantasy',12,0);PB.G=FF;PB.Fantasy.start(FF,3);let g2=0;while(!PB.Fantasy.done(FF)&&g2++<5000)PB.Fantasy.aiStep(FF);
+  ck(FF.grades&&FF.grades.drafts.fantasy&&FF.grades.drafts.fantasy.picks.length===144,'fantasy draft logged: '+(FF.grades&&FF.grades.drafts.fantasy&&FF.grades.drafts.fantasy.picks.length));
+  // save / load keeps the log
+  const ser=JSON.stringify(PB.Save.serialize?PB.Save.serialize(M):{});out.push('save size with grades KB '+Math.round(ser.length/1024));
+}
+
+// natures: franchise only, stable through evolution, tilt ratings, switchable off
+{
+  const F=PB.Franchise,N=PB.Nature;
+  const A=F.create(3,{variance:0,natures:1});PB.G=A;
+  const pik=PB.BYID[25],rai=PB.BYID[26],n1=N.of(A,25),n2=N.of(A,26);
+  ck(n1===n2,'nature stable through evolution '+n1.name+'/'+n2.name);
+  const diff=Object.keys(PB.RLABELS).filter(k=>pik.r[k]!==pik._r0[k]).length;
+  ck(n1.up?diff>0:diff===0,'nature changes ratings ('+n1.name+', '+diff+' ratings)');
+  let moved=0;for(const m of PB.MONS){const n=N.of(A,m.id);if(n.up&&Object.keys(PB.RLABELS).some(k=>m.r[k]!==m._r0[k]))moved++}
+  out.push('natures on: '+moved+' of '+PB.MONS.length+' Pokémon have shifted ratings');ck(moved>PB.MONS.length*0.6,'most Pokémon have a non-neutral nature');
+  const dist={};for(const m of PB.MONS){const k=N.of(A,m.id).name;dist[k]=(dist[k]||0)+1}ck(Object.keys(dist).length===25,'all 25 natures appear');
+  const B=F.create(3,{variance:0,natures:0});PB.G=B;
+  ck(PB.MONS.every(m=>Object.keys(PB.RLABELS).every(k=>m.r[k]===m._r0[k])),'natures off leaves ratings alone');
+  const C=PB.newGame(5,'main',30,0);PB.G=C;ck(PB.MONS.every(m=>Object.keys(PB.RLABELS).every(k=>m.r[k]===m._r0[k])),'non-franchise games have no natures');
+  // determinism
+  const a1=F.create(7,{variance:1,natures:1});PB.G=a1;const s1=PB.MONS.slice(0,40).map(m=>m.ovr+':'+m.r.three+':'+m.r.dunk).join();
+  const a2=F.create(7,{variance:1,natures:1});PB.G=a2;ck(s1===PB.MONS.slice(0,40).map(m=>m.ovr+':'+m.r.three+':'+m.r.dunk).join(),'natures deterministic');
+  PB.G=null;
+}
+
+// advanced stats on a simulated half season
+{
+  const G=PB.newGame(31,'main',30,0);G.settings=PB.settings;PB.G=G;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);G.league=PB.League.create(G,40);PB.League.simRegularSeason(G);
+  const rows=PB.Adv.rows(G,false);ck(rows.length>300,'adv rows '+rows.length);
+  {const lgz=G.league.zones.reg,Zn=PB.Zones;let fga=0,fgm=0,pf=0,pm=0,tf=0,df=0;
+    for(const id in G.league.pstats){pf+=G.league.pstats[id].fga;pm+=G.league.pstats[id].fgm}
+    for(const id in lgz.p){const a=lgz.p[id];for(let i=0;i<a.length;i+=2){fga+=a[i];fgm+=a[i+1]}}
+    for(const id in lgz.t){const a=lgz.t[id];for(let i=0;i<a.length;i+=2)tf+=a[i]}for(const id in lgz.d){const a=lgz.d[id];for(let i=0;i<a.length;i+=2)df+=a[i]}
+    ck(fga===pf&&fgm===pm,'zone totals match season stats '+fga+'/'+pf+' '+fgm+'/'+pm);ck(tf===fga&&df===fga,'team zones add up');
+    const ref=Zn.league(G.league,false);const pct=[];for(let z=0;z<10;z++)pct.push(ref[z*2]?Math.round(100*ref[z*2+1]/ref[z*2])+'%@'+ref[z*2]:'-');out.push('zone FG% league: '+pct.join(' '));
+    ck(Zn.zoneOf(88,25,0)===0&&Zn.zoneOf(60,25,3)===7&&Zn.zoneOf(88,2,3)===5&&Zn.zoneOf(88,48,3)===9&&Zn.zoneOf(75,12,1)===2,'zoneOf sanity');
+    const svg=Zn.svg(lgz.p[Object.keys(lgz.p)[0]],ref);ck(svg.indexOf('<svg')===0&&svg.length>500,'chart renders');}
+  const mw=(k)=>{let s=0,w=0;for(const r of rows){s+=r[k]*r.min;w+=r.min}return s/w};
+  const per=mw('per'),ts=mw('ts'),usg=mw('usg');
+  out.push('adv: PER avg '+per.toFixed(1)+', TS% '+(ts*100).toFixed(1)+', USG% '+usg.toFixed(1)+', best PER '+Math.max(...rows.map(r=>r.per)).toFixed(1));
+  ck(Math.abs(per-15)<0.5,'PER averages 15');ck(ts>0.45&&ts<0.68,'TS% realistic '+ts);ck(usg>15&&usg<26,'USG% realistic '+usg);
+  const wins=G.teams.reduce((s,t)=>s+G.league.rec[t.id].w,0),ws=rows.reduce((s,r)=>s+r.ws,0);ck(Math.abs(ws-wins)<wins*0.02,'WS sums to wins '+ws.toFixed(0)+'/'+wins);
+  ck(rows.every(r=>isFinite(r.per)&&isFinite(r.ts)&&isFinite(r.astp)&&isFinite(r.rebp)),'no NaN stats');
+  const best=rows.slice().sort((a,b)=>b.per-a.per).slice(0,3).map(r=>PB.BYID[r.id].dispName+' '+r.per.toFixed(1)).join(', ');out.push('top PER: '+best);
+}
+
+// career log: built at season end, totals match the season stats, highs tracked
+{
+  const G=PB.newGame(33,'main',30,0);G.settings=PB.settings;PB.G=G;PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);G.league=PB.League.create(G,10);PB.League.simAll(G);
+  const C=PB.Career,LG=G.careerLog;ck(LG&&Object.keys(LG).length>300,'career log written for '+(LG&&Object.keys(LG).length)+' players');
+  const id=+Object.keys(LG)[0],rows=C.rowsOf(G,id),ps=G.league.pstats[id];
+  ck(rows.length===1&&rows[0].gp===ps.gp&&rows[0].pts===ps.pts,'season row matches stats');
+  const hi=G.careerHi[id];ck(hi&&hi.pts>=0&&hi.pts<=70,'career highs tracked');
+  const top=C.leaders(G,'pts');ck(top[0].v>=top[1].v,'leaders sorted');out.push('career: '+Object.keys(LG).length+' logs, top scorer '+PB.BYID[top[0].id].dispName+' '+top[0].v+' pts, log size KB '+Math.round(JSON.stringify(LG).length/1024));
+  ck(G.league.awards&&rows[0].honors.every(h=>typeof h==='string'),'honors are labels');
+  {const B=G.rb;ck(B&&B.game.pts&&B.game.pts.length===10&&B.game.pts[0].v>=B.game.pts[9].v,'single-game record list');
+    ck(B.season.ppg&&B.season.ppg.length>0&&B.season.pts.length>0,'season records');ck(B.team.wins&&B.team.wins[0].v>=B.team.wins[1].v&&B.team.streak&&B.team.streak[0].v>=3,'team records '+(B.team.streak&&B.team.streak[0].v));
+    const top=B.game.pts[0];out.push('records: top single-game '+top.v+' pts by '+PB.BYID[top.id].dispName+', best ppg season '+B.season.ppg[0].v+', longest streak '+B.team.streak[0].v);}
+  const mvp=G.league.awards.mvp,mr=C.rowsOf(G,mvp);ck(mr[0].honors.includes('MVP'),'MVP honor recorded');
+}
+
+// team customization: op validates, colors and logo follow it
+{
+  const G=PB.newGame(4,'main',30,2);PB.G=G;const T=G.teams[2],base=PB.teamColors(T).slice();
+  let r=PB.Ops.apply('teamLook',{tid:2,look:{c1:'#112233',c2:'#ffeedd',c3:'#445566',shape:'bolt',symbol:'⚡'}},{from:2});
+  ck(!r.err&&T.custom&&PB.teamColors(T)[0]==='#112233'&&PB.teamColors(T)[2]==='#445566','custom colors applied');
+  const sp=PB.Logo.spec(T);ck(sp.shape==='bolt'&&sp.abbr==='⚡','logo shape and symbol follow');
+  r=PB.Ops.apply('teamLook',{tid:2,look:{c1:'red',c2:'#ffffff'}},{from:2});ck(!!r.err,'bad colors rejected');
+  r=PB.Ops.apply('teamLook',{tid:3,look:{c1:'#112233',c2:'#ffeedd'}},{from:2});ck(!!r.err,'cannot change another team');
+  PB.Ops.apply('teamLook',{tid:2,look:null},{from:2});ck(!T.custom&&PB.teamColors(T)[0]===base[0],'reset restores default');
+  const other=G.teams[5];ck(PB.teamColors(other)[2]===undefined,'other teams unaffected');
+}
+document.getElementById('o').textContent=(fail.length?'FAILURES:\n'+fail.join('\n')+'\n\n':'ALL CHECKS PASSED\n\n')+out.join('\n');
+</script>

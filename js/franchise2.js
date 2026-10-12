@@ -42,7 +42,7 @@
   F.scoutNote = (G, id) => { const t = V.talent(G, id), m = PB.BYID[id], up = F.potential(m) - m.ovr; return (t > 0.8 ? 'Natural talent' : t < -0.8 ? 'Raw, may struggle' : 'Typical talent') + (up > 9 ? ' · big ceiling after evolving' : up > 3 ? ' · grows when it evolves' : ' · what you see is what you get'); };
   F.scout = function (G, tid, id) {
     const fr = G.fr;
-    if (fr.stage !== 'draft' || !fr.draft || !fr.draft.prospects.includes(id)) throw new Error('You can only scout draft prospects');
+    if (!F.nextClassIds(G).includes(id)) throw new Error('You can only scout prospects in the upcoming draft class');
     fr.scoutPts = fr.scoutPts || {}; fr.scouted = fr.scouted || {};
     if ((fr.scoutPts[tid] || 0) <= 0) throw new Error('No scouting points left');
     if (fr.scouted[tid + ':' + id]) return;
@@ -54,13 +54,14 @@
   const pkey = (y, r, o) => 'p:' + y + '.' + r + '.' + o;
   const pparse = k => { const [y, r, o] = k.slice(2).split('.').map(Number); return { y, r, o }; };
   F.isPick = a => typeof a === 'string';
-  F.pickLabel = (G, key) => { const p = pparse(key); return 'S' + p.y + ' R' + (p.r + 1) + (p.o === undefined ? '' : ' (' + G.teams[p.o].abbr + ')'); };
+  F.pickLabel = (G, key, protN) => { const p = pparse(key), N = protN != null ? protN : (G.fr.prot && G.fr.prot[key]); return 'S' + p.y + ' R' + (p.r + 1) + (p.o === undefined ? '' : ' (' + G.teams[p.o].abbr + ')') + (N ? ' · top-' + N + ' protected' : ''); };
+  F.PROTECTIONS = [0, 3, 5, 10];
   F.ensurePicks = function (G) {
     const fr = G.fr; fr.pk = fr.pk || {};
-    for (let y = fr.year; y <= fr.year + 1; y++) for (let r = 0; r < fr.cfg.draftRounds; r++) for (const t of G.teams) { const k = pkey(y, r, t.id); if (fr.pk[k] == null) fr.pk[k] = t.id; }
+    for (let y = fr.year; y <= fr.year + 2; y++) for (let r = 0; r < fr.cfg.draftRounds; r++) for (const t of G.teams) { const k = pkey(y, r, t.id); if (fr.pk[k] == null) fr.pk[k] = t.id; }
   };
   F.ownedPicks = (G, tid) => { F.ensurePicks(G); const fr = G.fr; return Object.keys(fr.pk).filter(k => fr.pk[k] === tid).sort((a, b) => { const x = pparse(a), y = pparse(b); return x.y - y.y || x.r - y.r || x.o - y.o; }); };
-  F.pickVal = function (G, key) {
+  F.pickVal = function (G, key, protN) {
     const fr = G.fr, lg = G.league, p = pparse(key);
     let base = [3.6, 1.5, 0.8, 0.45, 0.3, 0.2][Math.min(p.r, 5)];
     const d = fr.draft;
@@ -69,13 +70,16 @@
       if (idx < d.pick) return 0;
       if (idx >= 0) base *= 1.7 - 1.3 * (idx / d.seq.length);
     } else if (p.y > fr.year) base *= 0.85;
+    const N = protN != null ? protN : (fr.prot && fr.prot[key]);
     if (lg && lg.rec) {
       const ids = G.teams.map(t => t.id).filter(id => lg.rec[id]), ord = PB.League.sortTeams(G, ids).reverse();   // worst first (expansion teams have no record yet)
       const rank = ord.indexOf(p.o); if (rank >= 0) base *= 0.75 + 0.7 * (1 - rank / Math.max(1, ids.length - 1));
-    }
+      // a protected pick is only worth what it conveys: the worse the team, the likelier the protection keeps it (it then rolls to a later year)
+      if (N && rank >= 0) { const pTop = rank < N ? 0.55 + 0.4 * (1 - rank / N) : 0.14 * Math.exp(-(rank - N) / 3); base *= 1 - 0.45 * pTop; }
+    } else if (N) base *= 0.85;
     return base;
   };
-  const assetVal = (G, a) => F.isPick(a) ? F.pickVal(G, a) : F.tval(G, a);
+  const assetVal = (G, a, prot) => F.isPick(a) ? F.pickVal(G, a, prot && prot[a] != null ? prot[a] : undefined) : F.tval(G, a);
   const owns = (G, tid, a) => F.isPick(a) ? G.fr.pk[a] === tid : G.claimed[a] === tid;
 
   const origStart = F.startDraft;
@@ -85,14 +89,12 @@
     F.ensurePicks(G);
     F.buildOrder(G, d);
     const fr = G.fr;
-    fr.scoutPts = {}; fr.scouted = {};
-    for (const t of G.teams) if (isHuman(G, t.id)) fr.scoutPts[t.id] = 6 + fr.cfg.draftRounds;
     return d;
   };
   F.buildOrder = function (G, d) {
     const fr = G.fr, cfg = fr.cfg, lg = G.league, R = cfg.draftRounds, added = d.added;
     const old = G.teams.filter(t => !added.includes(t.id)).map(t => t.id);
-    const po = new Set(lg && lg.po ? (lg.po.seeds.League || []) : []);
+    const po = new Set(lg && lg.po ? PB.League.playoffTeams(lg) : []);
     const worst = PB.League.sortTeams(G, old).reverse();
     const lot = worst.filter(id => !po.has(id)), rest = worst.filter(id => po.has(id));
     const rng = new PB.RNG((G.seed ^ Math.imul(fr.year, 2654435761) ^ 0x1077) >>> 0);
@@ -110,13 +112,26 @@
     d.slots = slots;
     d.seq = slots.map(sl => (!added.includes(sl.o) && sl.r < R && fr.pk[pkey(fr.year, sl.r, sl.o)] != null) ? fr.pk[pkey(fr.year, sl.r, sl.o)] : sl.o);
     d.lottery = { teams: lot, odds, drawn, base };
+    // protections: a protected pick that lands inside its protected range stays with the original team; the new owner gets that team's next same-round pick instead
+    fr.prot = fr.prot || {}; const posIn = {};
+    d.slots.forEach((sl, i) => {
+      const pos = (posIn[sl.r] = (posIn[sl.r] || 0) + 1) - 1;
+      if (sl.r >= R || added.includes(sl.o)) return;
+      const key = pkey(fr.year, sl.r, sl.o), N = fr.prot[key], owner = fr.pk[key];
+      if (!N || owner == null || owner === sl.o || pos >= N) return;
+      d.seq[i] = sl.o;
+      let moved = null;
+      for (let y2 = fr.year + 1; y2 <= fr.year + 2 && !moved; y2++) { const nk = pkey(y2, sl.r, sl.o); if (fr.pk[nk] === sl.o) { fr.pk[nk] = owner; moved = nk; } }
+      d.protectedPicks = d.protectedPicks || []; d.protectedPicks.push({ n: i + 1, o: sl.o, to: owner, next: moved });
+      F.news(G, G.teams[sl.o].abbr + ' kept the protected #' + (i + 1) + ' pick; ' + G.teams[owner].abbr + ' ' + (moved ? 'receive ' + F.pickLabel(G, moved, 0) + ' instead.' : 'lose the pick.'), isHuman(G, owner) || isHuman(G, sl.o));
+    });
   };
   // after the class is drafted, the year's picks are spent
   const origFinish = F.finishDraft;
   F.finishDraft = function (G) {
     origFinish(G);
     const fr = G.fr;
-    for (const k of Object.keys(fr.pk)) if (pparse(k).y <= fr.year) delete fr.pk[k];
+    for (const k of Object.keys(fr.pk)) if (pparse(k).y <= fr.year) { delete fr.pk[k]; if (fr.prot) delete fr.prot[k]; }
   };
   const origPick = F.draftPick;
   F.draftPick = function (G, tid, monId) {
@@ -165,8 +180,9 @@
     if (fr.stage === 'over') return 'The franchise is over.';
     return null;
   };
-  F.evalTrade = function (G, a, b, giveA, giveB) {
-    const fr = G.fr, A = G.teams[a], B = G.teams[b];
+  F.evalTrade = function (G, a, b, giveA, giveB, prot) {
+    const fr = G.fr, A = G.teams[a], B = G.teams[b]; prot = prot || {};
+    for (const x of Object.keys(prot)) { if (!giveA.includes(x) && !giveB.includes(x)) continue; if (!F.PROTECTIONS.includes(+prot[x])) return { ok: false, reason: 'Bad protection.' }; if (+prot[x] && pparse(x).y === fr.year && fr.stage === 'draft') return { ok: false, reason: 'Picks in the draft under way cannot be protected.' }; if (+prot[x] && pparse(x).r >= fr.cfg.draftRounds) return { ok: false, reason: 'Bad pick.' }; }
     const lim = fr.cfg.rosterMax + ((fr.stage === 'draft' || fr.stage === 'fa') ? 8 : 0);
     if (!giveA.length && !giveB.length) return { ok: false, reason: 'Select players or picks to trade.' };
     for (const x of giveA) if (!owns(G, a, x)) return { ok: false, reason: 'Invalid asset.' };
@@ -178,23 +194,26 @@
     if (na < 12 || nb < 12) return { ok: false, reason: 'Both teams need at least 12 Pokémon.' };
     for (const id of pb) if (!PB.legalAdd(G, a, id, pa)) return { ok: false, reason: A.name + ' would exceed the legendary limit.' };
     for (const id of pa) if (!PB.legalAdd(G, b, id, pb)) return { ok: false, reason: B.name + ' would exceed the legendary limit.' };
-    const vin = giveA.reduce((s, x) => s + assetVal(G, x), 0), vout = giveB.reduce((s, x) => s + assetVal(G, x), 0);
+    const vin = giveA.reduce((s, x) => s + assetVal(G, x, prot), 0), vout = giveB.reduce((s, x) => s + assetVal(G, x, prot), 0);
     const ratio = vout > 0 ? vin / vout : 9;
     const need = 1.07 + 0.04 * Math.max(0, pa.length - pb.length);
     return { ok: ratio >= need, ratio, need, vin, vout, reason: ratio >= need ? '' : (ratio >= need * 0.85 ? 'Close — ask for a little less or add something.' : 'They want a lot more value.') };
   };
-  F.trade = function (G, a, b, giveA, giveB, force) {
+  F.trade = function (G, a, b, giveA, giveB, force, prot) {
     const blocked = F.tradeBlocked(G); if (blocked) throw new Error(blocked);
-    const ev = F.evalTrade(G, a, b, giveA, giveB);
+    prot = prot || {};
+    const ev = F.evalTrade(G, a, b, giveA, giveB, prot);
     if (!ev.ok && !(force && ev.vin != null)) throw new Error(ev.reason || 'Rejected');
     const fr = G.fr, d = fr.draft;
     for (const x of giveA.concat(giveB)) if (!F.isPick(x)) PB.Registry.release(G, x);
+    fr.prot = fr.prot || {};
+    for (const x of giveA.concat(giveB)) if (F.isPick(x) && prot[x] != null) { if (+prot[x]) fr.prot[x] = +prot[x]; else delete fr.prot[x]; }
     for (const x of giveA) { if (F.isPick(x)) fr.pk[x] = b; else PB.Registry.claim(G, x, b); }
     for (const x of giveB) { if (F.isPick(x)) fr.pk[x] = a; else PB.Registry.claim(G, x, a); }
     // picks in the draft that is under way change hands on the board too
     if (fr.stage === 'draft' && d) for (const x of giveA.concat(giveB)) if (F.isPick(x)) { const p = pparse(x); if (p.y === fr.year) d.slots.forEach((sl, i) => { if (i >= d.pick && sl.o === p.o && sl.r === p.r && sl.r < fr.cfg.draftRounds) d.seq[i] = fr.pk[x]; }); }
     for (const t of [a, b]) { if (isHuman(G, t)) PB.fixLineup(G.teams[t]); else PB.autoLineup(G.teams[t]); }
-    const nm = x => F.isPick(x) ? F.pickLabel(G, x) : PB.BYID[x].dispName;
+    const nm = x => F.isPick(x) ? F.pickLabel(G, x, prot[x] != null ? +prot[x] : undefined) : PB.BYID[x].dispName;
     F.news(G, G.teams[a].abbr + ' and ' + G.teams[b].abbr + ' trade: ' + giveA.map(nm).join(', ') + ' for ' + giveB.map(nm).join(', ') + '.', isHuman(G, a) || isHuman(G, b));
   };
 

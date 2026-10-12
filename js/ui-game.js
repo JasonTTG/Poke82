@@ -117,11 +117,61 @@
     const D = 6;
     const N = match.online = { cfg, D, gen: 0, sim: 0, acc: 0, q: [new Map(), new Map()], out: [], sent: new Map(), ackBy: D - 1, nextRecv: D, rcvd: new Set(), nSend: 0, pressedAcc: {}, acts: [], cs: {}, rcs: {}, stallT: 0, paused: false, pauser: null, lastInp: null, ended: false };
     for (let t = 0; t < D; t++) { N.q[0].set(t, NEUTRAL); N.q[1].set(t, NEUTRAL); }
+    // watchers: the player who is controller 0 announces the match; the room's host relays every input frame to them
+    if (match.meCi === 0 && PB.Net && PB.Net.spectatorsAllowed !== false) PB.Net.toSpec({ k: 'mstart', pids: [PB.Net.id, cfg.peer], cfg: { oppId: cfg.oppId, userTeam: cfg.userTeam, qMin: cfg.qMin, userHome: cfg.userHome, seed: cfg.seed, ctrls: cfg.ctrls || null, gseed: cfg.gseed != null ? cfg.gseed : null, ugame: cfg.ugame || null } });
     startLatch = true;
     beginScreen();
   };
-  function beginScreen() {
-    if (PB.Touch) PB.Touch.show();
+  // ---- watching someone else's online match: replay their input frames through the same simulation ----
+  UI.startSpectate = function (msg) {
+    const cfg = msg.cfg; let G = PB.G;
+    if (cfg.gseed != null) {            // exhibition / co-op: the two players built this league from a seed
+      G = PB.newGame(cfg.gseed, 'main', 30, 0); G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal' });
+      PB.aiDraftRounds(G, G.rng, G.teams.map(t => t.id), 0); PB.G = G;
+    }
+    if (!G || !G.teams[cfg.userTeam] || !G.teams[cfg.oppId]) return;
+    if (running) return;
+    paused = false; PB.Input.mode = 'game';
+    match = new PB.Match(G, { oppId: cfg.oppId, userTeam: cfg.userTeam, quarterMin: cfg.qMin, userHome: cfg.userHome, gameSpeed: 1, rng: new PB.RNG(cfg.seed), twoHumans: true, ctrls: cfg.ctrls || undefined, me: 0, meCi: 0, noDiff: true, shotMeter: true });
+    match.exhibition = true; match.ugame = null;
+    const D = 6, N = match.online = { spec: true, cfg: { onEnd: () => UI.spectateDone() }, pids: msg.pids, D, sim: 0, q: [new Map(), new Map()], paused: false, pauser: null, ended: false, got: 0 };
+    for (let t = 0; t < D; t++) { N.q[0].set(t, NEUTRAL); N.q[1].set(t, NEUTRAL); }
+    startLatch = true;
+    beginScreen(true);
+  };
+  UI.spectating = () => !!(match && match.online && match.online.spec && running);
+  UI.spectateFrames = function (d) {
+    if (!match || !match.online || !match.online.spec) return;
+    const N = match.online, s = N.pids.indexOf(d.pid); if (s < 0) return;
+    for (const [t, a] of d.fr) { N.q[s].set(t, decodeFrame(a)); N.got++; }
+  };
+  UI.spectateEnd = function () { if (UI.spectating()) { const m = match; m.online.remoteEnd = true; } };
+  UI.spectateDone = function () {
+    stopGame(); UI.closeModal();
+    const Nt = PB.Net;
+    if (Nt && Nt.active() && UI.cur !== 'hub' && !(Nt.session && Nt.session.league)) UI.go('lobby', {}, true);
+    else if (PB.G && PB.G.league && Nt && Nt.session && Nt.session.league) UI.go('hub', { tab: 'home' }, true);
+    else UI.go('menu', {}, true);
+  };
+  A.spectateStop = () => { if (match && match.online && match.online.spec) { match._finished = true; UI.spectateDone(); } };
+  A.spectateKeep = () => { UI.closeModal(); PB.Input.mode = 'game'; };
+  function spectateFrame(dt) {
+    const m = match, N = m.online, inp = inputState();
+    if (!UI.modalOpen() && (inp.pressed.START || inp.pressed.BACK)) { PB.Input.mode = 'menu'; UI.modal(`<div class="center"><h2>Stop watching?</h2><div class="dim">The match keeps going without you.</div><div class="row center" style="margin-top:12px"><button class="primary" data-act="spectateKeep" autofocus>Keep watching</button><button data-act="spectateStop">Stop watching</button></div></div>`, { onClose: () => { PB.Input.mode = 'game'; } }); }
+    const back = Math.min(N.q[0].size, N.q[1].size), max = back > 40 ? 90 : 8;     // far behind (joined mid-match): fast-forward
+    let n = 0;
+    while (n < max && !m.over && N.q[0].has(N.sim) && N.q[1].has(N.sim)) {
+      const f0 = N.q[0].get(N.sim), f1 = N.q[1].get(N.sim);
+      N.q[0].delete(N.sim); N.q[1].delete(N.sim);
+      for (let s = 0; s < 2; s++) for (const a of (s === 0 ? f0 : f1).acts) { if (a[0] === 'P') N.paused = true; else if (a[0] === 'R') N.paused = false; else applyAct(s, a); }
+      if (!N.paused) m.update(TICK, f0, f1);
+      N.sim++; n++;
+      if (N.sim % 120 === 0) (N.hist || (N.hist = {}))[N.sim] = Math.round(m.t * 1000) + ':' + m.g.score[0] + '-' + m.g.score[1] + ':' + Math.round(m.ball.x * 100) + ',' + Math.round(m.ball.y * 100) + ':' + Math.round(m.bodies[0][0].x * 100);
+    }
+    N.catching = back > 40;
+  }
+  function beginScreen(noTouch) {
+    if (PB.Touch && !noTouch) PB.Touch.show();
     cam.fx = 47; cam.fy = 25; cam.init = false; cam.yaw = 0;
     // court players' sprites load first, fans after
     for (const t of match.teams) for (const id of t.roster) sprite(PB.BYID[id]);
@@ -526,7 +576,8 @@
       }
       raf = requestAnimationFrame(frame); return;
     }
-    if (match.online) onlineFrame(dt);
+    if (match.online && match.online.spec) spectateFrame(dt);
+    else if (match.online) onlineFrame(dt);
     else if (!paused) {
       const inp = inputState();
       if (inp.pressed.BACK && match.replayOffer && match.t < match.replayOffer.until && !match.online) { UI.startReplay(match.replayOffer.clip, false); raf = requestAnimationFrame(frame); return; }
@@ -546,7 +597,13 @@
       }
     }
     if (match.sfx.length) for (const n of match.sfx.splice(0)) { if (typeof n === 'object') { hypeCrowd(n.kind, n.side); PB.Audio.play('cheer'); continue; } PB.Audio.play(n); }
+    if (PB.Touch && PB.Touch.shown) PB.Touch.sync(match);
     render(dt);
+    if (match.online && match.online.spec) {
+      const g = ctx, h = cv().height, fs = Math.round(h * 0.03);
+      g.font = `800 ${fs}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.fillStyle = 'rgba(8,12,22,.75)'; const lbl = match.online.catching ? '👁 SPECTATING · catching up…' : '👁 SPECTATING';
+      g.fillRect(12, 12, g.measureText(lbl).width + fs, fs * 1.7); g.fillStyle = '#7cc4ff'; g.fillText(lbl, 12 + fs / 2, 12 + fs * 1.2);
+    } else if (match.online && match.meCi === 0 && match.over && !match._mendSent) { match._mendSent = true; if (PB.Net) PB.Net.toSpec({ k: 'mend' }); }
     if (match.over && !match._ended) { match._ended = true; showFinal(); }
     raf = requestAnimationFrame(frame);
   }
@@ -638,7 +695,7 @@
       N.sim++; n++; moved = true;
       if (N.sim % 120 === 0) {
         const cs = Math.round(m.t * 1000) + ':' + m.g.score[0] + '-' + m.g.score[1] + ':' + Math.round(m.ball.x * 100) + ',' + Math.round(m.ball.y * 100) + ':' + Math.round(m.bodies[0][0].x * 100);
-        N.cs[N.sim] = cs; if (N.rcs[N.sim] != null && N.rcs[N.sim] !== cs && !N.warned) { N.warned = true; PB.toast('The two games went out of sync — results may differ', 5000); console.warn('desync', N.sim, cs, N.rcs[N.sim]); }
+        N.cs[N.sim] = cs; (N.hist || (N.hist = {}))[N.sim] = cs; if (N.rcs[N.sim] != null && N.rcs[N.sim] !== cs && !N.warned) { N.warned = true; PB.toast('The two games went out of sync — results may differ', 5000); console.warn('desync', N.sim, cs, N.rcs[N.sim]); }
         if (N.rcs[N.sim] != null) delete N.rcs[N.sim];
       }
     }
@@ -767,6 +824,11 @@
   // ---------- final ----------
   function showFinal() {
     const m = match, res = m.resultObj, ui = m.gi[m.me];
+    if (m.online && m.online.spec) {
+      paused = true; PB.Input.mode = 'menu';
+      UI.modal(`<div class="center"><h2>Final</h2><div style="font-size:30px;font-weight:800">${esc(m.teams[0].abbr)} ${m.sc(0)} – ${m.sc(1)} ${esc(m.teams[1].abbr)}${m.ot ? ' (OT)' : ''}</div><div class="row center" style="margin-top:14px"><button class="gold" data-act="finishGame" autofocus>Close</button></div></div>`, { onClose: () => A.finishGame() });
+      return;
+    }
     const won = res.score[ui] > res.score[1 - ui];
     paused = true; PB.Input.mode = 'menu';
     UI.modal(`<div class="center"><h2 class="${won ? 'good' : 'bad'}">${won ? 'WIN' : 'LOSS'}</h2>
@@ -810,9 +872,9 @@
     // paint + center circle
     for (const left of [true, false]) {
       const X = x => left ? x : W - x;
-      fillPoly(g, [[X(0), 17, .01], [X(19), 17, .01], [X(19), 33, .01], [X(0), 33, .01]], homeCol[0]);
+      fillPoly(g, [[X(0), 17, .01], [X(19), 17, .01], [X(19), 33, .01], [X(0), 33, .01]], homeCol[2] || homeCol[0]);
     }
-    fillPoly(g, arc(47, 25, 6, 0, Math.PI * 2, 40), homeCol[0]);
+    fillPoly(g, arc(47, 25, 6, 0, Math.PI * 2, 40), homeCol[2] || homeCol[0]);
     // center logo text (affine-mapped onto the floor)
     {
       const o = proj(47, 25, 0), ex = proj(47 + cam.right[0], 25 + cam.right[1], 0), ey = proj(47 - cam.fwd[0], 25 - cam.fwd[1], 0);
@@ -914,6 +976,7 @@
       g.fillStyle = mineCtl ? '#ffd23f' : partnerCtl ? '#7cc4ff' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
     }
     { const hot = b.pl.hot || 0; if (hot > 0.55 || hot < -0.55) { g.font = `${Math.max(12, sz * 0.14)}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillText(hot > 0 ? '🔥' : '❄️', p[0] + sz * 0.28, p[1] - sz * 0.78 - bob); } }
+    { const pf = b.pl.st.pf; if (pf >= (b.s === m.me ? 2 : 4)) { g.font = `800 ${Math.max(10, sz * 0.11)}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillStyle = pf >= 5 ? '#ff5a5f' : pf >= 4 ? '#ffb02e' : '#e8ecf5'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; const ly = p[1] + sz * 0.2 + 14; g.strokeText(pf + ' PF', p[0], ly); g.fillText(pf + ' PF', p[0], ly); } }
     // stamina pip for user's team
     if (b.s === m.me) {
       const en = b.pl.en / 100, bw = Math.max(20, sz * 0.38), bh = Math.max(3, sz * 0.03);

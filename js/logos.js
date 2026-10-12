@@ -34,6 +34,7 @@
       g.restore();
     },
   };
+  L.PATHS = PATHS; L.SHAPES = NAMES;
   PB.UI = PB.UI || {};
   PB.UI.logo = (t, size) => L.svg(t, size);
 })(window.PB);

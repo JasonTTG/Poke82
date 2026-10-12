@@ -137,6 +137,11 @@
     if (single) {
       const all = L.sortTeams(G, G.teams.map(t => t.id));
       const q = lg.poN;
+      if (lg.conf) {
+        const k = q / 2, modes = `<div class="row" style="margin-bottom:10px">${[['conf', 'Conference'], ['league', 'League']].map(([m, l]) => `<button class="${(view.standMode === 'league' ? 'league' : 'conf') === m ? 'primary' : ''}" data-act="standMode" data-m="${m}">${l}</button>`).join('')}</div>`;
+        if (view.standMode === 'league') return modes + `<div class="col">${table('League standings', all)}</div>`;
+        return modes + `<div class="col">${['East', 'West'].map(c => table(c + 'ern Conference · top ' + k + ' make the playoffs', L.confStandings(G, c))).join('')}</div>`;
+      }
       return `<div class="col">${table('League standings · top ' + q + ' make the playoffs', all)}</div>`;
     }
     if (view.standMode === 'league') html = table('League', L.sortTeams(G, G.teams.map(t => t.id)));
@@ -180,6 +185,7 @@
   TAB.playoffs = function (G, lg) {
     if (!lg.po) {
       const list = (n, a) => `<div class="panel"><h3>${n} </h3>${a.map((id, i) => `<div class="row between"><span>${i + 1}. ${UI.teamLabel(G, id)}</span><span class="dim">${recStr(lg.rec[id])}</span></div>`).join('')}</div>`;
+      if (lg.single && lg.conf) return `<div class="layout2" style="--side:1fr">${list('East (top ' + lg.poN / 2 + ')', L.confStandings(G, 'East').slice(0, lg.poN / 2))}${list('West (top ' + lg.poN / 2 + ')', L.confStandings(G, 'West').slice(0, lg.poN / 2))}</div>`;
       if (lg.single) return `<div class="layout2" style="--side:1fr">${list('Playoff picture (top ' + lg.poN + ')', L.sortTeams(G, G.teams.map(t => t.id)).slice(0, lg.poN))}</div>`;
       const e = L.confStandings(G, 'East').slice(0, 8), w = L.confStandings(G, 'West').slice(0, 8);
       return `<div class="layout2" style="--side:1fr">${list('East', e)}${list('West', w)}</div>`;
@@ -192,7 +198,7 @@
       return `<div class="series">${line(s.hi, s.hiSeed, s.w[0], hiWin)}${line(s.lo, s.loSeed, s.w[1], loWin)}${s.games.length ? `<div class="dim" style="font-size:10px;margin-top:2px">${s.games.map(g => `${g.sc[0]}-${g.sc[1]}`).join(' · ')}</div>` : ''}</div>`;
     };
     const n = po.rounds.length;
-    const roundName = po.single ? po.rounds.map((_, i) => { const left = n - 1 - i; return left === 0 ? 'Finals' : left === 1 ? 'Semifinals' : left === 2 ? 'Quarterfinals' : 'Round ' + (i + 1); }) : ['First Round', 'Conference Semifinals', 'Conference Finals', 'Finals'];
+    const roundName = po.single ? po.rounds.map((_, i) => { const left = n - 1 - i; if (po.conf) return left === 0 ? 'Finals' : left === 1 ? 'Conference Finals' : left === 2 ? 'Conference Semifinals' : 'Round ' + (i + 1); return left === 0 ? 'Finals' : left === 1 ? 'Semifinals' : left === 2 ? 'Quarterfinals' : 'Round ' + (i + 1); }) : ['First Round', 'Conference Semifinals', 'Conference Finals', 'Finals'];
     const cols = roundName.map((nm, i) => `<div><h3>${nm}</h3>${(po.rounds[i] || []).map(ser).join('') || '<div class="dim">TBD</div>'}</div>`).join('');
     return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">🏆 ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel"><div class="bracket" style="grid-template-columns:repeat(${roundName.length},1fr)">${cols}</div></div>`;
   };

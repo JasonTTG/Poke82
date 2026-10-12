@@ -1,0 +1,71 @@
+<!doctype html><meta charset=utf-8><title>spectator harness</title>
+<body style="margin:0;font:12px monospace;background:#111;color:#ddd">
+<div style="display:flex;height:60vh"><iframe id=a src="../index.html" style="flex:1;border:1px solid #444"></iframe><iframe id=b src="../index.html" style="flex:1;border:1px solid #444"></iframe><iframe id=c src="../index.html" style="flex:1;border:1px solid #444"></iframe></div>
+<pre id=o style="height:36vh;overflow:auto;margin:4px">harness ready</pre>
+<script>
+// Host (a) and guest (b) play an online exhibition with random inputs; a spectator (c) joins mid-match and must stay in step.
+const W={a:document.getElementById('a'),b:document.getElementById('b'),c:document.getElementById('c')};
+const log=m=>{const o=document.getElementById('o');o.textContent+='\n'+m;o.scrollTop=o.scrollHeight};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const win=k=>W[k].contentWindow;
+const ready=f=>new Promise(r=>{const t=setInterval(()=>{try{if(f.contentWindow.PB&&f.contentWindow.PB.UI&&f.contentWindow.PB.UI.cur){clearInterval(t);r()}}catch(e){}},100)});
+const key=(w,code,down)=>w.dispatchEvent(new w.KeyboardEvent(down?'keydown':'keyup',{code,bubbles:true}));
+let driving=false;
+async function drive(k){const w=win(k),km=w.PB.Input.keyMap,acts=['A','B','X','Y','RB','LB','RT'];let held=null;
+  while(driving){const dirs=['KeyW','KeyA','KeyS','KeyD'];if(held)key(w,held,false);held=dirs[Math.floor(Math.random()*4)];key(w,held,true);
+    for(let i=0;i<4&&driving;i++){const a=acts[Math.floor(Math.random()*acts.length)],code=(km[a]||[])[0];if(code){key(w,code,true);await sleep(70);key(w,code,false)}await sleep(130)}}
+  if(held)key(w,held,false)}
+window.run=async function(sec){
+  await Promise.all([ready(W.a),ready(W.b),ready(W.c)]);
+  const out={};
+  const A=win('a'),B=win('b'),C=win('c');
+  for(const [k,n] of [['a','Host'],['b','Guest'],['c','Fan']]){const w=win(k);w.PB.UI.go('online',{},true);w.document.getElementById('ol-name').value=n;await w.PB.UI.actions.olConnect();}
+  A.PB.UI.actions.olHost({},{mode:'exhibition'});await sleep(2500);
+  const code=A.PB.Net.room&&A.PB.Net.room.code;out.code=code;log('room '+code);
+  B.document.getElementById('ol-code').value=code;B.PB.UI.actions.olJoinCode();await sleep(3000);
+  out.players=A.PB.Net.room.players.length;
+  A.PB.UI.actions.lbStart();await sleep(1500);
+  A.PB.UI.actions.exPick({},{t:3});B.PB.UI.actions.exPick({},{t:5});await sleep(2500);
+  out.inMatch=[!!(A.PB.UI.activeMatch()&&A.PB.UI.activeMatch().online),!!(B.PB.UI.activeMatch()&&B.PB.UI.activeMatch().online)];
+  driving=true;drive('a');drive('b');
+  await sleep((sec||10)*1000/2);
+  // the spectator walks in mid-match
+  C.document.getElementById('ol-code').value=code;C.PB.UI.actions.olWatchCode();await sleep(3000);
+  out.spectatorJoined=C.PB.Net.spectator;out.watching=C.PB.UI.spectating();out.spectators=A.PB.Net.room&&A.PB.Net.room.spectators;
+  await sleep((sec||10)*1000/2);
+  driving=false;await sleep(1500);
+  const h=k=>{const m=win(k).PB.UI.activeMatch();return m&&m.online?m.online:null};
+  const ha=h('a'),hb=h('b'),hc=h('c');
+  const ticks=hc&&hc.hist?Object.keys(hc.hist).map(Number).sort((x,y)=>x-y):[];
+  let same=0,diff=0,firstDiff=null;for(const t of ticks){if(ha.hist[t]==null)continue;if(ha.hist[t]===hc.hist[t])same++;else{diff++;if(firstDiff==null)firstDiff=t+': '+ha.hist[t]+' vs '+hc.hist[t]}}
+  let sameAB=0,diffAB=0;for(const t of Object.keys(ha.hist||{})){if(hb.hist[t]==null)continue;if(ha.hist[t]===hb.hist[t])sameAB++;else diffAB++}
+  out.simTicks=[ha&&ha.sim,hb&&hb.sim,hc&&hc.sim];out.specSame=same;out.specDiff=diff;out.firstDiff=firstDiff;out.playersSame=sameAB;out.playersDiff=diffAB;
+  const ma=win('a').PB.UI.activeMatch(),mc=win('c').PB.UI.activeMatch();out.score=[ma&&ma.g.score.join('-'),mc&&mc.g.score.join('-')];
+  // read-only: a spectator cannot change the league
+  let err=null;C.PB.Net.sendOp&&C.PB.Net.sendOp('teamName',{tid:0,city:'X',nick:'Y'},e=>{err=e});out.opBlocked=!!err;
+  window.result=out;log(JSON.stringify(out));return out};
+
+window.runLeague=async function(){
+  await Promise.all([ready(W.a),ready(W.b),ready(W.c)]);
+  const out={},A=win('a'),B=win('b'),C=win('c');
+  for(const [k,n] of [['a','Host'],['b','Guest'],['c','Fan']]){const w=win(k);w.PB.UI.go('online',{},true);w.document.getElementById('ol-name').value=n;await w.PB.UI.actions.olConnect();}
+  A.PB.UI.actions.olHost({},{mode:'franchise'});await sleep(2500);
+  const code=A.PB.Net.room.code;out.code=code;
+  B.document.getElementById('ol-code').value=code;B.PB.UI.actions.olJoinCode();await sleep(2500);
+  // a spectator who arrives before the league starts sits in the lobby
+  C.document.getElementById('ol-code').value=code;C.PB.UI.actions.olWatchCode();await sleep(2500);
+  out.lobby=[C.PB.UI.cur,C.PB.Net.spectator,A.PB.Net.room.spectators,A.PB.Net.room.players.length];
+  const cfg=Object.assign({},A.PB.Franchise.DEFAULTS,{startTeams:6,variance:1});
+  A.PB.UI.onlineStartFranchise(cfg,12345);await sleep(4000);
+  out.afterStart=[C.PB.UI.cur,!!C.PB.G&&!!C.PB.G.league,C.PB.G&&C.PB.G.userTeam];
+  for(let i=0;i<4;i++){A.PB.Ops.run('simMyGame',{tid:A.PB.G.userTeam});await sleep(500);B.PB.Ops.run('simMyGame',{tid:B.PB.G.userTeam});await sleep(500);A.PB.Ops.run('advance',{});await sleep(1200)}
+  out.days=[A.PB.G.league.day,B.PB.G.league.day,C.PB.G.league.day];
+  out.rec=[A.PB.G.league.rec[0].w+'-'+A.PB.G.league.rec[0].l,C.PB.G.league.rec[0].w+'-'+C.PB.G.league.rec[0].l];
+  let err=null;C.PB.Ops.run('simDays',{n:3},e=>{err=e});out.blocked=!!err;
+  // a second spectator arriving mid-league gets the snapshot
+  C.PB.Net.leave();await sleep(800);C.PB.UI.go('online',{},true);C.document.getElementById('ol-code').value=code;C.PB.UI.actions.olWatchCode();await sleep(4000);
+  out.late=[C.PB.UI.cur,C.PB.Net.spectator,C.PB.G&&C.PB.G.league&&C.PB.G.league.day,A.PB.Net.room.spectators];
+  A.PB.Ops.run('simMyGame',{tid:A.PB.G.userTeam});await sleep(500);B.PB.Ops.run('simMyGame',{tid:B.PB.G.userTeam});await sleep(500);A.PB.Ops.run('advance',{});await sleep(1500);
+  out.lateDays=[A.PB.G.league.day,C.PB.G.league.day];
+  window.result=out;log(JSON.stringify(out));return out};
+</script>

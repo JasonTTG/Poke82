@@ -26,7 +26,7 @@ const out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
   const A=F.create(3,{variance:1}),ovrA=PB.BYID[25].ovr;const B=F.create(3,{variance:1});ck(PB.BYID[25].ovr===ovrA,'variance deterministic');
   F.create(3,{variance:0});ck(PB.BYID[25].ovr===PB.BYID[25]._o0,'variance off restores base ratings');
   const G=F.create(4,{variance:1,legCap:2});F.startLeague(G);
-  ck(F.ownedPicks(G,0).length===G.fr.cfg.draftRounds*2,'two years of picks');
+  ck(F.ownedPicks(G,0).length===G.fr.cfg.draftRounds*3,'three years of picks');
   let d=0;while(G.league.phase!=='done'&&d++<2000)L.simDay(G,false);
   F.beginOffseason(G);F.startDraft(G);const D=G.fr.draft;
   ck(D.slots&&D.slots.length===D.seq.length,'draft board built');ck(D.lottery&&Array.isArray(D.lottery.teams),'lottery exists');

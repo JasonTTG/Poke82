@@ -41,13 +41,13 @@ window.report=function(opts){
       ck(G.fr.stage==='draft',label+' stage draft');
       const dr=G.fr.draft;
       // user drafts the best available when on the clock, AI otherwise
-      let g2=0;while(!F.draftDone(G)&&g2++<5000){const t=F.draftCurrent(G);if(t===G.userTeam)F.draftPick(G,t,dr.prospects[0]);else F.draftStepAI(G)}
+      let g2=0;while(!F.draftDone(G)&&g2++<5000){const t=F.draftCurrent(G);if(t===G.userTeam)F.draftPick(G,t,dr.prospects.find(id=>PB.legalAdd(G,t,id))||dr.prospects[0]);else F.draftStepAI(G)}
       ck(G.fr.stage==='fa',label+' stage fa');
       // trim user roster
       const U=G.teams[G.userTeam];
       while(U.roster.length>G.fr.cfg.rosterMax){const ids=U.roster.filter(id=>!U.starters.includes(id)&&!U.bench.includes(id));F.release(G,G.userTeam,ids[ids.length-1])}
       // trades: a lopsided offer is accepted by the AI, a robbery is refused, AI offers are valid for both sides
-      {const other=G.teams.find(t=>t.id!==G.userTeam);const mine=U.roster.slice().sort((x,y)=>F.tval(G,y)-F.tval(G,x)),theirs=other.roster.slice().sort((x,y)=>F.tval(G,x)-F.tval(G,y));
+      {const other=G.teams.find(t=>t.id!==G.userTeam);const nl=id=>!PB.isLegend(PB.BYID[id]);const mine=U.roster.filter(nl).sort((x,y)=>F.tval(G,y)-F.tval(G,x)),theirs=other.roster.filter(nl).sort((x,y)=>F.tval(G,x)-F.tval(G,y));
        const good=F.evalTrade(G,G.userTeam,other.id,[mine[0]],[theirs[0]]);ck(good.ok,label+' AI accepts a lopsided gift');
        const rob=F.evalTrade(G,G.userTeam,other.id,[mine[mine.length-1]],[theirs[theirs.length-1]]);ck(!rob.ok,label+' AI refuses a robbery');
        if(good.ok){F.trade(G,G.userTeam,other.id,[mine[0]],[theirs[0]]);trades++;ck(PB.Registry.verify(G)===null,label+' registry after trade');ck(G.claimed[theirs[0]]===G.userTeam&&G.claimed[mine[0]]===other.id,label+' players moved')}
@@ -65,9 +65,9 @@ window.report=function(opts){
     return G;
   }
   const G1=runFranchise(11,{},'default');
-  ck(G1.fr.history.length===8,'default: 8 seasons (2 start regions + 7 classes) got '+G1.fr.history.length);
-  ck(G1.teams.length===16,'default grows to 16 teams, got '+G1.teams.length);
-  const G2=runFranchise(22,{startGen:5,startRegions:3,startTeams:8,teamCap:12,rosterMax:18,playoffTeams:4,games:40,seriesLen:5,injRate:3},'custom');
+  ck(G1.fr.history.length===F.projectYears({}).seasons,'default: '+F.projectYears({}).seasons+' seasons (the start plus its draft classes) got '+G1.fr.history.length);
+  ck(G1.teams.length===16,'default stays at 16 teams (no expansion), got '+G1.teams.length);
+  const G2=runFranchise(22,{pool:'regions',conferences:false,legCap:0,draftRounds:3,startGen:5,startRegions:3,startTeams:8,teamCap:12,rosterMax:18,playoffTeams:4,games:40,seriesLen:5,injRate:3},'custom');
   ck(G2.fr.history.length===7,'custom: 7 seasons got '+G2.fr.history.length);
   ck(G2.teams.length<=12,'custom cap 12, got '+G2.teams.length);
   // determinism + save/load mid-offseason

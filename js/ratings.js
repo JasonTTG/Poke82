@@ -3,6 +3,8 @@
   const { clamp, norm } = PB;
   PB.RCFG = {
     base: 24, span: 74,            // rating = base + span * mix  (0..99 after clamp)
+    posNorm: { mean: 1, spread: 0.85 },       // how strongly overall is normalised within position (0 = off, 1 = full)
+    posMix: [0.19, 0.21, 0.22, 0.20, 0.18],   // target share of primary positions PG, SG, SF, PF, C
     sizeH: { lo: Math.log(3), hi: Math.log(30) },
     sizeW: { lo: Math.log(10), hi: Math.log(5000) },
     // PokeAPI body shapes -> ball-handling ability (hands) and court mobility
@@ -101,6 +103,29 @@
       m.r = rate(m);
       return m;
     });
+    // positions: rank everyone on the raw size/skill continuum, then spread the ranks over a target mix so the pool is not all bigs
+    {
+      const order = mons.slice().sort((a, b) => a.r.posC - b.r.posC || a.id - b.id), cum = PB.RCFG.posMix.reduce((c, x) => (c.push((c.length ? c[c.length - 1] : 0) + x), c), []);
+      order.forEach((m, i) => {
+        const q = (i + 0.5) / order.length; let k = 0; while (k < 4 && q > cum[k]) k++;
+        const lo = k ? cum[k - 1] : 0, f = (q - lo) / (cum[k] - lo), o = m.r;
+        o.posRaw = o.posC; o.posC = clamp(k - 0.5 + f, 0, 4); o.pos1 = k;
+        o.pos2 = f < 0.5 ? Math.max(0, k - 1) : Math.min(4, k + 1); if (o.pos2 === k) o.pos2 = k === 0 ? 1 : k - 1;
+      });
+    }
+    // bigs rate higher on raw ratings (strength, boards, rim defense), so overall is compared within position: shift and stretch each
+    // position's raw overall toward the league-wide mean / spread (interpolated along the position continuum)
+    {
+      const all = mons.map(m => m.r.rawOvr), mean = a => a.reduce((s, v) => s + v, 0) / a.length, sd = (a, m0) => Math.sqrt(mean(a.map(v => (v - m0) * (v - m0))));
+      const mu = mean(all), sg = sd(all, mu), st = [0, 1, 2, 3, 4].map(k => { const a = mons.filter(m => m.r.pos1 === k).map(m => m.r.rawOvr), m0 = mean(a); return { m: m0, s: sd(a, m0) }; });
+      const K = PB.RCFG.posNorm;
+      for (const m of mons) {
+        const c = m.r.posC, k0 = Math.min(3, Math.floor(c)), f = c - k0, A = st[k0], B = st[k0 + 1];
+        const pm = A.m + (B.m - A.m) * f, ps = A.s + (B.s - A.s) * f;
+        m.r.rawBase = m.r.rawOvr;
+        m.r.rawOvr = mu + (m.r.rawOvr - (mu + (pm - mu) * K.mean)) * Math.pow(sg / ps, K.spread);
+      }
+    }
     // calibrate overall so population spans ~[38..97], median 58
     const raws = mons.map(m => m.r.rawOvr).sort((a, b) => a - b);
     const p = q => raws[Math.floor(q * (raws.length - 1))];
