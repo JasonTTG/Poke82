@@ -47,7 +47,7 @@
           <div class="cards">${cands.map(m => UI.mcard(m, { btn: 'Draft', btnAct: 'draftPick' })).join('')}</div>`}`;
       }
       const MD = G.daily && G.daily.mod && PB.MODS[G.daily.mod];
-      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">${info.name} — Pick ${info.n} of ${info.of}</h2></div>${MD ? `<div class="tag" title="${esc(MD.desc)}">Daily modifier: <b>${esc(MD.name)}</b> · ${esc(MD.desc)}</div>` : ''}</div>
+      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">${info.name} — Pick ${info.n} of ${info.of}</h2></div>${MD ? `<div class="tag" title="${esc(MD.desc)}">${G.daily.endless ? 'Challenge' : 'Daily modifier'}: <b>${esc(MD.name)}</b> · ${esc(MD.desc)}</div>` : ''}</div>
         <div class="layout2"><div>${main}</div>${sidebar(G, D)}</div>`;
     },
     inspectActions(id) {

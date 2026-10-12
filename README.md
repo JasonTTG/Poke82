@@ -27,7 +27,7 @@ Everything is configurable on the setup screen: pool, teams and team cap, roster
 
 ## Modes
 - **Quick Play** (menu): 5v5 exhibition, 3v3 street ball (half court, 1s and 2s, take it back after a change of possession, first to the target) and Practice (shooting range, or a scrimmage against passive defenders). Build your own team (or roll one), cap legendaries per team, **lock yourself to one Pokémon**, or play **local co-op** with a second gamepad (each player is locked to a different Pokémon).
-- **Daily Challenge** (the menu's centerpiece): one attempt per UTC day. Everyone gets the same 30-team draft rolls (some days with a modifier such as *No legendaries*, *One legend*, *Role players*, *Before Galar*, *Hoenn and later*). You only draft: your 82 games and the playoffs then play out on screen, with a live W-L chart, then you get a result code and a team card to share. **Endless Draft** is the same thing with no daily limit.
+- **Daily Challenge** (the menu's centerpiece): one attempt per UTC day. Everyone gets the same 30-team draft rolls (some days with a modifier such as *No legendaries*, *One legend*, *Role players*, *Before Galar*, *Hoenn and later*). You only draft: your 82 games and the playoffs then play out on screen, with a live W-L chart, then you get a result code and a team card to share. **Endless Draft** is the same thing with no daily limit: you pick one of the challenges (or none), optionally hide the suggested positions, and can enter a seed to draft the same rolls as a friend; your recent runs are listed.
 - **Pokédex & Compare**, and **League codes** (hub → Save / Load → Share): a read-only snapshot anyone can open from the menu or a link.
 
 ## Gameplay

@@ -23,7 +23,7 @@
         <div class="mgrid g-daily"><div class="menu-card mc-hero c-fire" tabindex="0" data-act="goDaily"><div class="mh-top"><span class="mh-tag">TODAY</span><span class="dim">${dailyStatus}</span></div><h3>Daily Challenge</h3><div class="dim">One shared draft for everyone, every day. Pick your team, then watch the 82-game season and the playoffs play out, and share your result.</div></div></div>
         <div class="msec">Game modes</div>
         <div class="mgrid g-modes">
-          <div class="menu-card mc-md c-blue" tabindex="0" data-act="newMain"><h3>Endless Draft</h3><div class="dim">The Daily Challenge with no limit: a fresh random draft every time.</div><span class="mh-tag mc-tag" style="background:#5b9bff">UNLIMITED</span></div>
+          <div class="menu-card mc-md c-blue" tabindex="0" data-act="goEndless"><h3>Endless Draft</h3><div class="dim">The Daily Challenge with no limit: pick a challenge or none.</div><span class="mh-tag mc-tag" style="background:#5b9bff">UNLIMITED</span></div>
           <div class="menu-card mc-md c-gold" tabindex="0" data-act="newFranchise"><h3>Franchise</h3><div class="dim">Draft, develop, evolve and trade across regions. The full multi-season mode.</div><button class="small mc-online" data-act="goOnline" data-modes="franchise">🌐 Play online</button></div>
           <div class="menu-card mc-md c-purple" tabindex="0" data-act="newFantasy"><h3>Fantasy Draft</h3><div class="dim">Snake draft against the league, best Pokémon available.</div><button class="small mc-online" data-act="goOnline" data-modes="fantasy">🌐 Play online</button></div>
           <div class="menu-card mc-md" tabindex="0" data-act="goQuick"><h3>Quick Play</h3><div class="dim">Exhibition · 3v3 street · Practice · Co-op</div><button class="small mc-online" data-act="goOnline" data-modes="exhibition,coop">🌐 Play online (1v1, co-op)</button></div>
@@ -77,7 +77,7 @@
           <h3 style="margin-top:6px">League settings: what the draft shows</h3>
           <div class="dim" style="font-size:12px">Everyone sees the same information about the Pokémon still on the board.</div>
           ${[['R', 'Basketball ratings'], ['P', 'Positions'], ['A', 'Archetypes'], ['O', 'Overall']].map(([k, l]) => `<label><input type="checkbox" id="ng-i${k}" checked> ${l}</label>`).join('')}`
-          : `<label><input type="checkbox" id="ng-chal" ${(PB.settings || {}).challengeMode ? 'checked' : ''}> Challenge mode: hide the suggested positions while drafting</label>`}
+          : `<label><input type="checkbox" id="ng-chal" ${(PB.settings || {}).challengeMode ? 'checked' : ''}> Hide the suggested positions while drafting</label>`}
           <div class="row"><button class="primary" data-act="startNew" data-mode="${p.mode}" autofocus>Start</button><button data-act="goMenu">Cancel</button></div>
         </div></div>`;
     },
@@ -137,7 +137,7 @@
           <label>Touch controls <select data-change="setOpt" data-k="touchControls">${[['auto', 'Automatic (touch devices)'], ['on', 'Always on'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${(s.touchControls || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label><input type="checkbox" ${s.autoReplay !== false ? 'checked' : ''} data-change="setOptBool" data-k="autoReplay"> Offer instant replays after big plays</label>
           <label><input type="checkbox" ${document.fullscreenElement ? 'checked' : ''} data-change="toggleFs"> Fullscreen</label>
-          <label><input type="checkbox" ${s.challengeMode ? 'checked' : ''} data-change="setOptBool" data-k="challengeMode"> Challenge mode (Daily and Endless Draft hide the suggested positions while drafting)</label>
+          <label><input type="checkbox" ${s.challengeMode ? 'checked' : ''} data-change="setOptBool" data-k="challengeMode"> Hide the suggested positions while drafting in the Daily Challenge and Endless Draft</label>
           <h3 style="margin-top:8px">Show (drafted Pokémon and league menus; draft prospects follow the mode's own rules)</h3>
           <label><input type="checkbox" ${s.showRatings ? 'checked' : ''} data-change="setOptBool" data-k="showRatings"> Basketball ratings</label>
           <label><input type="checkbox" ${s.showPositions ? 'checked' : ''} data-change="setOptBool" data-k="showPositions"> Positions</label>

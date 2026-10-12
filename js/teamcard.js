@@ -20,11 +20,15 @@
     g.fillStyle = bg; g.fillRect(0, 0, W, H);
     g.globalAlpha = 0.07; g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(W - 120, H + 40, 380, 0, Math.PI * 2); g.stroke(); g.strokeRect(-30, H - 150, 330, 280); g.globalAlpha = 1;
     // header
-    PB.Logo.canvas(g, T, 100, 100, 130, false);
-    const name = opts.showName === false ? 'My Team' : T.name;
     g.textBaseline = 'middle'; g.textAlign = 'left';
-    g.fillStyle = '#fff'; g.font = '900 52px Segoe UI, Arial, sans-serif'; g.fillText(name, 190, 82, W - 460);
-    g.fillStyle = '#ffcb05'; g.font = '700 28px Segoe UI, Arial, sans-serif'; g.fillText(opts.title || '', 192, 130, W - 460);
+    if (opts.anon) {        // Daily / Endless: no team name or logo, just the result
+      g.fillStyle = '#ffcb05'; g.font = '900 56px Segoe UI, Arial, sans-serif'; g.fillText(opts.title || 'My lineup', 50, 100, W - 470);
+    } else {
+      PB.Logo.canvas(g, T, 100, 100, 130, false);
+      const name = opts.showName === false ? 'My Team' : T.name;
+      g.fillStyle = '#fff'; g.font = '900 52px Segoe UI, Arial, sans-serif'; g.fillText(name, 190, 82, W - 460);
+      g.fillStyle = '#ffcb05'; g.font = '700 28px Segoe UI, Arial, sans-serif'; g.fillText(opts.title || '', 192, 130, W - 460);
+    }
     g.textAlign = 'right'; g.fillStyle = '#e8ecf5'; g.font = '900 30px Segoe UI, Arial, sans-serif'; g.fillText('POKÉHOOPS 82', W - 50, 70);
     g.fillStyle = '#9aa7c2'; g.font = '600 20px Segoe UI, Arial, sans-serif'; g.fillText(opts.sub || '', W - 50, 104);
     // starters
@@ -50,27 +54,27 @@
   TC.blob = c => new Promise(res => c.toBlob(res, 'image/png'));
 
   // ---------- modal ----------
-  const st = { tid: 0, showName: true, title: '', sub: '', foot: '', canvas: null, busy: 0 };
+  const st = { tid: 0, showName: true, anon: false, title: '', sub: '', foot: '', canvas: null, busy: 0 };
   const redraw = async () => {
     const G = PB.G, seq = ++st.busy;
-    const c = await TC.draw(G, st.tid, { showName: st.showName, title: st.title, sub: st.sub, foot: st.foot });
+    const c = await TC.draw(G, st.tid, { showName: st.showName, anon: st.anon, title: st.title, sub: st.sub, foot: st.foot });
     if (seq !== st.busy) return; st.canvas = c;
     const host = document.getElementById('tc-host'); if (host) { host.innerHTML = ''; c.style.cssText = 'width:100%;max-width:760px;border-radius:10px;display:block'; host.appendChild(c); }
   };
   UI.teamCard = function (tid, o) {
     const G = PB.G, lg = G.league, r = lg ? lg.rec[tid] : null;
     o = o || {};
-    st.tid = tid; st.showName = o.showName !== false;
+    st.tid = tid; st.showName = o.showName !== false; st.anon = !!o.anon;
     st.title = o.title != null ? o.title : r ? `${r.w}-${r.l}${lg.phase === 'done' && lg.champion === tid ? ' · Champions' : ''}` : '';
     st.sub = o.sub != null ? o.sub : G.fr ? 'Season ' + G.fr.year : (G.daily ? 'Daily ' + G.daily.date : '');
     st.foot = o.foot != null ? o.foot : '';
     UI.modal(`<h2>Team card</h2><div class="dim" style="margin-bottom:8px">A picture of your lineup to share. Ratings and positions follow your Settings.</div>
       <div id="tc-host" style="min-height:200px"></div>
-      <div class="row wrap" style="margin-top:10px"><label><input type="checkbox" data-change="tcName" ${st.showName ? 'checked' : ''}> Show my team name</label></div>
+      ${st.anon ? '' : `<div class="row wrap" style="margin-top:10px"><label><input type="checkbox" data-change="tcName" ${st.showName ? 'checked' : ''}> Show my team name</label></div>`}
       <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="primary" data-act="tcDownload">Download PNG</button><button data-act="tcCopy">Copy image</button><button data-act="closeModal" autofocus>Close</button></div>`);
     redraw();
   };
-  UI.actions.teamCard = (el, d) => UI.teamCard(+d.tid, d.daily ? { showName: false, title: d.title || '', foot: d.foot || '' } : {});
+  UI.actions.teamCard = (el, d) => UI.teamCard(+d.tid, d.daily ? { showName: false, anon: true, title: d.title || '', foot: d.foot || '' } : {});
   UI.actions.tcName = el => { st.showName = el.checked; redraw(); };
   UI.actions.tcDownload = async () => {
     if (!st.canvas) return;

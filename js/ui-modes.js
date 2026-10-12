@@ -191,14 +191,14 @@
       return `<div class="panel" style="max-width:700px;margin:16px auto"><h2>Daily Challenge · ${d}</h2>
         <div class="dim" style="margin-bottom:10px">Everyone gets the same draft rolls today: a 30-team league. You only draft: your team plays its 82 games and the playoffs automatically, then you get a result code to share.</div>
         ${(() => { const k = PB.dailyMod(d), M = k && PB.MODS[k]; return `<div class="panel" style="background:var(--bg2);margin-bottom:10px"><b class="gold">Today's modifier:</b> ${M ? `<b>${esc(M.name)}</b> <span class="dim">${esc(M.desc)}</span>` : '<span class="dim">None, a standard draft</span>'}</div>`; })()}
-        ${today ? '' : `<label style="display:block;margin-bottom:10px"><input type="checkbox" ${(PB.settings || {}).challengeMode ? 'checked' : ''} data-change="dailyChal"> <b>Challenge mode</b> <span class="dim">hide the suggested positions while you draft (your result code says so)</span></label>`}
+        ${today ? '' : `<label style="display:block;margin-bottom:10px"><input type="checkbox" ${(PB.settings || {}).challengeMode ? 'checked' : ''} data-change="dailyChal"> <b>Hide the suggested positions</b> <span class="dim">while you draft, for an extra challenge (your result code says so)</span></label>`}
         <div class="kpi"><div><b>${streak}</b><span>Day streak</span></div><div><b>${today ? today.w + '-' + today.l : '—'}</b><span>Today</span></div><div><b>${dates.length ? Math.max(...dates.map(k => hist[k].w)) : '—'}</b><span>Best wins</span></div></div>
         <div class="row" style="margin-top:12px">${today ? `<button class="primary" data-act="dailyCopy" data-d="${d}" autofocus>Copy today's result</button><button disabled>Come back tomorrow for a new draft</button>` : '<button class="primary" data-act="dailyStart" autofocus>Start the challenge</button>'}<button data-act="goMenu">Back</button></div>
         ${dates.length ? `<h3 style="margin-top:14px">History</h3>${dates.map(k => `<div class="row between"><span>${k}</span><span>${hist[k].w}-${hist[k].l}</span><span class="dim">${esc(hist[k].res)}</span><button class="small" data-act="dailyCopy" data-d="${k}">Copy code</button></div>`).join('')}` : ''}</div>`;
     },
   };
   const DLINK = 'https://poke82-beta.vercel.app/';
-  const dailyCode = (d, r) => { const k = r.mod !== undefined ? r.mod : PB.dailyMod(d), M = k && PB.MODS[k], tags = (M ? [M.name] : []).concat(r.chal ? ['Challenge mode'] : []); return `PokeHoops 82 Daily ${d}${tags.length ? ' [' + tags.join(' · ') + ']' : ''}: ${r.w}-${r.l}, ${r.res}\n${DLINK}`; };
+  const dailyCode = (d, r) => { const k = r.mod !== undefined ? r.mod : PB.dailyMod(d), M = k && PB.MODS[k], tags = (M ? [M.name] : []).concat(r.chal ? ['Hidden positions'] : []); return `PokeHoops 82 ${r.endless ? 'Endless Draft' : 'Daily ' + d}${tags.length ? ' [' + tags.join(' · ') + ']' : ''}: ${r.w}-${r.l}, ${r.res}${r.endless && r.seed != null ? '\nSeed ' + r.seed : ''}\n${DLINK}`; };
   A.dailyChal = el => { PB.settings = PB.settings || {}; PB.settings.challengeMode = el.checked; PB.Save.settingsSave(PB.settings); };
   A.dailyCopy = (el, d) => { const r = loadDaily()[d.d]; if (!r) return; (navigator.clipboard ? navigator.clipboard.writeText(dailyCode(d.d, r)) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(dailyCode(d.d, r).replace(/\n/g, ' '), 6000)); };
   A.dailyStart = () => {
@@ -217,6 +217,12 @@
   };
   PB.onSeasonDone = function (G) {
     if (!G.daily) return;
+    if (G.daily.endless) {
+      const lg = G.league, r = lg.rec[G.userTeam], res = lg.champion === G.userTeam ? 'Champions' : lg.po && Object.values(lg.po.seeds).some(a => a.includes(G.userTeam)) ? 'Playoffs' : 'Missed playoffs';
+      const h = loadEndless(); h.unshift({ t: Date.now(), w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal, seed: G.daily.seed }); h.length = Math.min(h.length, 30);
+      try { localStorage.setItem(EKEY, JSON.stringify(h)); } catch (e) { }
+      return;
+    }
     const lg = G.league, r = lg.rec[G.userTeam], hist = loadDaily();
     const res = lg.champion === G.userTeam ? 'Champions' : lg.po && (lg.po.seeds.East.concat(lg.po.seeds.West).includes(G.userTeam)) ? 'Playoffs' : 'Missed playoffs';
     const cur = hist[G.daily.date];
@@ -239,6 +245,7 @@
     const ab = id => id == null ? '?' : `<span style="${id === G.userTeam ? 'color:var(--gold);font-weight:800' : ''}">${esc(G.teams[id].abbr)}</span>`;
     return `<div class="bracket" style="grid-template-columns:repeat(${po.rounds.length},1fr);margin-top:10px">${po.rounds.map((r, i) => `<div><h3>${['Round 1', 'Semifinals', 'Conf. Finals', 'Finals'][i] || 'Round ' + (i + 1)}</h3>${r.map(s => `<div class="series"><div class="row between ${s.w[0] === (s.need || 4) ? 'w' : ''}"><span>(${s.hiSeed}) ${ab(s.hi)}</span><b>${s.w[0]}</b></div><div class="row between ${s.w[1] === (s.need || 4) ? 'w' : ''}"><span>(${s.loSeed}) ${ab(s.lo)}</span><b>${s.w[1]}</b></div></div>`).join('') || '<div class="dim">TBD</div>'}</div>`).join('')}</div>`;
   };
+  const runRes = (G, r, res) => ({ w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal, endless: !!G.daily.endless, seed: G.daily.seed });
   function dailyDraw() {
     const G = D.G, lg = G.league, r = lg.rec[G.userTeam], el = document.getElementById('dl-body'); if (!el) return;
     const mine = r.w + '-' + r.l;
@@ -252,8 +259,8 @@
     else {
       const res = dailyRes(G);
       head = `<div class="gold" style="font-weight:800;font-size:18px">${res === 'Champions' ? '🏆 Champions!' : res}</div>`;
-      foot = `<div class="panel" style="margin-top:10px;white-space:pre-line;font-family:monospace">${esc(dailyCode(G.daily.date, { w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal }))}</div>
-        <div class="row" style="margin-top:10px"><button class="primary" data-act="dailyCopyRun" autofocus>Copy result</button><button data-act="teamCard" data-tid="${G.userTeam}" data-daily="1" data-title="${esc(r.w + '-' + r.l + ' · ' + res)}" data-foot="Daily ${G.daily.date}">🖼 Team card</button><button data-act="dailyLeague">View the league</button><button data-act="goMenu">Back to menu</button></div>`;
+      foot = `<div class="panel" style="margin-top:10px;white-space:pre-line;font-family:monospace">${esc(dailyCode(G.daily.date, runRes(G, r, res)))}</div>
+        <div class="row" style="margin-top:10px"><button class="primary" data-act="dailyCopyRun" autofocus>Copy result</button><button data-act="teamCard" data-tid="${G.userTeam}" data-daily="1" data-title="${esc(r.w + '-' + r.l + ' · ' + res)}" data-foot="${G.daily.endless ? 'Endless Draft' : 'Daily ' + G.daily.date}">🖼 Team card</button><button data-act="dailyLeague">View the league</button>${G.daily.endless ? '<button class="gold" data-act="goEndless">Draft again</button>' : ''}<button data-act="goMenu">Back to menu</button></div>`;
     }
     el.innerHTML = `<div style="font-size:34px;font-weight:900;margin:4px 0">${mine}</div>${head}<div style="margin-top:8px">${chartSvg()}</div>${D.stage === 'reg' ? '' : bracketHtml()}${foot}`;
   }
@@ -275,17 +282,54 @@
   }
   S.dailysim = {
     back() { clearInterval(D.iv); UI.go('menu', {}, true); },
-    render() { return `<div class="panel" style="max-width:760px;margin:12px auto"><h2>Daily Challenge · ${D.G ? D.G.daily.date : ''}</h2><div id="dl-body"></div></div>`; },
+    render() { return `<div class="panel" style="max-width:760px;margin:12px auto"><h2>${D.G && D.G.daily.endless ? 'Endless Draft' : 'Daily Challenge · ' + (D.G ? D.G.daily.date : '')}</h2><div id="dl-body"></div></div>`; },
     mount() { dailyDraw(); clearInterval(D.iv); if (D.stage === 'reg') D.iv = setInterval(dailyTick, 60); else if (D.stage === 'po') D.iv = setInterval(dailyTick, 650); },
   };
   A.dailyPlayoffs = () => { D.stage = 'po'; clearInterval(D.iv); D.iv = setInterval(dailyTick, 650); dailyDraw(); };
-  A.dailyCopyRun = () => { const G = D.G, r = G.league.rec[G.userTeam], t = dailyCode(G.daily.date, { w: r.w, l: r.l, res: dailyRes(G), mod: G.daily.mod || null, chal: !!G.daily.chal }); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(t.replace(/\n/g, ' '), 6000)); };
+  A.dailyCopyRun = () => { const G = D.G, r = G.league.rec[G.userTeam], t = dailyCode(G.daily.date, runRes(G, r, dailyRes(G))); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(t.replace(/\n/g, ' '), 6000)); };
   A.dailyLeague = () => { UI.stack = []; UI.go('hub', { tab: 'home' }, true); };
   const homeTab = UI.hubTabs.home;
   UI.hubTabs.home = function (G, lg, p) {
     const html = homeTab(G, lg, p);
     if (!G.daily || lg.phase !== 'done') return html;
-    const r = loadDaily()[G.daily.date];
-    return `<div class="panel" style="border-color:var(--gold);margin-bottom:12px"><b class="gold">Daily Challenge ${G.daily.date}</b> ${r ? `<div>${esc(dailyCode(G.daily.date, r))}</div><button class="small" data-act="dailyCopy" data-d="${G.daily.date}">Copy result</button>` : ''}</div>` + html;
+    const rr = lg.rec[G.userTeam], rs = dailyRes(G), code = G.daily.endless ? dailyCode('', runRes(G, rr, rs)) : (loadDaily()[G.daily.date] ? dailyCode(G.daily.date, loadDaily()[G.daily.date]) : '');
+    return `<div class="panel" style="border-color:var(--gold);margin-bottom:12px"><b class="gold">${G.daily.endless ? 'Endless Draft' : 'Daily Challenge ' + G.daily.date}</b> <div style="white-space:pre-line">${esc(code)}</div></div>` + html;  };
+
+  // ---------- endless draft: the daily challenge with no limit ----------
+  const EKEY = 'poke82_endless';
+  const loadEndless = () => { try { return JSON.parse(localStorage.getItem(EKEY) || '[]'); } catch (e) { return []; } };
+  const E = { mod: null };
+  try { E.mod = (PB.settings && PB.settings.endlessMod) || null; } catch (e) { }
+  S.endless = {
+    back() { UI.go('menu', {}, true); },
+    render() {
+      const s = PB.settings || {}, hist = loadEndless(), best = hist.length ? Math.max(...hist.map(h => h.w)) : null;
+      const card = (k, name, desc) => `<div class="menu-card ${E.mod === k ? 'c-gold' : ''}" tabindex="0" data-act="endlessMod" data-k="${k || ''}" style="padding:10px 14px;${E.mod === k ? '' : 'opacity:.85'}"><b>${esc(name)}</b>${E.mod === k ? ' <span class="tag good">selected</span>' : ''}<div class="dim" style="font-size:12px">${esc(desc)}</div></div>`;
+      return `<div class="panel" style="max-width:820px;margin:16px auto"><h2>Endless Draft</h2>
+        <div class="dim" style="margin-bottom:10px">The Daily Challenge with no limit. Draft a fresh team for a 30-team league, then watch your 82 games and the playoffs play out and get a result code to share. Pick a challenge, or none.</div>
+        <h3>Challenge</h3>
+        <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">${card(null, 'No challenge', 'A standard draft: any Pokémon can come up.')}${Object.entries(PB.MODS).map(([k, M]) => card(k, M.name, M.desc)).join('')}</div>
+        <label style="display:block;margin-top:10px"><input type="checkbox" id="en-chal" ${s.challengeMode ? 'checked' : ''}> <b>Hide the suggested positions</b> <span class="dim">while you draft (works with any challenge)</span></label>
+        <label style="display:block;margin-top:6px">Seed <input type="text" id="en-seed" placeholder="random (share a seed to draft the same rolls as a friend)" style="width:340px"></label>
+        <div class="row" style="margin-top:12px"><button class="primary" data-act="endlessStart" autofocus>Start the draft</button><button data-act="goMenu">Back</button></div>
+        ${hist.length ? `<h3 style="margin-top:16px">Recent runs${best != null ? ' <span class="dim" style="text-transform:none;font-weight:400">· best ' + best + ' wins</span>' : ''}</h3>${hist.slice(0, 10).map((h, i) => { const M = h.mod && PB.MODS[h.mod]; return `<div class="row between wrap" style="padding:2px 0"><span>${new Date(h.t).toLocaleDateString()}</span><span>${h.w}-${h.l}</span><span class="dim">${esc(h.res)}</span><span class="dim">${M ? esc(M.name) : 'No challenge'}${h.chal ? ' · hidden positions' : ''}</span><button class="small" data-act="endlessCopy" data-i="${i}">Copy</button></div>`; }).join('')}` : ''}</div>`;
+    },
+  };
+  A.goEndless = () => UI.go('endless', {}, true);
+  A.endlessMod = (el, d) => { E.mod = d.k || null; PB.settings = PB.settings || {}; PB.settings.endlessMod = E.mod; PB.Save.settingsSave(PB.settings); UI.refresh(); };
+  A.endlessCopy = (el, d) => { const h = loadEndless()[+d.i]; if (!h) return; const t = dailyCode('', Object.assign({ endless: true }, h)); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(t.replace(/\n/g, ' '), 6000)); };
+  A.endlessStart = () => {
+    const raw = (document.getElementById('en-seed').value || '').trim();
+    const seed = raw ? (/^\d+$/.test(raw) ? (+raw >>> 0) : [...raw].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7)) : ((Math.random() * 4294967296) >>> 0);
+    const G = PB.newGame(seed, 'main', 30, (seed >>> 3) % 30);
+    G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal' });
+    const mod = E.mod && PB.MODS[E.mod] ? E.mod : null, MD = mod && PB.MODS[mod];
+    G.rules = { legCap: (MD && MD.rules && MD.rules.legCap) || 0, mod };
+    G.challenge = document.getElementById('en-chal').checked; PB.settings.challengeMode = G.challenge; PB.Save.settingsSave(PB.settings);
+    G.daily = { date: 'endless', endless: true, seed: raw || seed, games: 82, mod, chal: G.challenge };
+    const T = G.teams[G.userTeam]; T.city = 'Endless'; T.nick = 'Draft'; T.name = 'Endless Draft';
+    PB.G = G; UI.stack = [];
+    G.draft = { phase: 'starters', pick: 0, roll: null, cands: null, picked: [], rerolls: { region: 1, type: 1 } };
+    UI.go('draft', {}, true);
   };
 })(window.PB);
