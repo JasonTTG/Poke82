@@ -1,0 +1,44 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script><script>PB.UI=PB.UI||{esc:x=>x,actions:{},screens:{},hubTabs:{},addHubTab(){},spr(){return""},teamLabel(){return""}};</script><script src="../js/grades.js"></script><script src="../js/career.js"></script><script src="../js/natures.js"></script><script src="../js/ops.js"></script>
+<script>
+// Grades: stints follow players between teams; picks resolve to the drafted player; trades credit only time with the new team; season grade rubric.
+PB.buildDB();PB.settings=PB.defaultSettings();
+const F=PB.Franchise,L=PB.League,GR=PB.Grades,out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
+const G=F.create(9,{tradeDeadline:false});PB.G=G;F.startLeague(G);const fr=G.fr;
+let d=0;
+// season 1: trade a first-round pick and a rotation player mid-season
+while(G.league.day<20&&d++<400)L.simDay(G,false);
+const me=G.teams[0],other=G.teams[1];
+F.ensurePicks(G);
+const pk='p:'+fr.year+'.0.'+me.id;
+const mover=me.roster.slice().sort((a,b)=>PB.BYID[b].ovr-PB.BYID[a].ovr)[3], back=other.roster.slice().sort((a,b)=>PB.BYID[b].ovr-PB.BYID[a].ovr)[3];
+F.trade(G,0,1,[mover,pk],[back],true);
+ck(G.grades.trades.length===1&&G.grades.trades[0].items.length===3,'trade items stored '+JSON.stringify(G.grades.trades[0].items));
+const st=G.grades.st;ck(st[mover].length>=2&&st[mover][st[mover].length-1].t===1,'mover has a new stint on team 1');
+while(G.league.phase!=='done'&&d++<4000)L.simDay(G,false);
+const w=GR.worth(G,mover,1,st[mover].length-1);
+ck(w.games>0&&w.e>0,'mover has games for the new team: '+w.games);
+const g1=GR.gradeTrade(G,G.grades.trades[0]);
+out.push('trade after season 1: '+g1.a.grade+' / '+g1.b.grade+' items '+g1.all.map(x=>(x.pick?'pick':PB.BYID[x.it.a].dispName)+':'+x.total.toFixed(1)).join(', '));
+// the stats before the trade must not count for the new team
+const before=st[mover][0];ck(before.t===0&&before.g>0,'games before the trade stay with the old team ('+before.g+')');
+const sg=GR.seasonGrade(G,G.userTeam);out.push('season grade '+sg.grade+' '+sg.total.toFixed(0)+' '+JSON.stringify(sg.parts.map(p=>p.k+' '+p.v.toFixed(0))));
+// run several seasons, then check the draft grades track real production
+for(let k=0;k<4;k++){
+  F.beginOffseason(G);if(fr.stage==='over')break;F.startDraft(G);F.draftAutoAll(G);for(const T of G.teams)F.aiTrim(G,T);F.startNextSeason(G);
+  let n=0;while(G.league.phase!=='done'&&n++<4000)L.simDay(G,false);
+}
+const keys=Object.keys(G.grades.drafts);const d1=G.grades.drafts[keys[0]];
+const rows=GR.draftRows(G,d1);
+const best=rows.slice().sort((a,b)=>b.z-a.z)[0],worst=rows.slice().sort((a,b)=>a.z-b.z)[0];
+out.push('draft '+keys[0]+': '+rows.length+' picks; best '+PB.BYID[best.p.id].dispName+' #'+(best.p.n+1)+' '+best.grade+' (A='+best.A.toFixed(1)+', typical '+best.exp.toFixed(1)+', '+best.w.games+' g); worst '+PB.BYID[worst.p.id].dispName+' #'+(worst.p.n+1)+' '+worst.grade+' (A='+worst.A.toFixed(1)+')');
+const dist={};rows.forEach(r=>dist[r.grade]=(dist[r.grade]||0)+1);out.push('grade spread '+JSON.stringify(dist));
+// calibration: production per season by rating
+const by={};for(const id in G.grades.st){for(const s of G.grades.st[id]){if(s.e<0.8)continue;const o=Math.round(GR.val(G,+id)/5)*5;(by[o]=by[o]||[]).push(s.v/s.e)}}
+out.push('mean value/season by rating: '+Object.keys(by).sort().map(o=>o+':'+PB.avg(by[o]).toFixed(1)+'(n'+by[o].length+', proj '+(Math.max(-1,Math.min(18,(o-60)*0.5))).toFixed(1)+')').join(' '));
+// every trade grades, every draft grade finite
+for(const t of G.grades.trades){const g=GR.gradeTrade(G,t);ck(isFinite(g.a.s)&&isFinite(g.b.s),'finite trade grade')}
+ck(rows.every(r=>isFinite(r.z)),'finite draft z');
+window.G0=G;
+document.getElementById('o').textContent=(fail.length?'FAIL\n'+fail.join('\n')+'\n':'ALL OK\n')+out.join('\n');window.ready=true;
+</script>

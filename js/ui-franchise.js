@@ -30,9 +30,10 @@
     return `<div style="min-width:110px"><div class="meter" style="height:6px"><i style="width:${pct}%;${pct >= 100 ? 'background:#2fd47a' : ''}"></i></div><span style="font-size:11px" class="${pct >= 100 ? 'good' : 'dim'}">${pct >= 100 ? 'Ready to evolve' : dev + ' / ' + need}</span></div>`;
   }
   function baseCells(m, v) {
-    return v.R ? [m.r.three, m.r.dunk, m.r.pass, m.r.handle, m.r.speed, m.r.intD, m.r.perD, m.r.dreb].map(x => `<td class="n">${x}</td>`).join('') : [m.hp, m.atk, m.def, m.spa, m.spd, m.spe, m.bst].map(x => `<td class="n">${x}</td>`).join('');
+    return v.R ? [m.r.three, m.r.dunk, m.r.pass, m.r.handle, m.r.speed, m.r.intD, m.r.perD, m.r.dreb].map(x => `<td class="n">${x}</td>`).join('') : [m.hp, m.atk, m.def, m.spa, m.spd, m.spe].map(x => `<td class="n">${x}</td>`).join('') + `<td class="n"><b>${m.bst}</b></td>`;
   }
-  function baseHead(v) { return (v.R ? ['3PT', 'DNK', 'PAS', 'HDL', 'SPD', 'INT', 'PER', 'REB'] : ['HP', 'ATK', 'DEF', 'SPA', 'SPD', 'SPE', 'BST']).map(l => `<th class="n">${l}</th>`).join(''); }
+  const BASE_TIP = { HP: 'Stamina and durability', ATK: 'Dunking, strength and finishing', DEF: 'Interior defense, rebounding and strength', SPA: 'Shooting (three, mid-range, free throws) and IQ', SPD: 'Passing, IQ and perimeter defense', SPE: 'Speed, handling and steals', BST: 'Total of the six base stats: tracks overall rating closely' };
+  function baseHead(v) { return (v.R ? ['3PT', 'DNK', 'PAS', 'HDL', 'SPD', 'INT', 'PER', 'REB'] : ['HP', 'ATK', 'DEF', 'SPA', 'SPD', 'SPE', 'BST']).map(l => `<th class="n" ${BASE_TIP[l] && !v.R ? `title="${BASE_TIP[l]}"` : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}</th>`).join(''); }
   function monCell(m) { return `<span data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 28)} <b>${esc(m.dispName)}</b></span>${m.leg || m.myth ? ' <span class="tag leg">' + (m.myth ? 'MYTH' : 'LEG') + '</span>' : ''} ${UI.abilTagSmall ? UI.abilTagSmall(m.id) : ''}${PB.G.fr && PB.G.fr.rookie && PB.G.fr.rookie[m.id] === PB.G.fr.year ? ' <span class="tag good">ROOKIE</span>' : ''}`; }
   function filterMons(list, f) {
     const hide = f.hide;
@@ -61,7 +62,6 @@
       const sel = (id, opts, def) => `<select id="${id}" onchange="PB.UI.frPreview()">${opts.map(([v, l]) => `<option value="${v}" ${String(v) === String(def) ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
       return `<div class="panel" style="max-width:780px;margin:16px auto">
         <h2>New Franchise</h2>
-        <div class="dim" style="margin-bottom:10px">A league of unevolved Pokémon that develop and evolve. Every year a draft class brings new prospects, with a draft lottery, tradable picks (with protections), scouting and injuries. It ends when no full draft class is left.</div>
         <div class="layout2" style="--side:1fr">
           <div class="col">
             <label>City <input type="text" id="fr-city" value="Pallet Town" maxlength="22"></label>
@@ -151,7 +151,7 @@
     const inj = G.teams[G.userTeam].roster.filter(id => F.isInj(G, id));
     const news = fr.news.slice(0, 8);
     const extra = `<div class="layout2" style="--side:360px;margin-top:14px"><div class="panel"><h3>Injury report</h3>${inj.length ? inj.map(id => `<div class="row between"><span data-act="inspect" data-id="${id}" tabindex="0" style="cursor:pointer">${UI.spr(PB.BYID[id], 26)} ${esc(PB.BYID[id].dispName)}</span>${injTag(G, id)}</div>`).join('') : '<div class="dim">Everyone is healthy.</div>'}</div>
-      <div class="panel"><h3>League news</h3>${news.map(n => `<div style="font-size:12px;padding:2px 0;${n.user ? 'color:var(--gold)' : ''}"><span class="dim">S${n.y}</span> ${esc(n.txt)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div>`;
+      <div class="panel"><h3>League news</h3>${news.map(n => `<div style="font-size:12px;padding:2px 0;${UI.newsMine(G, n) ? 'color:var(--gold)' : ''}"><span class="dim">S${n.y}</span> ${esc(n.txt)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div>`;
     return banner + origHome(G, lg, p) + extra;
   };
 
@@ -370,14 +370,14 @@
     const list = ids => ids.map(i => F.isPick(i) ? esc(F.pickLabel(G, i)) : esc(PB.BYID[i].dispName)).join(', ');
     const offers = view.offers;
     return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Trades</h2><div class="dim">${blocked ? '<span class="bad">' + esc(blocked) + '</span>' : 'Select Pokémon and draft picks on both sides (picks can be protected). The AI values talent, potential, development and the pick.'}</div></div>
-      <div class="row"><label>Trade with <select data-change="frTradeTeam">${others.map(t => `<option value="${t.id}" ${t.id === other.id ? 'selected' : ''}>${esc(t.name)}${t.user ? ' ★' : ''}</option>`).join('')}</select></label></div></div>
+      <div class="row"><label>Trade with <select data-change="frTradeTeam">${others.map(t => `<option value="${t.id}" ${t.id === other.id ? 'selected' : ''}>${esc(t.name)}${t.id === G.userTeam ? ' ★' : ''}</option>`).join('')}</select></label></div></div>
       ${incoming.length ? `<div class="panel" style="border-color:var(--gold);margin-bottom:10px"><h3>Offers for you</h3>${incoming.map(o => `<div class="row between wrap"><span><b>${esc(G.teams[o.a].name)}</b> give ${list(o.giveA)} for ${list(o.giveB)}</span><span class="row"><button class="small gold" data-act="frOfferReply" data-id="${o.id}" data-accept="1">Accept</button><button class="small" data-act="frOfferReply" data-id="${o.id}" data-accept="">Decline</button></span></div>`).join('')}</div>` : ''}
       ${out.length ? `<div class="panel" style="margin-bottom:10px"><h3>Your pending offers</h3>${out.map(o => `<div>To <b>${esc(G.teams[o.b].name)}</b>: ${list(o.giveA)} for ${list(o.giveB)}</div>`).join('')}</div>` : ''}
       <div class="layout2" style="--side:1fr">${tradeSide(G, me, view.tA, 'A')}${tradeSide(G, other, view.tB, 'B')}</div>
       <div class="panel row between wrap" style="margin-top:10px"><div>${verdict || '<span class="dim">Nothing selected.</span>'}<div class="dim" style="font-size:12px">You give ${view.tA.length}, receive ${view.tB.length}. Rosters stay between 12 and ${fr.cfg.rosterMax}.</div></div>
         <div class="row"><button class="gold" data-act="frTradeGo" ${canGo && !blocked ? '' : 'disabled'}>${other.user ? 'Send offer' : 'Propose trade'}</button><button data-act="frTradeClear">Clear</button></div></div>
       <div class="panel" style="margin-top:10px"><div class="row between"><h3 style="margin:0">Offers from AI teams</h3><button class="small" data-act="frFindOffers" ${blocked ? 'disabled' : ''}>Look for offers</button></div>
-        ${offers ? (offers.length ? offers.map((o, i) => `<div class="row between wrap" style="padding:4px 0"><span><b>${esc(G.teams[o.team].name)}</b> would give ${list(o.give)} for your ${list(o.ask)}</span><button class="small primary" data-act="frTakeOffer" data-i="${i}" ${blocked ? 'disabled' : ''}>Accept</button></div>`).join('') : '<div class="dim">No AI team has an offer right now.</div>') : '<div class="dim">See who around the league wants your players.</div>'}</div>`;
+        ${offers ? (offers.length ? offers.map((o, i) => `<div class="row between wrap" style="padding:4px 0"><span><b>${esc(G.teams[o.team].name)}</b> would give ${list(o.give)} for your ${list(o.ask)}</span><button class="small primary" data-act="frTakeOffer" data-i="${i}" ${blocked ? 'disabled' : ''}>Accept</button></div>`).join('') : '<div class="dim">No AI team has an offer right now.</div>') : ''}</div>`;
   };
   A.frTradeTeam = el => { view.tTeam = +el.value; view.tA = []; view.tB = []; view.prot = {}; UI.refresh(); };
   A.frTradeSel = (el, d) => { const a = d.side === 'A' ? view.tA : view.tB, id = d.id.startsWith('p:') ? d.id : +d.id, i = a.indexOf(id); if (i >= 0) { a.splice(i, 1); delete view.prot[id]; } else a.push(id); UI.refresh(); };
@@ -402,7 +402,7 @@
     const evo = fr.evoLog.slice().reverse().slice(0, 60).map(e => `<div style="font-size:12px"><span class="dim">S${e.y}</span> ${esc(G.teams[e.t].abbr)}: ${esc(PB.BYID[e.from].dispName)} → <b>${esc(PB.BYID[e.to].dispName)}</b></div>`).join('');
     return `<div class="col"><div class="panel"><h3>Seasons</h3>${seasons ? `<table class="t"><thead><tr><th>Season</th><th>Regions</th><th class="n">Teams</th><th class="n">GP</th><th>Champion</th><th>MVP</th><th class="n">You</th><th>Result</th></tr></thead><tbody>${seasons}</tbody></table>` : '<div class="dim">No completed seasons yet.</div>'}</div>
       <div class="layout2" style="--side:1fr"><div class="panel"><h3>Evolutions</h3><div style="max-height:320px;overflow:auto">${evo || '<div class="dim">None yet.</div>'}</div></div>
-      <div class="panel"><h3>League news</h3><div style="max-height:320px;overflow:auto">${fr.news.map(n => `<div style="font-size:12px;${n.user ? 'color:var(--gold)' : ''}"><span class="dim">S${n.y}</span> ${esc(n.txt)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div></div></div>`;
+      <div class="panel"><h3>League news</h3><div style="max-height:320px;overflow:auto">${fr.news.map(n => `<div style="font-size:12px;${UI.newsMine(G, n) ? 'color:var(--gold)' : ''}"><span class="dim">S${n.y}</span> ${esc(n.txt)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div></div></div>`;
   };
 
   // ---------- scouting actions from the Pokémon card ----------

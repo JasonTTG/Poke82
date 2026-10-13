@@ -42,7 +42,7 @@
     const col = cur && HEX.test(cur.c1) ? [cur.c1, cur.c2, cur.c3 || cur.c1] : [base[0], base[1], base[0]];
     Object.assign(E, { tid, c1: col[0], c2: col[1], c3: col[2], shape: cur && cur.shape || null, symbol: cur && cur.symbol || '' });
     const shapeBtns = [null].concat(SHAPES).map(s => `<button class="small ${E.shape === s ? 'primary' : ''}" data-act="tlShape" data-s="${s || ''}" title="${s || 'default'}">${s ? `<svg viewBox="0 0 100 100" width="22" height="22"><path d="${Logo.PATHS[s]}" fill="currentColor"/></svg>` : 'Auto'}</button>`).join('');
-    UI.modal(`<h2>Customize ${esc(T.name)}</h2><div class="dim" style="margin-bottom:8px">Logo, jerseys and the court paint follow these choices everywhere, including other players in an online league.</div>
+    UI.modal(`<h2>Customize ${esc(T.name)}</h2>
       <div id="tl-prev" style="margin-bottom:10px"></div>
       <div class="col" style="gap:8px">
         <div><div class="dim" style="font-size:12px">Logo shape</div><div class="row wrap" id="tl-shapes">${shapeBtns}</div></div>

@@ -102,10 +102,10 @@
     const hot = data.map((v, i) => i).filter(i => i % 2 === 0 && data[i] >= 8).map(i => ({ z: i / 2, d: data[i + 1] / data[i] - (ref[i] ? ref[i + 1] / ref[i] : 0.4) })).sort((a, b) => b.d - a.d);
     return `<div class="panel"><div class="row between wrap"><h3 style="margin:0">Season shot charts</h3><div class="row wrap">
         <label>View <select data-change="szMode">${[['player', 'Player'], ['team', 'Team shooting'], ['allowed', 'Shots allowed'], ['league', 'Whole league']].map(([v, l]) => `<option value="${v}" ${view.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-        ${view.mode !== 'league' ? `<label>Team <select data-change="szTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === view.team ? 'selected' : ''}>${esc(t.abbr)}${t.user ? ' ★' : ''}</option>`).join('')}</select></label>` : ''}
+        ${view.mode !== 'league' ? `<label>Team <select data-change="szTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === view.team ? 'selected' : ''}>${esc(t.abbr)}${t.id === G.userTeam ? ' ★' : ''}</option>`).join('')}</select></label>` : ''}
         ${view.mode === 'player' ? `<label>Pokémon <select data-change="szPid">${ids.map(id => `<option value="${id}" ${id === +view.pid ? 'selected' : ''}>${esc(PB.BYID[id].dispName)}</option>`).join('')}</select></label>` : ''}
         ${hasPO ? `<label><input type="checkbox" data-change="szPO" ${view.po ? 'checked' : ''}> Playoffs</label>` : ''}</div></div>
-      <div class="dim" style="font-size:12px;margin:6px 0">Warm zones are better than the league average from that spot, cool zones are worse. Games you play show real shot locations; simulated games place each player's shots by tendency so the totals match the box score.</div>
+      <div class="dim" style="font-size:12px;margin:6px 0">Warm zones are above the league average, cool zones below.</div>
       <div class="row wrap" style="align-items:flex-start"><div class="grow" style="min-width:280px">${Z.svg(data, ref)}</div>
         <div style="min-width:260px;font-size:13px"><div class="kpi"><div><b>${mk}-${att}</b><span>FG</span></div><div><b>${att ? (mk / att * 100).toFixed(1) : 0}%</b><span>FG%</span></div></div>
         ${hot.length ? `<div style="margin-top:6px"><span class="tag good">Hot: ${Z.NAMES[hot[0].z]}</span> ${hot.length > 1 ? `<span class="tag bad">Cold: ${Z.NAMES[hot[hot.length - 1].z]}</span>` : ''}</div>` : ''}

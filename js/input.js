@@ -114,7 +114,12 @@
       const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none';
     });
   }
+  // the focus ring only shows while a keyboard or controller is driving the menus; a mouse or touch hides it (so opening a tab never looks pre-selected)
+  window.addEventListener('mousedown', () => document.body.classList.remove('padnav'), true);
+  window.addEventListener('touchstart', () => document.body.classList.remove('padnav'), true);
+  window.addEventListener('keydown', e => { if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key !== 'Shift' && e.key !== 'Control') document.body.classList.add('padnav'); }, true);
   I.moveFocus = function (dir) {
+    document.body.classList.add('padnav');
     const els = focusables(); if (!els.length) return;
     const cur = document.activeElement && els.includes(document.activeElement) ? document.activeElement : null;
     if (!cur) { els[0].focus(); return; }

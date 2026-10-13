@@ -56,6 +56,7 @@
               <label>Offense <select data-change="setStrat" data-k="off">${Object.entries(PB.OFF_STRATS).map(([k, v]) => `<option value="${k}" ${T.strat.off === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
               <label>Defense <select data-change="setStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${T.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
 
+              <button data-act="autoStrat" title="Tests every offense and defense against the league and picks the best">Auto strategy</button>
               <button data-act="autoLineup">Auto lineup</button>
               <button data-act="benchByOvr">Sort bench</button>
             </div>

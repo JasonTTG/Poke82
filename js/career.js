@@ -30,6 +30,7 @@
     const a = lg.awards || {}, o = [];
     if (a.mvp === id) o.push('MVP'); if (a.dpoy === id) o.push('DPOY'); if (a.roy === id) o.push('Rookie of the Year'); if (a.sixth === id) o.push('Sixth Pokémon');
     if (a.playoffMvp === id) o.push('Playoffs MVP');
+    if ((a.allRookie || []).includes(id)) o.push('All-Rookie Team');
     (a.allLeague || []).forEach((t, i) => { if (t.includes(id)) o.push('All-League ' + ['1st', '2nd', '3rd'][i]); });
     (a.allDefense || []).forEach((t, i) => { if (t.includes(id)) o.push('All-Defense ' + ['1st', '2nd'][i]); });
     if (a.scoring === id) o.push('Scoring title'); if (a.rebounding === id) o.push('Rebounding title'); if (a.assists === id) o.push('Assists title');

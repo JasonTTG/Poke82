@@ -11,7 +11,7 @@
       const connected = N.connected, vm = view.modes, leagueKind = vm.includes('franchise') ? 'Franchise' : vm.includes('fantasy') ? 'Fantasy' : null;
       const title = vm.length === 1 ? MODES[vm[0]].replace(/ \(.*\)/, '') + ' · online' : vm.includes('exhibition') ? 'Quick Play · online' : 'Play online';
       return `<div class="panel" style="max-width:760px;margin:16px auto"><h2>${title}</h2>
-        <div class="dim" style="margin-bottom:10px">Play with anyone over the web, nothing to install or run: the host opens a room and shares the 4-letter code.</div>
+        
         <div class="col">
           <label>Your name <input type="text" id="ol-name" maxlength="20" value="${esc(N.name || '')}" placeholder="Trainer"></label>
           <div class="dim" style="font-size:12px">The host's browser runs the game room; friends join with the code. Uses a free public matchmaking service and needs internet; very strict networks can block it.</div>
@@ -50,11 +50,12 @@
     N.create(mode, (mode === 'exhibition' || mode === 'coop') ? 2 : 8, MODES[mode]);
   };
   A.olWatchCode = () => { view.code = document.getElementById('ol-code').value.trim().toUpperCase(); N.name = nameVal() || N.name || 'Trainer'; if (view.code.length !== 4) { PB.toast('Enter the 4-letter room code'); return; } N.p2pJoin(view.code, false, true); };
-  A.olJoinCode = () => { view.code = document.getElementById('ol-code').value.trim().toUpperCase(); N.name = nameVal() || N.name || 'Trainer'; N.join(view.code); };
+  A.olJoinCode = () => { view.code = document.getElementById('ol-code').value.trim().toUpperCase(); N.name = nameVal() || N.name || 'Trainer'; PB.toast('Joining ' + view.code + '…', 2500); N.join(view.code); };
   A.olJoin = (el, d) => { N.name = nameVal() || N.name || 'Trainer'; N.join(d.code); };
 
   N.on('rooms', list => { view.rooms = list; if (UI.cur === 'online') UI.refresh(); });
   N.on('error', err => PB.toast(err, 3500));
+  N.on('status', msg => PB.toast(msg, 2500));
   N.on('room', room => {
     if (UI.cur === 'online' && room) UI.go('lobby', {}, true);
     else if (UI.cur === 'lobby') UI.refresh();
@@ -338,7 +339,7 @@
   const hostOnly = fn => (el, d) => { if (!N.isHost()) { PB.toast('Only the host advances the league'); return; } fn(el, d); };
   function wrap(name, fn) { const orig = A[name]; A[name] = (el, d) => isOn() ? fn(el, d) : (orig && orig(el, d)); }
   const run = (name, args, after) => O.run(name, args, (err, res) => { if (err) { PB.toast(err, 3500); return; } if (after) after(res); });
-  wrap('simDays', hostOnly((el, d) => run('simDays', { n: +d.n })));
+  wrap('simDays', hostOnly((el, d) => run('simDays', { n: +d.n, all: true })));
   wrap('simRest', hostOnly(() => run('simRest', {})));
   wrap('simAllSeason', hostOnly(() => run('simSeason', {})));
   wrap('toNextGame', hostOnly(() => run('advance', {})));

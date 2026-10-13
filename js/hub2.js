@@ -65,10 +65,10 @@
     const risers = rows.map((r, i) => ({ r, d: mv[i] })).filter(x => x.d > 0).sort((a, b) => b.d - a.d).slice(0, 3), fallers = rows.map((r, i) => ({ r, d: mv[i] })).filter(x => x.d < 0).sort((a, b) => a.d - b.d).slice(0, 3);
     const chip = (x, up) => `<span class="tag" style="${up ? 'color:#2fd47a' : 'color:#ff5a5f'}">${up ? '▲' : '▼'}${Math.abs(x.d)} ${esc(G.teams[x.r.id].abbr)}</span>`;
     const O = UI.vis().O;
-    return `<div class="panel"><h3>Power rankings</h3><div class="dim" style="font-size:12px;margin-bottom:8px">Blends record, scoring margin, the last 10 games and roster strength (the roster counts for more early in the season). Updated every week of the season.</div>
+    return `<div class="panel"><h3>Power rankings</h3>
       <div class="row wrap" style="margin-bottom:8px">${risers.length ? '<span class="dim">Rising</span> ' + risers.map(x => chip(x, true)).join(' ') : ''} ${fallers.length ? '<span class="dim" style="margin-left:10px">Falling</span> ' + fallers.map(x => chip(x, false)).join(' ') : ''}</div>
       <table class="t"><thead><tr><th>#</th><th></th><th>Team</th><th class="n">Rec</th><th class="n">L10</th><th class="n">MOV</th>${O ? '<th class="n">OVR</th>' : ''}<th class="n">Power</th></tr></thead><tbody>${rows.map((r, i) => { const t = G.teams[r.id], rc = lg.rec[r.id]; const d = mv[i];
-        return `<tr class="${t.user ? 'me' : ''}"><td class="dim">${i + 1}</td><td style="width:42px;font-size:12px;color:${d > 0 ? '#2fd47a' : d < 0 ? '#ff5a5f' : '#8a93a8'}">${d > 0 ? '▲' + d : d < 0 ? '▼' + -d : '–'}</td><td>${UI.teamLabel(G, r.id)}</td><td class="n">${rc.w}-${rc.l}</td><td class="n">${r.l10}-${r.l10n - r.l10}</td><td class="n ${r.mov >= 0 ? 'good' : 'bad'}">${r.mov >= 0 ? '+' : ''}${r.mov.toFixed(1)}</td>${O ? `<td class="n">${r.ovr.toFixed(1)}</td>` : ''}<td class="n"><b>${r.score}</b></td></tr>`; }).join('')}</tbody></table></div>
+        return `<tr class="${t.id === G.userTeam ? 'me' : ''}"><td class="dim">${i + 1}</td><td style="width:42px;font-size:12px;color:${d > 0 ? '#2fd47a' : d < 0 ? '#ff5a5f' : '#8a93a8'}">${d > 0 ? '▲' + d : d < 0 ? '▼' + -d : '–'}</td><td>${UI.teamLabel(G, r.id)}</td><td class="n">${rc.w}-${rc.l}</td><td class="n">${r.l10}-${r.l10n - r.l10}</td><td class="n ${r.mov >= 0 ? 'good' : 'bad'}">${r.mov >= 0 ? '+' : ''}${r.mov.toFixed(1)}</td>${O ? `<td class="n">${r.ovr.toFixed(1)}</td>` : ''}<td class="n"><b>${r.score}</b></td></tr>`; }).join('')}</tbody></table></div>
       <div class="panel" style="margin-top:10px"><h3>Your ranking over the season</h3>${lineSvg(hist, G.teams.length)}</div>`;
   });
 })(window.PB);
@@ -80,9 +80,9 @@
     ['home', 'Home', ['home']],
     ['offseason', 'Offseason', ['offseason']],
     ['team', 'Team', ['roster', 'scouting', 'fa', 'trades', 'grades']],
-    ['league', 'League', ['standings', 'power', 'schedule', 'playoffs', 'boxes', 'rules']],
-    ['stats', 'Stats', ['stats', 'adv', 'charts']],
-    ['history', 'History', ['awards', 'records', 'history', 'report']],
+    ['league', 'League', ['standings', 'players', 'power', 'schedule', 'playoffs', 'boxes', 'rules']],
+    ['stats', 'Stats', ['stats', 'adv', 'milestones', 'charts']],
+    ['history', 'History', ['awards', 'awardcounts', 'records', 'history', 'report']],
     ['save', 'Save / Load', ['save']],
   ];
   const SUB = { stats: 'Leaders', records: 'Record Book', power: 'Power Rankings' };

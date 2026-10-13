@@ -11,9 +11,10 @@
   // opts: showName (default true), title (second line, e.g. record and result)
   TC.draw = async function (G, tid, opts) {
     opts = opts || {};
-    const T = G.teams[tid], W = 1200, H = 630, c = document.createElement('canvas'); c.width = W; c.height = H;
-    const g = c.getContext('2d'), spec = PB.Logo.spec(T), vis = UI.vis();
-    const starters = T.starters.slice(0, 5).map(id => PB.BYID[id]), bench = T.bench.slice(0, 7).map(id => PB.BYID[id]);
+    // opts.snap = { s: starter ids, b: bench ids } draws a saved lineup (Daily / Endless history) without needing the game that produced it
+    const T = opts.snap ? { name: '', city: '', nick: '', id: 0 } : G.teams[tid], W = 1200, H = 630, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d'), spec = opts.snap ? { c1: '#3a4a8a', c2: '#ffffff' } : PB.Logo.spec(T), vis = opts.snap ? { P: true, O: true } : UI.vis();
+    const starters = (opts.snap ? opts.snap.s : T.starters).slice(0, 5).map(id => PB.BYID[id]), bench = (opts.snap ? opts.snap.b : T.bench).slice(0, 7).map(id => PB.BYID[id]);
     const imgs = await Promise.all(starters.concat(bench).map(m => load(m.sprite)));
     // background
     const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, shade(spec.c1, 0.55)); bg.addColorStop(0.55, '#0e1424'); bg.addColorStop(1, shade(spec.c2 === '#ffffff' ? spec.c1 : spec.c2, 0.35));
@@ -54,27 +55,28 @@
   TC.blob = c => new Promise(res => c.toBlob(res, 'image/png'));
 
   // ---------- modal ----------
-  const st = { tid: 0, showName: true, anon: false, title: '', sub: '', foot: '', canvas: null, busy: 0 };
+  const st = { tid: 0, snap: null, showName: true, anon: false, title: '', sub: '', foot: '', canvas: null, busy: 0 };
   const redraw = async () => {
     const G = PB.G, seq = ++st.busy;
-    const c = await TC.draw(G, st.tid, { showName: st.showName, anon: st.anon, title: st.title, sub: st.sub, foot: st.foot });
+    const c = await TC.draw(G, st.tid, { snap: st.snap, showName: st.showName, anon: st.anon, title: st.title, sub: st.sub, foot: st.foot });
     if (seq !== st.busy) return; st.canvas = c;
     const host = document.getElementById('tc-host'); if (host) { host.innerHTML = ''; c.style.cssText = 'width:100%;max-width:760px;border-radius:10px;display:block'; host.appendChild(c); }
   };
   UI.teamCard = function (tid, o) {
-    const G = PB.G, lg = G.league, r = lg ? lg.rec[tid] : null;
     o = o || {};
-    st.tid = tid; st.showName = o.showName !== false; st.anon = !!o.anon;
+    const G = PB.G || {}, lg = G.league, r = lg && tid != null && !o.snap ? lg.rec[tid] : null;
+    st.snap = o.snap || null; st.tid = tid; st.showName = o.showName !== false; st.anon = !!o.anon;
     st.title = o.title != null ? o.title : r ? `${r.w}-${r.l}${lg.phase === 'done' && lg.champion === tid ? ' · Champions' : ''}` : '';
-    st.sub = o.sub != null ? o.sub : G.fr ? 'Season ' + G.fr.year : (G.daily ? 'Daily ' + G.daily.date : '');
+    st.sub = o.sub != null ? o.sub : o.snap ? '' : G.fr ? 'Season ' + G.fr.year : (G.daily ? 'Daily ' + G.daily.date : '');
     st.foot = o.foot != null ? o.foot : '';
-    UI.modal(`<h2>Team card</h2><div class="dim" style="margin-bottom:8px">A picture of your lineup to share. Ratings and positions follow your Settings.</div>
+    UI.modal(`<h2>Team card</h2>
       <div id="tc-host" style="min-height:200px"></div>
       ${st.anon ? '' : `<div class="row wrap" style="margin-top:10px"><label><input type="checkbox" data-change="tcName" ${st.showName ? 'checked' : ''}> Show my team name</label></div>`}
       <div class="row" style="margin-top:10px;justify-content:flex-end"><button class="primary" data-act="tcDownload">Download PNG</button><button data-act="tcCopy">Copy image</button><button data-act="closeModal" autofocus>Close</button></div>`);
     redraw();
   };
   UI.actions.teamCard = (el, d) => UI.teamCard(+d.tid, d.daily ? { showName: false, anon: true, title: d.title || '', foot: d.foot || '' } : {});
+  UI.teamCardButtonSaved = (kind, key, label) => `<button class="small" data-act="runCard" data-kind="${kind}" data-k="${key}">${label || '🖼 Team card'}</button>`;
   UI.actions.tcName = el => { st.showName = el.checked; redraw(); };
   UI.actions.tcDownload = async () => {
     if (!st.canvas) return;

@@ -440,7 +440,10 @@
   L.honor = function (lg, id, label) { lg.honors = lg.honors || {}; (lg.honors[id] = lg.honors[id] || []).push(label); };
   function eligible(G, frac) {
     const lg = G.league;
-    return Object.keys(lg.pstats).map(id => ({ id: +id, s: lg.pstats[id], t: L.teamOf(G, +id) })).filter(r => r.s.gp >= Math.max(1, (lg.tgp[r.t] || 0) * frac));
+    const rows = Object.keys(lg.pstats).map(id => ({ id: +id, s: lg.pstats[id], t: L.teamOf(G, +id) })).filter(r => r.s.gp >= Math.max(1, (lg.tgp[r.t] || 0) * frac));
+    // a rotation player only: at least half the minutes per game of the league's real regulars, so a bench player on a hot streak never makes a ballot
+    const mpg = r => r.s.sec / Math.max(1, r.s.gp), ref = PB.avg(rows.map(mpg).sort((a, b) => b - a).slice(0, Math.max(5, G.teams.length * 3)));
+    return rows.filter(r => mpg(r) >= ref * 0.5);
   }
   const winPct = (lg, t) => { const r = lg.rec[t]; return (r.w + r.l) ? r.w / (r.w + r.l) : 0.5; };
   // MVP ballot: game score is compared inside the player's position group (guards rack up assists, bigs rebounds) and against the
@@ -448,10 +451,11 @@
   function mvpRows(G, rows) {
     const lg = G.league, grp = id => isG(id) ? 0 : isC(id) ? 2 : 1;
     const gs = rows.map(r => gscore(r.s)), topAvg = a => { const t = a.slice().sort((x, y) => y - x).slice(0, 6); return Math.max(1, PB.avg(t)); };
-    const all = topAvg(gs), base = [0, 1, 2].map(k => topAvg(gs.filter((v, i) => grp(rows[i].id) === k).concat([0])));
+    // a thin position cannot inflate a player: the group's yardstick never drops below 80% of the league's
+    const all = topAvg(gs), base = [0, 1, 2].map(k => Math.max(0.8 * all, topAvg(gs.filter((v, i) => grp(rows[i].id) === k).concat([0]))));
     const yr = G.fr ? G.fr.year : 0;
     return rows.map((r, i) => {
-      const rel = 0.45 * gs[i] / all + 0.55 * gs[i] / base[grp(r.id)];
+      const rel = 0.6 * gs[i] / all + 0.4 * gs[i] / base[grp(r.id)];
       const noise = Math.max(-2 * L.voteNoise, Math.min(2 * L.voteNoise, new PB.RNG(((G.seed || 1) ^ Math.imul(r.id + 1, 2654435761) ^ Math.imul(yr + 7, 40503) ^ (lg.day || 0)) >>> 0).gauss() * L.voteNoise));
       const v = Math.pow(rel, L.mvpPow) * (1 - L.mvpWin / 2 + L.mvpWin * winPct(lg, r.t)) * Math.min(1, r.s.gp / Math.max(1, lg.tgp[r.t] * 0.8)) * (1 + noise);
       return Object.assign({}, r, { v });
@@ -465,13 +469,14 @@
     return 2.2 * s.stl / g + 1.9 * s.blk / g + 0.3 * s.dreb / g + (lgOpp - opp.pa / gp) * 0.12 + (s.sec / g / 60) * 0.04;
   }
   // pick `teams` five-man units with 2 guards, 2 forwards, 1 center (falls back to best available)
-  function positional(rows, teams) {
-    const used = new Set(), out = [];
+  // `cut`: only players ranked inside the top cut overall may fill a position slot; any slot left over goes to the next best player overall
+  function positional(rows, teams, cut) {
+    const used = new Set(), out = [], lim = cut || rows.length;
     for (let k = 0; k < teams; k++) {
       const five = [];
-      const take = (pred, n) => { for (const r of rows) { if (n <= 0) break; if (!used.has(r.id) && pred(r.id)) { used.add(r.id); five.push(r.id); n--; } } return n; };
+      const take = (pred, n, free) => { for (let ri = 0; ri < rows.length; ri++) { const r = rows[ri]; if (n <= 0) break; if (!free && ri >= lim) break; if (!used.has(r.id) && pred(r.id)) { used.add(r.id); five.push(r.id); n--; } } return n; };
       let left = take(isG, 2) + take(isF, 2) + take(isC, 1);
-      if (left) take(() => true, left);
+      if (left) take(() => true, left, true);
       out.push(five);
     }
     return out;
@@ -515,7 +520,7 @@
   };
   L.seasonAwards = function (G) {
     const lg = G.league;
-    const rows = eligible(G, 0.6);
+    const rows = eligible(G, 0.7);
     if (!rows.length) return;
     const byMvp = mvpRows(G, rows);
     const byDef = rows.map(r => Object.assign({}, r, { v: defScore(G, r) })).sort((a, b) => b.v - a.v);
@@ -524,15 +529,17 @@
     const rook = G.fr && G.fr.rookie ? byMvp.filter(r => G.fr.rookie[r.id] === G.fr.year) : [];
     const A = {
       roy: rook.length ? rook[0].id : null,
-      mvp: byMvp[0].id, mvpVotes: byMvp.slice(0, 5).map(r => r.id),
+      mvp: byMvp[0].id, mvpVotes: byMvp.slice(0, 5).map(r => r.id), mvpShare: (() => { const top = byMvp.slice(0, 5), tot = top.reduce((s, r) => s + r.v, 0) || 1; return top.map(r => Math.round(100 * r.v / tot)); })(),
+      allRookie: rook.slice(0, 5).map(r => r.id),
       dpoy: byDef[0].id, sixth: bench.length ? bench[0].id : null,
       scoring: lead('pts', s => s.pts / s.gp).id, rebounding: lead('reb', s => (s.oreb + s.dreb) / s.gp).id, assists: lead('ast', s => s.ast / s.gp).id,
-      allLeague: positional(byMvp, 3), allDefense: positional(byDef, 2),
+      allLeague: positional(byMvp, 3, 20), allDefense: positional(byDef, 2, 14),
     };
     lg.awards = A;
     L.honor(lg, A.mvp, 'MVP'); L.honor(lg, A.dpoy, 'Defensive Player of the Year');
     if (A.roy != null) L.honor(lg, A.roy, 'Rookie of the Year');
     if (A.sixth) L.honor(lg, A.sixth, 'Sixth Pokémon of the Year');
+    A.allRookie.forEach(id => L.honor(lg, id, 'All-Rookie Team'));
     L.honor(lg, A.scoring, 'Scoring Title'); L.honor(lg, A.rebounding, 'Rebounding Title'); L.honor(lg, A.assists, 'Assists Title');
     ['1st', '2nd', '3rd'].forEach((n, i) => A.allLeague[i].forEach(id => L.honor(lg, id, 'All-League ' + n + ' Team')));
     ['1st', '2nd'].forEach((n, i) => A.allDefense[i].forEach(id => L.honor(lg, id, 'All-Defensive ' + n + ' Team')));

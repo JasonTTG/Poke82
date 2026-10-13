@@ -110,6 +110,17 @@
     for (const p of S.court) if (p.id !== shooter.id) { const a = A.fx(p.id); if (a.e.aura) aura += a.e.aura * a.tier; }
     return adj + Math.min(aura, 0.024);
   };
+  // the badges that changed a shot, for on-screen pop-ups: [{ pl, key, name, v }] (v is the make-probability change; its sign is for the shooter)
+  A.tags = function (game, si, shooter, defender, ctx) {
+    const S = game.sides[si], out = [];
+    const c = { type: ctx.type, c: ctx.c == null ? 0.45 : ctx.c, fast: !!ctx.fast, bigger: !!ctx.bigger, q: game.q, clock: game.clock, diff: game.score[si] - game.score[1 - si], home: !!S.home };
+    const f = A.fx(shooter.id);
+    if (f.e.shot) { const v = f.e.shot(c) * f.tier; if (Math.abs(v) >= 0.004) out.push({ pl: shooter, key: f.key, name: f.e.n, v }); }
+    if (f.key === 'heat' && (shooter.hot || 0) > 0.55) out.push({ pl: shooter, key: 'heat', name: 'Heat Check', v: A.streakAdj(shooter) });
+    if (defender) { const d = A.fx(defender.id); if (d.e.def) { const v = d.e.def(c) * d.tier; if (Math.abs(v) >= 0.004) out.push({ pl: defender, key: d.key, name: d.e.n, v }); } }
+    for (const p of S.court) if (p.id !== shooter.id) { const a = A.fx(p.id); if (a.e.aura) { out.push({ pl: p, key: a.key, name: a.e.n, v: a.e.aura * a.tier }); break; } }
+    return out;
+  };
   // multipliers: kind in block, steal, reb, foul, ft, drain, speed
   A.mult = function (id, kind) {
     const f = A.fx(id), m = f.e.mult && f.e.mult[kind];

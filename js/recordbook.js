@@ -65,7 +65,7 @@
   const card = (G, key, title, list, row, fmtV) => {
     const open = !!view.open[key], n = open ? 10 : 3;
     return `<div class="panel" style="padding:10px"><div class="row between"><b>${title}</b>${list.length > 3 ? `<button class="small" data-act="rbMore" data-k="${key}">${open ? 'Top 3' : 'Top 10'}</button>` : ''}</div>
-      ${list.length ? list.slice(0, n).map((e, i) => `<div class="row between" style="padding:2px 0;${(G.teams[e.t] && G.teams[e.t].user) ? 'color:var(--gold)' : ''}"><span><span class="dim" style="display:inline-block;width:18px">${i + 1}</span>${row(e)}</span><span><b>${fmtV(e.v)}</b> <span class="dim" style="font-size:11px">${when(G, e)}</span></span></div>`).join('') : '<div class="dim" style="font-size:12px">No record yet.</div>'}</div>`;
+      ${list.length ? list.slice(0, n).map((e, i) => `<div class="row between" style="padding:2px 0;${e.t === G.userTeam ? 'color:var(--gold)' : ''}"><span><span class="dim" style="display:inline-block;width:18px">${i + 1}</span>${row(e)}</span><span><b>${fmtV(e.v)}</b> <span class="dim" style="font-size:11px">${when(G, e)}</span></span></div>`).join('') : '<div class="dim" style="font-size:12px">No record yet.</div>'}</div>`;
   };
   const page = function (G, lg) {
     const B = rb(G), grid = c => `<div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px">${c}</div>`;
@@ -76,7 +76,7 @@
     if (C && G.careerLog && Object.keys(G.careerLog).length) {
       career = `<h3 style="margin:14px 0 6px">Career</h3>` + grid(CAREER.map(([k, n]) => { const list = C.leaders(G, k === 'gp' ? 'gp' : k).slice(0, 10).filter(x => x.v > 0).map(x => ({ v: x.v, id: x.id, t: G.claimed ? (G.claimed[x.id] != null ? G.claimed[x.id] : 0) : 0, y: 0 })); return card(G, 'c' + k, n, list, e => who(G, e), v => v); }).join(''));
     }
-    return `<div class="panel"><h2 style="margin:0">Record book</h2><div class="dim">Single-game, season, team and career records for this league. Your teams are in gold. A message appears when one is broken in a game you are part of.</div></div>
+    return `<div class="panel"><h2 style="margin:0">Record book</h2></div>
       <h3 style="margin:14px 0 6px">Single game</h3>${game}<h3 style="margin:14px 0 6px">Season</h3>${season}<h3 style="margin:14px 0 6px">Teams</h3>${team}${career}`;
   };
   UI.addHubTab('records', 'Record Book', 'awards', page, G => G.mode !== 'franchise');

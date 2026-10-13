@@ -5,6 +5,10 @@
   // ---------- shared rules -------------------------------------------------
   const Rules = PB.Rules = {
     // energy 0..100 -> multiplier on all ratings
+    // How many personal fouls a player may have and still stay in: 1 in the first quarter, 2 before the half, 3 in the third, 4 in the fourth,
+    // and all five in a close game down the stretch. Each foul over that number is "foul trouble" (severity 1, 2, ...).
+    foulTol(q, clock, lead) { if (q > 4) return 5; if (q === 4) return clock < 300 && Math.abs(lead) <= 10 ? 5 : 4; return q; },
+    trouble(pf, q, clock, lead) { return Math.max(0, pf - Rules.foulTol(q, clock, lead)); },
     fatigueMult(en) { return 1 - 0.30 * Math.pow(1 - clamp(en, 0, 100) / 100, 1.4); },
     drainPerSec(stamina, stratMult) { return 0.072 * (1.6 - stamina / 100) * (stratMult || 1); },
     recoverPerSec(stamina) { return 0.10 + (stamina - 50) * 0.0004; },
@@ -139,7 +143,7 @@
         else v += 0;
         if (p.starter) v += 3;
         v += p.rot || 0;
-        if (p.st.pf >= 5) v -= 10; else if (p.st.pf >= 4 && this.q <= 3) v -= 6; else if (p.st.pf >= 3 && this.q <= 2) v -= 3;
+        { const sev = Rules.trouble(p.st.pf, this.q, this.clock, lead); if (sev) v -= 12 * sev + (p.st.pf >= 5 ? 6 : 0); }          // coaches sit players in foul trouble
         if (garbage) v += (p.starter ? -30 : 10) * (lead > 0 ? 1 : (p.starter ? 0.3 : 1));
         return v;
       };
@@ -179,7 +183,7 @@
     _foulOn(di) {
       // personal foul on defender side; returns bonus state
       const d = this.sides[di];
-      const i = this._weightedPlayer(di, (r, p) => 30 + (100 - r.iq) * 0.6 + (p.mon.r.sW * 20));
+      const i = this._weightedPlayer(di, (r, p) => p.dq ? 0.0001 : 30 + (100 - r.iq) * 0.6 + (p.mon.r.sW * 20));      // a player who has fouled out cannot pick up a seventh
       const pl = d.court[i];
       pl.st.pf++;
       this.teamFouls[di]++;

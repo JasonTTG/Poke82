@@ -64,7 +64,7 @@
     const showO = s.showOverall;
     UI.modal(`<h2>${esc(T.name)} ${ug.h === G.userTeam ? 'vs' : '@'} ${esc(O.name)}</h2>
       ${showO ? `<div><b>OVR</b> ${PB.teamOvr(T).toFixed(1)} vs ${PB.teamOvr(O).toFixed(1)}</div>` : ''}
-      <div class="row wrap" style="margin:10px 0">${O.starters.map(id => `<div class="center" style="width:70px">${UI.spr(PB.BYID[id], 56)}<div style="font-size:11px">${esc(PB.BYID[id].dispName)}</div>${showO ? `<b>${PB.BYID[id].ovr}</b>` : ''}</div>`).join('')}</div>
+      <div class="row wrap" style="margin:10px 0">${O.starters.map(id => `<div class="center" style="width:70px">${UI.spr(PB.BYID[id], 56)}<div style="font-size:11px">${esc(PB.BYID[id].dispName)}</div><div class="dim" style="font-size:10px" title="${esc(PB.Abil.describe(id).desc)}">⚡ ${esc(PB.Abil.describe(id).badge)}</div>${showO ? `<b>${PB.BYID[id].ovr}</b>` : ''}</div>`).join('')}</div>
       <label>Quarter length: <b id="pq">${s.quarterMin}</b> min <input type="range" min="1" max="12" value="${s.quarterMin}" id="pqr" oninput="document.getElementById('pq').textContent=this.value"></label>
       <label style="margin-left:14px">Camera <select id="pcam"><option value="behind" ${s.camera !== 'broadcast' ? 'selected' : ''}>2K (behind the play)</option><option value="broadcast" ${s.camera === 'broadcast' ? 'selected' : ''}>Broadcast (sideline)</option></select></label>
       <div class="row wrap" style="margin-top:12px"><button class="gold" data-act="tipOff" data-opp="${oppId}" autofocus>Tip off</button><button data-act="closeModal">Cancel</button></div>`);
@@ -193,8 +193,8 @@
     PB.Input.mode = 'menu';
   }
   function resize() {
-    const c = cv(); const dpr = Math.min(2, window.devicePixelRatio || 1);
-    c.width = Math.floor(window.innerWidth * dpr); c.height = Math.floor(window.innerHeight * dpr);
+    const c = cv(); const dpr = Math.min(2, window.devicePixelRatio || 1) * (+PB.settings.renderScale || 1);      // render scale < 1 draws fewer pixels (the canvas is stretched to the window)
+    c.width = Math.max(320, Math.floor(window.innerWidth * dpr)); c.height = Math.max(180, Math.floor(window.innerHeight * dpr));
   }
 
   // ---------- camera ----------
@@ -407,6 +407,7 @@
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     for (const lx of [0.15, 0.38, 0.62, 0.85]) { const rg = g.createRadialGradient(w * lx, 0, 0, w * lx, 0, h * 0.45); rg.addColorStop(0, 'rgba(255,244,214,.20)'); rg.addColorStop(1, 'rgba(255,244,214,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, h * 0.5); }
     const bcast = PB.settings.camera === 'broadcast';
+    const gq = PB.settings.gfx || 'high', hi = gq === 'high', lo = gq === 'low';      // graphics detail: high = everything, medium = no roof / banners / floor planks, low = also no upper deck, fans or jumbotron
     // a band between two rings (inner -> outer); near-side sections are skipped on the broadcast camera
     const band = (inn, out, colA, colB, aisle) => {
       for (let i = 0; i < RING_N; i++) {
@@ -418,8 +419,8 @@
       }
     };
     // back wall + roof edge (draw farthest surfaces first)
-    band([BOWL.upOut[0], BOWL.upOut[1], BOWL.upOut[2]], [BOWL.roof[0], BOWL.roof[1], BOWL.roof[2]], '#0b0f19', '#0d121d');
-    band(BOWL.upIn, BOWL.upOut, '#121a2a', '#141c2d', true);                    // upper deck seating
+    if (!lo) band([BOWL.upOut[0], BOWL.upOut[1], BOWL.upOut[2]], [BOWL.roof[0], BOWL.roof[1], BOWL.roof[2]], '#0b0f19', '#0d121d');
+    if (!lo) band(BOWL.upIn, BOWL.upOut, '#121a2a', '#141c2d', true);                    // upper deck seating
     band([BOWL.lowOut[0], BOWL.lowOut[1], 19], [BOWL.fasciaTop[0], BOWL.fasciaTop[1], 24], homeCol[0], shade(homeCol[0], -0.15));   // LED fascia
     // lip connecting fascia top to the upper deck front
     band([BOWL.fasciaTop[0], BOWL.fasciaTop[1], 24], [BOWL.upIn[0], BOWL.upIn[1], 24], '#0a0e18', '#0a0e18');
@@ -427,12 +428,14 @@
     // lower-bowl front wall down to the apron (hides the gap between seats and floor)
     band([BOWL.lowIn[0], BOWL.lowIn[1], 0], [BOWL.lowIn[0], BOWL.lowIn[1], 1.2], '#0d1424', '#0d1424');
     // roof: lighting truss over the court
+    if (hi) {
     const truss = [[18, 4, 58], [76, 4, 58], [76, 46, 58], [18, 46, 58]];
     strokeLine(g, truss, '#2a3346', 0.6, true);
     strokeLine(g, [[18, 25, 58], [76, 25, 58]], '#2a3346', 0.5);
     for (let x = 22; x <= 72; x += 6) for (const y of [4, 46]) { const q = proj(x, y, 57.4); if (q) { const r = Math.max(1.5, 0.9 * cam.F / q[2]); const gl = g.createRadialGradient(q[0], q[1], 0, q[0], q[1], r * 3); gl.addColorStop(0, 'rgba(255,248,225,.95)'); gl.addColorStop(1, 'rgba(255,248,225,0)'); g.fillStyle = gl; g.fillRect(q[0] - r * 3, q[1] - r * 3, r * 6, r * 6); } }
+    }
     // banners hanging from the roof behind each baseline
-    for (const bx of [-30, 124]) for (let i = 0; i < 5; i++) {
+    if (hi) for (const bx of [-30, 124]) for (let i = 0; i < 5; i++) {
       const y = 5 + i * 10, col = i % 2 ? homeCol[0] : (homeCol[1] === '#ffffff' ? '#e8e8e8' : homeCol[1]);
       fillPoly(g, [[bx, y, 44], [bx, y + 6, 44], [bx, y + 6, 52], [bx, y, 52]], col);
       fillPoly(g, [[bx, y + 0.6, 45.2], [bx, y + 5.4, 45.2], [bx, y + 5.4, 45.8], [bx, y + 0.6, 45.8]], 'rgba(0,0,0,.25)');
@@ -440,7 +443,7 @@
     // generic fans (cheap: two rects each), they jump on big plays
     crowd.hype = Math.max(0, crowd.hype - frameDt * 0.45);
     const t = m.t;
-    for (const p of CROWD) {
+    if (!lo) for (const p of CROWD) {
       if (bcast && p.y < 0) continue;
       const jump = crowd.hype * (p.upper ? 0.8 : 1.3) * Math.abs(Math.sin(p.ph + t * 10)) + 0.05 * Math.sin(p.ph + t * 1.7);
       const q = proj(p.x, p.y, p.z + jump); if (!q || q[2] < 10) continue;
@@ -451,7 +454,7 @@
     }
     g.globalAlpha = 1;
     // jumbotron over center court
-    {
+    if (!lo) {
       const vis = drawBox(g, 40, 54, 19, 31, 40, 48, '#11151f', '#1b2233', '#1b2233');
       const cl = Math.max(0, m.clock), mm = Math.floor(cl / 60), ss = Math.floor(cl - mm * 60);
       const hyped = crowd.hype > 0.5;
@@ -524,7 +527,7 @@
     if (!match || !clip || clip.frames.length < 4) return;
     UI._modalBack = null; UI.closeModal();
     const rm = Object.create(match);
-    rm.bodies = [[], []]; rm.replay = true; rm.meter = null; rm.ft = null; rm.flashT = 0; rm.flash = null; rm.events = []; rm.phase = 'live';
+    rm.bodies = [[], []]; rm.replay = true; rm.meter = null; rm.ft = null; rm.flashT = 0; rm.flash = null; rm.events = []; rm.phase = 'live'; rm._netT = null; rm._rnt = -1;
     for (const bm of clip.bodies) rm.bodies[bm.s].push({ s: bm.s, slot: bm.slot, mon: bm.mon, pl: bm.pl, r: bm.r, x: 0, y: 0, z: 0, vx: 0, vy: 0, jump: 0, face: 1, ctl: false, shootT: 0 });
     rm.allBodies = () => rm.bodies[0].concat(rm.bodies[1]);
     rm.ball = { x: 0, y: 0, z: 3, holder: null, state: 'loose' };
@@ -542,7 +545,7 @@
       o.x = p[0] + (q[0] - p[0]) * f; o.y = p[1] + (q[1] - p[1]) * f; o.z = p[2] + (q[2] - p[2]) * f; o.vx = p[3]; o.vy = p[4]; o.jump = p[5]; o.face = p[6]; o.shootT = p[7];
     }
     rm.ball.x = a.ball[0] + (b.ball[0] - a.ball[0]) * f; rm.ball.y = a.ball[1] + (b.ball[1] - a.ball[1]) * f; rm.ball.z = a.ball[2] + (b.ball[2] - a.ball[2]) * f;
-    rm.ball.holder = a.ball[3] ? true : null; rm.t = a.t + (b.t - a.t) * f; rm.poss = a.p;
+    rm.ball.holder = a.ball[3] ? true : null; rm.t = a.t + (b.t - a.t) * f; rm.poss = a.p; rm._rnt = a.nt != null ? a.nt : -1; rm._rnb = a.nb;
     return true;
   }
   function endReplay() {
@@ -561,6 +564,8 @@
   }
   function frame(now) {
     if (!running) return;
+    const cap = +PB.settings.fpsCap || 0;
+    if (cap && now - last < 1000 / cap - 2) { raf = requestAnimationFrame(frame); return; }      // frame-rate limit: the skipped time carries into the next step
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (replay) {
       const inp = inputState();
@@ -627,7 +632,7 @@
       case 'P': N.paused = true; N.pauser = s; if (s !== match.meCi) PB.toast(match.teams[match.U[s].side].abbr + ' paused the game'); break;
       case 'R': N.paused = false; if (s !== match.meCi && paused) { UI._modalBack = null; UI.closeModal(); resume(); } break;
       case 'S': { const sd = match.gs(match.U[s].side), pl = sd.players[a[2]]; if (pl && a[1] >= 0 && a[1] < sd.court.length && sd.bench.includes(pl) && !pl.dq) match.forceSub(match.U[s].side, a[1], pl); break; }
-      case 'T': if ((a[1] === 'off' && PB.OFF_STRATS[a[2]]) || (a[1] === 'def' && PB.DEF_STRATS[a[2]])) match.gs(match.U[s].side).strat[a[1]] = a[2]; break;
+      case 'T': if ((a[1] === 'off' && PB.OFF_STRATS[a[2]]) || (a[1] === 'def' && PB.DEF_STRATS[a[2]]) || (a[1] === 'foul' && ['auto', 'safe', 'ride'].includes(a[2])) || (a[1] === 'hack' && ['auto', 'on', 'off'].includes(a[2]))) match.gs(match.U[s].side).strat[a[1]] = a[2]; break;
       case 'A': { const sd = match.gs(match.U[s].side); sd.auto = !sd.auto; break; }
       case 'O': match.callTimeout(match.U[s].side); break;
     }
@@ -739,13 +744,19 @@
       return;
     }
     const sd = match.gs(match.me);
+    const lead0 = match.g.score[match.gi[match.me]] - match.g.score[1 - match.gi[match.me]];
+    const foulSev = pl => PB.Rules.trouble(pl.st.pf, match.q, match.clock, lead0);
+    const pfStyle = pl => pl.st.pf >= 5 ? 'color:#ff5a5f;font-weight:800' : foulSev(pl) ? 'color:#ffb02e;font-weight:700' : '';
     const showO = PB.settings.showOverall;
     const on = !!match.online;
-    const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · ${pl.st.pf} PF · ${Math.round(pl.st.sec / 60)}m</span><div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
+    const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · <span style="${pfStyle(pl)}">${pl.st.pf} PF</span> · ${Math.round(pl.st.sec / 60)}m</span> <span class="tag" style="font-size:10px" title="${esc(PB.Abil.describe(pl.id).desc)}">⚡ ${esc(PB.Abil.describe(pl.id).badge)}</span>${foulSev(pl) ? ' <span class="tag bad" style="font-size:10px">foul trouble</span>' : ''}<div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
     UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>${on ? '<div class="dim" style="margin-bottom:6px">Online match — the game is paused for both players.</div>' : ''}
-      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button>${match.mode3 ? '' : `<button data-act="callTimeout" ${match.timeouts[match.me] > 0 ? '' : 'disabled'}>Timeout (${match.timeouts[match.me]})</button>`}<button data-act="pauseView" data-v="clips" ${match.highlights.length ? '' : 'disabled'}>Replays (${match.highlights.length})</button><button data-act="cycleMeter">Meter: ${UI.meterSkins[PB.settings.meterSkin || 'bar']}</button>${on ? '' : '<button data-act="autoFinish">Sim to end</button>'}<button data-act="quitGame">${on ? 'Leave match' : match.mode === 'practice' ? 'End practice' : 'Forfeit'}</button></div>
+      <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleBadges">Badge pop-ups: ${PB.settings.showBadges === false ? 'OFF' : 'ON'}</button><button data-act="cycleGfx">Graphics: ${({ high: 'High', medium: 'Medium', low: 'Low' })[PB.settings.gfx || 'high']}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button>${match.mode3 ? '' : `<button data-act="callTimeout" ${match.timeouts[match.me] > 0 ? '' : 'disabled'}>Timeout (${match.timeouts[match.me]})</button>`}<button data-act="pauseView" data-v="clips" ${match.highlights.length ? '' : 'disabled'}>Replays (${match.highlights.length})</button><button data-act="cycleMeter">Meter: ${UI.meterSkins[PB.settings.meterSkin || 'bar']}</button>${on ? '' : '<button data-act="autoFinish">Sim to end</button>'}<button data-act="quitGame">${on ? 'Leave match' : match.mode === 'practice' ? 'End practice' : 'Forfeit'}</button></div>
       <div class="row wrap" style="margin:8px 0"><label>Offense <select data-change="gSetStrat" data-k="off">${Object.entries(PB.OFF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.off === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-      <label>Defense <select data-change="gSetStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
+      <label>Defense <select data-change="gSetStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <button data-act="gAutoStrat" title="Tests every offense and defense against the league and picks the best">Auto strategy</button>
+      <label title="What a player with too many fouls does: play it safe (fewer fouls, softer defense), or keep playing hard and risk fouling out">Foul trouble <select data-change="gSetStrat" data-k="foul">${[['auto', 'Play it safe when in trouble'], ['safe', 'Play it safe from 3 fouls'], ['ride', 'Ride them hard (risk fouling out)']].map(([k, v]) => `<option value="${k}" ${(sd.strat.foul || 'auto') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label title="Foul the ball handler to stop the clock when you are behind late in the game">Late-game fouling <select data-change="gSetStrat" data-k="hack">${[['auto', 'Off'], ['on', 'Foul when behind late']].map(([k, v]) => `<option value="${k}" ${(sd.strat.hack || 'auto') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label></div>
       <div class="layout2" style="--side:1fr"><div><h3>On court</h3><div class="slots">${rows(sd.court)}</div></div><div><h3>Bench</h3><div class="slots">${rows(sd.bench)}</div></div></div>
 `, { onClose: resume });
     UI.onStart = () => UI.closeModal();
@@ -764,8 +775,19 @@
   };
   A.cycleMeter = () => { const k = Object.keys(UI.meterSkins), i = k.indexOf(PB.settings.meterSkin || 'bar'); PB.settings.meterSkin = k[(i + 1) % k.length]; PB.Save.settingsSave(PB.settings); pause(); };
   A.toggleAutoSub = () => { if (match.online) { queueAct(['A']); setTimeout(() => { if (paused) pause(); }, 260); return; } const sd = match.gs(0); sd.auto = !sd.auto; pause(); };
+  A.cycleGfx = () => { const o = ['high', 'medium', 'low'], c = PB.settings.gfx || 'high'; PB.settings.gfx = o[(o.indexOf(c) + 1) % 3]; PB.Save.settingsSave(PB.settings); pause(); };
   A.toggleCam = () => { PB.settings.camera = PB.settings.camera === 'broadcast' ? 'behind' : 'broadcast'; PB.Save.settingsSave(PB.settings); cam.init = false; pause(); };
   A.gSetStrat = (el, d) => { if (match.online) queueAct(['T', d.k, el.value]); else match.gs(0).strat[d.k] = el.value; };
+  A.gAutoStrat = () => {
+    const sd = match.gs(match.me), G = PB.G; if (!G || !PB.AutoStrat) return;
+    PB.toast('Testing strategies against the league…', 4000);
+    PB.AutoStrat.pick(sd.team, G.teams.filter(t => t !== sd.team && t.id !== sd.team.id).map(t => PB.activeTeam ? PB.activeTeam(G, t) : t), best => {
+      if (match.online) { queueAct(['T', 'off', best.off]); queueAct(['T', 'def', best.def]); } else { sd.strat.off = best.off; sd.strat.def = best.def; }
+      PB.toast('Auto strategy: ' + PB.OFF_STRATS[best.off] + ' with ' + PB.DEF_STRATS[best.def], 4000);
+      setTimeout(() => { if (paused) pause(); }, match.online ? 300 : 0);
+    });
+  };
+  A.toggleBadges = () => { PB.settings.showBadges = PB.settings.showBadges === false; PB.Save.settingsSave(PB.settings); pause(); };
   A.subPick = (el, d) => {
     const sd = match.gs(match.me); const pl = sd.players[d.id];
     const sel = UI._subSel;
@@ -868,7 +890,7 @@
       g.fillStyle = fl; g.fill();
     }
     // planks
-    for (let y = 1.5; y < H; y += 1.5) strokeLine(g, [[0, y, .01], [W, y, .01]], 'rgba(110,60,25,.16)', 0.06);
+    if ((PB.settings.gfx || 'high') === 'high') for (let y = 1.5; y < H; y += 1.5) strokeLine(g, [[0, y, .01], [W, y, .01]], 'rgba(110,60,25,.16)', 0.06);
     // paint + center circle
     for (const left of [true, false]) {
       const X = x => left ? x : W - x;
@@ -899,7 +921,8 @@
     fillPoly(g, arc(ball.x, ball.y, 0.6, 0, Math.PI * 2, 10, 0.02), 'rgba(0,0,0,.3)');
     const bp = proj(ball.x, ball.y, ball.z);
     if (bp) items.push({ d: bp[2] - 0.3, kind: 'ball', p: bp });
-    for (const bx of [5.25, W - 5.25]) { const p = proj(bx, 25, 10); if (p) items.push({ d: p[2] + 0.5, kind: 'hoop', bx }); }
+    // the hoop sorts by where its backboard stands on the floor, not by the rim's height: a player in front of the board draws over it, one behind it draws under
+    for (const bx of [5.25, W - 5.25]) { const p = proj(bx < 47 ? 3.6 : W - 3.6, 25, 0); if (p) items.push({ d: p[2], kind: 'hoop', bx }); }
     courtsideItems(m, items);
     items.sort((a, b) => b.d - a.d);
     for (const it of items) {
@@ -931,7 +954,9 @@
     strokeLine(g, [[bb, 22, 9], [bb, 28, 9], [bb, 28, 12.5], [bb, 22, 12.5]], '#f4f7ff', 0.12, true);
     strokeLine(g, [[bb, 24, 10], [bb, 26, 10], [bb, 26, 11.5], [bb, 24, 11.5]], '#ff4d4d', 0.09, true);
     // net (sways after a make)
-    const sway = m._netT && m.t - m._netT < 0.6 ? Math.sin((m.t - m._netT) * 30) * 0.15 * (1 - (m.t - m._netT) / 0.6) : 0;
+    // (in a replay the sway age comes from the recorded frame, since the replay clock jumps around)
+    const age = m.replay ? m._rnt : (m._netT != null ? m.t - m._netT : -1), nb = m.replay ? m._rnb : m._netBx;
+    const sway = age >= 0 && age < 0.6 && nb === bx ? Math.sin(age * 30) * 0.15 * (1 - age / 0.6) : 0;
     const top = arc(bx, 25, 0.75, 0, Math.PI * 2, 12, 10), bot = arc(bx + sway, 25, 0.42, 0, Math.PI * 2, 12, 8.4 + sway);
     for (let i = 0; i < 12; i++) strokeLine(g, [top[i], bot[(i + 1) % 12]], 'rgba(255,255,255,.75)', 0.04);
     strokeLine(g, bot, 'rgba(255,255,255,.7)', 0.04, true);
@@ -954,17 +979,26 @@
     const sp = Math.hypot(b.vx, b.vy);
     // step bounce: phase is accumulated per body (frequency follows speed) so speed changes never jump the phase
     if (b._bobPh == null) b._bobPh = b.slot;
-    b._bobPh += frameDt * (7 + sp * 0.45);
+    // fatigue (0 fresh .. 1 spent) shows in the body: slower, heavier steps, a slight stoop, and sweat when badly tired
+    const en = b.pl && !m.replay ? b.pl.en : 100, tired = PB.clamp((70 - en) / 50, 0, 1);
+    b._bobPh += frameDt * (7 + sp * 0.45) * (1 - 0.3 * tired);
     b._bobAmp = (b._bobAmp || 0) + (Math.min(1, sp / 9) - (b._bobAmp || 0)) * Math.min(1, frameDt * 6);
-    const bob = Math.abs(Math.sin(b._bobPh)) * b._bobAmp * sz * 0.045;
+    const bob = Math.abs(Math.sin(b._bobPh)) * b._bobAmp * sz * 0.045 * (1 + 0.5 * tired);
     g.save();
     g.translate(p[0], p[1] - bob);
     // lean into the run (momentum)
     g.rotate(b._lean);
     if (b.jump) g.scale(1, 1 + Math.min(0.12, b.z * 0.03));
+    else if (tired > 0) { g.scale(1, 1 - 0.04 * tired); g.rotate(0.05 * tired * ((b._sf || 1) < 0 ? 1 : -1)); }
+    if (tired > 0.4) g.globalAlpha = 1 - 0.18 * tired;
     if ((b._sf || 1) < 0) g.scale(-1, 1);
     if (!drawSprite(g, b.mon, 0, 0, sz * 0.82, false)) { g.fillStyle = PB.TYPE_COLORS[b.mon.types[0]]; g.beginPath(); g.arc(0, -sz / 2, sz / 3, 0, Math.PI * 2); g.fill(); }
     g.restore();
+    if (en < 40 && PB.settings.gfx !== 'low') {                                  // sweat drops running down
+      g.fillStyle = '#9fd8ff';
+      for (let k = 0; k < 3; k++) { const ph = ((m.t * 1.4 + k / 3 + (b.slot || 0) * 0.17) % 1), a = 1 - ph; g.globalAlpha = a * 0.9; g.beginPath(); g.arc(p[0] + (k - 1) * sz * 0.11, p[1] - sz * 0.74 + ph * sz * 0.22 - bob, Math.max(1.2, sz * 0.018), 0, Math.PI * 2); g.fill(); }
+      g.globalAlpha = 1;
+    }
     // labels
     const fs = Math.max(11, Math.min(18, sz * 0.13));
     const mineCtl = m.isMine(b), partnerCtl = b.ctl && !mineCtl && b.s === m.me;
@@ -974,6 +1008,7 @@
       if (mineCtl || partnerCtl) { g.fillStyle = mineCtl ? '#ffd23f' : '#4aa3ff'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
       g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(b.mon.dispName, p[0], ty - fs * 1.6);
       g.fillStyle = mineCtl ? '#ffd23f' : partnerCtl ? '#7cc4ff' : '#fff'; g.fillText(b.mon.dispName, p[0], ty - fs * 1.6);
+      if ((mineCtl || partnerCtl) && PB.settings.showBadges !== false) { g.font = `700 ${Math.round(fs * 0.72)}px Segoe UI, sans-serif`; g.lineWidth = 3; g.strokeText('⚡ ' + PB.Abil.describe(b.mon.id).badge, p[0], ty - fs * 0.62 + 0); g.fillStyle = '#ffe27a'; g.fillText('⚡ ' + PB.Abil.describe(b.mon.id).badge, p[0], ty - fs * 0.62); }
     }
     { const hot = b.pl.hot || 0; if (hot > 0.55 || hot < -0.55) { g.font = `${Math.max(12, sz * 0.14)}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillText(hot > 0 ? '🔥' : '❄️', p[0] + sz * 0.28, p[1] - sz * 0.78 - bob); } }
     { const pf = b.pl.st.pf; if (pf >= (b.s === m.me ? 2 : 4)) { g.font = `800 ${Math.max(10, sz * 0.11)}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillStyle = pf >= 5 ? '#ff5a5f' : pf >= 4 ? '#ffb02e' : '#e8ecf5'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; const ly = p[1] + sz * 0.2 + 14; g.strokeText(pf + ' PF', p[0], ly); g.fillText(pf + ' PF', p[0], ly); } }
@@ -981,7 +1016,9 @@
     if (b.s === m.me) {
       const en = b.pl.en / 100, bw = Math.max(20, sz * 0.38), bh = Math.max(3, sz * 0.03);
       g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw, bh);
-      g.fillStyle = en > 0.55 ? '#2fd47a' : en > 0.3 ? '#ffcb05' : '#ff5a5f'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw * en, bh);
+      const lowE = en < 0.3, pulse = lowE ? 0.55 + 0.45 * Math.abs(Math.sin(m.t * 6)) : 1;
+      g.globalAlpha = pulse; g.fillStyle = en > 0.55 ? '#2fd47a' : en > 0.3 ? '#ffcb05' : '#ff5a5f'; g.fillRect(p[0] - bw / 2, p[1] + 4, bw * en, bh); g.globalAlpha = 1;
+      if (lowE && (b.ctl || en < 0.18)) { g.font = `800 ${Math.max(9, sz * 0.095)}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.fillStyle = '#ff5a5f'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText('TIRED', p[0], p[1] + 4 + bh + Math.max(10, sz * 0.1)); g.fillText('TIRED', p[0], p[1] + 4 + bh + Math.max(10, sz * 0.1)); }
     }
     b._scr = { x: p[0], y: p[1] - sz * 0.82, sz };
   }
@@ -1057,6 +1094,31 @@
       g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,.8)'; g.strokeText(fb.text, s.x, s.y - s.sz * 0.25 - (m.t - fb.t) * 30);
       g.fillStyle = fb.col; g.fillText(fb.text, s.x, s.y - s.sz * 0.25 - (m.t - fb.t) * 30);
       g.globalAlpha = 1;
+    }
+    // badge pop-ups: the ability that just changed a play rises above the player
+    if (m.pops && !m.replay) {
+      m.pops = m.pops.filter(q => m.t - q.t0 < 1.6);
+      for (const q of m.pops) {
+        const s = q.b._scr; if (!s) continue; const age = (m.t - q.t0) / 1.6, mine = q.b.s === m.me;
+        const fs = Math.max(11, Math.min(20, s.sz * 0.14)), y = s.y - s.sz * 0.2 - age * s.sz * 0.35;
+        g.globalAlpha = age < 0.12 ? age / 0.12 : age > 0.7 ? 1 - (age - 0.7) / 0.3 : 1;
+        g.font = `900 ${fs}px Segoe UI, sans-serif`; g.textAlign = 'center';
+        const txt = '⚡ ' + q.txt, tw = g.measureText(txt).width + fs;
+        g.fillStyle = mine ? 'rgba(60,45,0,.82)' : 'rgba(70,20,28,.82)'; g.beginPath(); g.roundRect ? g.roundRect(s.x - tw / 2, y - fs * 1.05, tw, fs * 1.5, fs * 0.5) : g.rect(s.x - tw / 2, y - fs * 1.05, tw, fs * 1.5); g.fill();
+        g.lineWidth = 2; g.strokeStyle = mine ? '#ffcb05' : '#ff7a85'; g.stroke();
+        g.fillStyle = mine ? '#ffe27a' : '#ffb3ba'; g.fillText(txt, s.x, y + fs * 0.1);
+        g.globalAlpha = 1;
+      }
+    }
+    // team energy strip (only once someone is tired)
+    if (!m.replay && m.phase !== 'jump') {
+      const mine = m.bodies[m.me].slice().sort((a, b) => a.slot - b.slot);
+      if (mine.length && mine.some(b => b.pl.en < 55)) {
+        const fs = Math.max(10, Math.round(h * 0.018)), bw = fs * 5.2, x0 = 12, y0 = h - 12 - mine.length * fs * 1.45 - fs * 1.6;
+        g.fillStyle = 'rgba(8,12,22,.6)'; g.fillRect(x0 - 6, y0 - 4, bw + fs * 3.4, mine.length * fs * 1.45 + fs * 1.9);
+        g.font = `800 ${Math.round(fs * 0.8)}px Segoe UI, sans-serif`; g.textAlign = 'left'; g.fillStyle = '#9aa7c2'; g.fillText('ENERGY', x0, y0 + fs * 0.8);
+        mine.forEach((b, i) => { const y = y0 + fs * 1.5 + i * fs * 1.45, e = b.pl.en / 100; g.fillStyle = '#e8ecf5'; g.font = `700 ${Math.round(fs * 0.85)}px Segoe UI, sans-serif`; g.fillText(b.mon.dispName.slice(0, 6), x0, y + fs * 0.7); g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(x0 + fs * 3.4, y, bw - fs * 1.3, fs * 0.8); g.globalAlpha = e < 0.3 ? 0.55 + 0.45 * Math.abs(Math.sin(m.t * 6)) : 1; g.fillStyle = e > 0.55 ? '#2fd47a' : e > 0.3 ? '#ffcb05' : '#ff5a5f'; g.fillRect(x0 + fs * 3.4, y, (bw - fs * 1.3) * e, fs * 0.8); g.globalAlpha = 1; });
+      }
     }
     // icon passing
     if (PB.Input.held('RB') && m.poss === m.me && m.ball.holder && m.ball.holder.s === m.me && m.onCtl(m.meCi, () => m.ctrl) === m.ball.holder) {

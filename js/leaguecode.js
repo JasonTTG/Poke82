@@ -83,7 +83,7 @@
   const saveTab = UI.hubTabs.save;
   UI.hubTabs.save = function (G, lg) {
     const html = saveTab(G, lg);
-    return html + `<div class="panel" style="max-width:700px;margin-top:12px"><h3>Share this league</h3><div class="dim" style="font-size:12px;margin-bottom:6px">Make a league code with the current standings, leaders, awards and bracket. Anyone can open it read-only.</div>
+    return html + `<div class="panel" style="max-width:700px;margin-top:12px"><h3>Share this league</h3>
       <div class="row wrap"><button data-act="lcCopy" data-w="code">Copy league code</button><button data-act="lcCopy" data-w="link">Copy link</button></div></div>`;
   };
   A.lcCopy = async (el, d) => {

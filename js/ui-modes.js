@@ -179,7 +179,21 @@
 
   // ---------- daily challenge ----------
   const DKEY = 'poke82_daily';
-  const dayStr = () => new Date().toISOString().slice(0, 10);
+  // the Daily follows the player's own calendar day (everyone with the same date gets the same draft)
+  const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  PB.localDay = ymd;
+  // how the season ended for the user's team, including how far the playoff run went ("Lost in the conference finals")
+  const runResult = PB.runResult = G => {
+    const lg = G.league, ut = G.userTeam;
+    if (lg.champion === ut) return 'Champions';
+    if (!lg.po) return 'Missed playoffs';
+    let made = false, exit = 0, last = 0;
+    lg.po.rounds.forEach((r, i) => r.forEach(s => { if (s.hi !== ut && s.lo !== ut) return; made = true; last = i + 1; const mine = s.hi === ut ? 0 : 1; if (s.w[mine] < (s.need || 4) && s.w[1 - mine] >= (s.need || 4)) exit = i + 1; }));
+    if (!made) return 'Missed playoffs';
+    const nm = PB.Report && PB.Report.ROUNDS ? PB.Report.ROUNDS(lg.po, exit || last) : 'round ' + (exit || last);
+    return 'Lost in ' + nm;
+  };
+  const dayStr = () => ymd(new Date());
   const loadDaily = () => { try { return JSON.parse(localStorage.getItem(DKEY) || '{}'); } catch (e) { return {}; } };
   const daySeed = d => [...('pokehoops-' + d)].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7);
   S.daily = {
@@ -187,18 +201,23 @@
     render() {
       const d = dayStr(), hist = loadDaily(), today = hist[d];
       const dates = Object.keys(hist).sort().reverse().slice(0, 12);
-      let streak = 0; { const t = new Date(); for (;;) { const k = t.toISOString().slice(0, 10); if (hist[k]) { streak++; t.setUTCDate(t.getUTCDate() - 1); } else break; } }
+      let streak = 0; { const t = new Date(); for (;;) { const k = ymd(t); if (hist[k]) { streak++; t.setDate(t.getDate() - 1); } else break; } }
       return `<div class="panel" style="max-width:700px;margin:16px auto"><h2>Daily Challenge · ${d}</h2>
-        <div class="dim" style="margin-bottom:10px">Everyone gets the same draft rolls today: a 30-team league. You only draft: your team plays its 82 games and the playoffs automatically, then you get a result code to share.</div>
+        <div class="dim" style="margin-bottom:10px">Same draft rolls for everyone today. Your team plays its season automatically.</div>
         ${(() => { const k = PB.dailyMod(d), M = k && PB.MODS[k]; return `<div class="panel" style="background:var(--bg2);margin-bottom:10px"><b class="gold">Today's modifier:</b> ${M ? `<b>${esc(M.name)}</b> <span class="dim">${esc(M.desc)}</span>` : '<span class="dim">None, a standard draft</span>'}</div>`; })()}
-        ${today ? '' : `<label style="display:block;margin-bottom:10px"><input type="checkbox" ${(PB.settings || {}).challengeMode ? 'checked' : ''} data-change="dailyChal"> <b>Hide the suggested positions</b> <span class="dim">while you draft, for an extra challenge (your result code says so)</span></label>`}
+        ${today ? '' : `<label style="display:block;margin-bottom:10px"><input type="checkbox" ${(PB.settings || {}).challengeMode ? 'checked' : ''} data-change="dailyChal"> <b>Hide the suggested positions</b> <span class="dim">while you draft</span></label>`}
         <div class="kpi"><div><b>${streak}</b><span>Day streak</span></div><div><b>${today ? today.w + '-' + today.l : '—'}</b><span>Today</span></div><div><b>${dates.length ? Math.max(...dates.map(k => hist[k].w)) : '—'}</b><span>Best wins</span></div></div>
-        <div class="row" style="margin-top:12px">${today ? `<button class="primary" data-act="dailyCopy" data-d="${d}" autofocus>Copy today's result</button><button disabled>Come back tomorrow for a new draft</button>` : '<button class="primary" data-act="dailyStart" autofocus>Start the challenge</button>'}<button data-act="goMenu">Back</button></div>
-        ${dates.length ? `<h3 style="margin-top:14px">History</h3>${dates.map(k => `<div class="row between"><span>${k}</span><span>${hist[k].w}-${hist[k].l}</span><span class="dim">${esc(hist[k].res)}</span><button class="small" data-act="dailyCopy" data-d="${k}">Copy code</button></div>`).join('')}` : ''}</div>`;
+        <div class="row" style="margin-top:12px">${today ? `<button class="primary" data-act="dailyCopy" data-d="${d}" autofocus>Copy today's result</button>${hist[d] && hist[d].snap ? UI.teamCardButtonSaved('daily', d, '🖼 Team card') : ''}<button disabled>Come back tomorrow for a new draft</button>` : '<button class="primary" data-act="dailyStart" autofocus>Start the challenge</button>'}<button data-act="goMenu">Back</button></div>
+        ${dates.length ? `<h3 style="margin-top:14px">History</h3>${dates.map(k => `<div class="row between"><span>${k}</span><span>${hist[k].w}-${hist[k].l}</span><span class="dim">${esc(hist[k].res)}</span><span>${hist[k].snap ? UI.teamCardButtonSaved('daily', k) : ''}<button class="small" data-act="dailyCopy" data-d="${k}">Copy code</button></span></div>`).join('')}` : ''}</div>`;
     },
   };
   const DLINK = 'https://poke82-beta.vercel.app/';
   const dailyCode = (d, r) => { const k = r.mod !== undefined ? r.mod : PB.dailyMod(d), M = k && PB.MODS[k], tags = (M ? [M.name] : []).concat(r.chal ? ['Hidden positions'] : []); return `PokeHoops 82 ${r.endless ? 'Endless Draft' : 'Daily ' + d}${tags.length ? ' [' + tags.join(' · ') + ']' : ''}: ${r.w}-${r.l}, ${r.res}${r.endless && r.seed != null ? '\nSeed ' + r.seed : ''}\n${DLINK}`; };
+  // a team card for a finished run, straight from the saved history (works after going back to the menu or reloading)
+  A.runCard = (el, d) => {
+    const e = d.kind === 'endless', h = e ? loadEndless()[+d.k] : loadDaily()[d.k]; if (!h || !h.snap) { PB.toast('No lineup saved for that run'); return; }
+    UI.teamCard(null, { snap: h.snap, anon: true, title: h.w + '-' + h.l + ' · ' + h.res, foot: e ? 'Endless Draft' : 'Daily ' + d.k });
+  };
   A.dailyChal = el => { PB.settings = PB.settings || {}; PB.settings.challengeMode = el.checked; PB.Save.settingsSave(PB.settings); };
   A.dailyCopy = (el, d) => { const r = loadDaily()[d.d]; if (!r) return; (navigator.clipboard ? navigator.clipboard.writeText(dailyCode(d.d, r)) : Promise.reject()).then(() => PB.toast('Result copied'), () => PB.toast(dailyCode(d.d, r).replace(/\n/g, ' '), 6000)); };
   A.dailyStart = () => {
@@ -218,20 +237,21 @@
   PB.onSeasonDone = function (G) {
     if (!G.daily) return;
     if (G.daily.endless) {
-      const lg = G.league, r = lg.rec[G.userTeam], res = lg.champion === G.userTeam ? 'Champions' : lg.po && Object.values(lg.po.seeds).some(a => a.includes(G.userTeam)) ? 'Playoffs' : 'Missed playoffs';
-      const h = loadEndless(); h.unshift({ t: Date.now(), w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal, seed: G.daily.seed }); h.length = Math.min(h.length, 30);
+      const lg = G.league, r = lg.rec[G.userTeam], res = runResult(G);
+      const h = loadEndless(); const T0 = G.teams[G.userTeam]; h.unshift({ t: Date.now(), w: r.w, l: r.l, res, snap: { s: T0.starters.slice(0, 5), b: T0.bench.slice(0, 7) }, mod: G.daily.mod || null, chal: !!G.daily.chal, seed: G.daily.seed }); h.length = Math.min(h.length, 30);
       try { localStorage.setItem(EKEY, JSON.stringify(h)); } catch (e) { }
       return;
     }
     const lg = G.league, r = lg.rec[G.userTeam], hist = loadDaily();
-    const res = lg.champion === G.userTeam ? 'Champions' : lg.po && (lg.po.seeds.East.concat(lg.po.seeds.West).includes(G.userTeam)) ? 'Playoffs' : 'Missed playoffs';
+    const res = runResult(G);
     const cur = hist[G.daily.date];
-    if (!cur) hist[G.daily.date] = { w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal, team: G.teams[G.userTeam].starters.slice(0, 3).map(id => PB.BYID[id].dispName).join('/') };
+    const T0 = G.teams[G.userTeam];
+    if (!cur) hist[G.daily.date] = { w: r.w, l: r.l, res, snap: { s: T0.starters.slice(0, 5), b: T0.bench.slice(0, 7) }, mod: G.daily.mod || null, chal: !!G.daily.chal, team: G.teams[G.userTeam].starters.slice(0, 3).map(id => PB.BYID[id].dispName).join('/') };
     try { localStorage.setItem(DKEY, JSON.stringify(hist)); } catch (e) { }
   };
   // ---------- daily challenge: the season plays out on screen ----------
   const D = { G: null, pts: [], stage: '', iv: null };
-  const dailyRes = G => { const lg = G.league; return lg.champion === G.userTeam ? 'Champions' : lg.po && lg.po.seeds && Object.values(lg.po.seeds).some(a => a.includes(G.userTeam)) ? 'Playoffs' : 'Missed playoffs'; };
+  const dailyRes = G => runResult(G);
   UI.dailyBegin = function (G) { clearInterval(D.iv); D.G = G; D.pts = [0]; D.stage = 'reg'; D.lastGp = 0; UI.go('dailysim', {}, true); };
   const chartSvg = () => {
     const pts = D.pts, W = 640, H = 190, n = D.G.league.games || 82, mx = Math.max(8, ...pts.map(Math.abs)) + 2;
@@ -306,13 +326,13 @@
       const s = PB.settings || {}, hist = loadEndless(), best = hist.length ? Math.max(...hist.map(h => h.w)) : null;
       const card = (k, name, desc) => `<div class="menu-card ${E.mod === k ? 'c-gold' : ''}" tabindex="0" data-act="endlessMod" data-k="${k || ''}" style="padding:10px 14px;${E.mod === k ? '' : 'opacity:.85'}"><b>${esc(name)}</b>${E.mod === k ? ' <span class="tag good">selected</span>' : ''}<div class="dim" style="font-size:12px">${esc(desc)}</div></div>`;
       return `<div class="panel" style="max-width:820px;margin:16px auto"><h2>Endless Draft</h2>
-        <div class="dim" style="margin-bottom:10px">The Daily Challenge with no limit. Draft a fresh team for a 30-team league, then watch your 82 games and the playoffs play out and get a result code to share. Pick a challenge, or none.</div>
+        
         <h3>Challenge</h3>
         <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px">${card(null, 'No challenge', 'A standard draft: any Pokémon can come up.')}${Object.entries(PB.MODS).map(([k, M]) => card(k, M.name, M.desc)).join('')}</div>
         <label style="display:block;margin-top:10px"><input type="checkbox" id="en-chal" ${s.challengeMode ? 'checked' : ''}> <b>Hide the suggested positions</b> <span class="dim">while you draft (works with any challenge)</span></label>
-        <label style="display:block;margin-top:6px">Seed <input type="text" id="en-seed" placeholder="random (share a seed to draft the same rolls as a friend)" style="width:340px"></label>
+        <label style="display:block;margin-top:6px">Seed <input type="text" id="en-seed" placeholder="random" style="width:340px"></label>
         <div class="row" style="margin-top:12px"><button class="primary" data-act="endlessStart" autofocus>Start the draft</button><button data-act="goMenu">Back</button></div>
-        ${hist.length ? `<h3 style="margin-top:16px">Recent runs${best != null ? ' <span class="dim" style="text-transform:none;font-weight:400">· best ' + best + ' wins</span>' : ''}</h3>${hist.slice(0, 10).map((h, i) => { const M = h.mod && PB.MODS[h.mod]; return `<div class="row between wrap" style="padding:2px 0"><span>${new Date(h.t).toLocaleDateString()}</span><span>${h.w}-${h.l}</span><span class="dim">${esc(h.res)}</span><span class="dim">${M ? esc(M.name) : 'No challenge'}${h.chal ? ' · hidden positions' : ''}</span><button class="small" data-act="endlessCopy" data-i="${i}">Copy</button></div>`; }).join('')}` : ''}</div>`;
+        ${hist.length ? `<h3 style="margin-top:16px">Recent runs${best != null ? ' <span class="dim" style="text-transform:none;font-weight:400">· best ' + best + ' wins</span>' : ''}</h3>${hist.slice(0, 10).map((h, i) => { const M = h.mod && PB.MODS[h.mod]; return `<div class="row between wrap" style="padding:2px 0"><span>${new Date(h.t).toLocaleDateString()}</span><span>${h.w}-${h.l}</span><span class="dim">${esc(h.res)}</span><span class="dim">${M ? esc(M.name) : 'No challenge'}${h.chal ? ' · hidden positions' : ''}</span><span>${h.snap ? UI.teamCardButtonSaved('endless', i) : ''}<button class="small" data-act="endlessCopy" data-i="${i}">Copy</button></span></div>`; }).join('')}` : ''}</div>`;
     },
   };
   A.goEndless = () => UI.go('endless', {}, true);

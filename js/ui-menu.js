@@ -13,8 +13,8 @@
       const slot = (n, m) => `<div class="menu-card mc-save" tabindex="0" data-act="loadSlot" data-slot="${n}"><b>Continue · ${m.name ? esc(m.name) : 'Slot ' + n}</b><span class="dim">${esc(m.team || '')} · ${m.mode === 'fantasy' ? 'Fantasy' : m.mode === 'franchise' ? 'Franchise' : 'Main'} · ${esc(m.phase)} ${esc(m.rec || '')} · ${new Date(m.played || m.t).toLocaleDateString()}</span></div>`;
       let dailyStatus = 'Not played yet';
       try {
-        const h = JSON.parse(localStorage.getItem('poke82_daily') || '{}'), d = new Date(), k = d.toISOString().slice(0, 10);
-        let st = 0; for (;;) { const kk = d.toISOString().slice(0, 10); if (h[kk]) { st++; d.setUTCDate(d.getUTCDate() - 1); } else break; }
+        const h = JSON.parse(localStorage.getItem('poke82_daily') || '{}'), d = new Date(), k = PB.localDay(d);
+        let st = 0; for (;;) { const kk = PB.localDay(d); if (h[kk]) { st++; d.setDate(d.getDate() - 1); } else break; }
         const MD = PB.dailyMod && PB.dailyMod(k); dailyStatus = (h[k] ? 'Today: ' + h[k].w + '-' + h[k].l + ' · ' + h[k].res : 'Not played yet' + (MD ? ' · Modifier: ' + PB.MODS[MD].name : '')) + (st ? ' · ' + st + '-day streak' : '');
       } catch (e) { }
       return `<div class="hero">
@@ -75,7 +75,7 @@
           <label>League teams <select id="ng-teams">${[30, 24, 18, 12].filter(n => n * 12 <= PB.MONS.length).map(n => `<option value="${n}" ${n === 30 ? 'selected' : ''}>${n} teams</option>`).join('')}</select></label>
           ${fan ? `<label>Your draft position <select id="ng-pos"><option value="r">Random</option>${Array.from({ length: 30 }, (_, i) => `<option value="${i}">#${i + 1}</option>`).join('')}</select></label>
           <h3 style="margin-top:6px">League settings: what the draft shows</h3>
-          <div class="dim" style="font-size:12px">Everyone sees the same information about the Pokémon still on the board.</div>
+          
           ${[['R', 'Basketball ratings'], ['P', 'Positions'], ['A', 'Archetypes'], ['O', 'Overall']].map(([k, l]) => `<label><input type="checkbox" id="ng-i${k}" checked> ${l}</label>`).join('')}`
           : `<label><input type="checkbox" id="ng-chal" ${(PB.settings || {}).challengeMode ? 'checked' : ''}> Hide the suggested positions while drafting</label>`}
           <div class="row"><button class="primary" data-act="startNew" data-mode="${p.mode}" autofocus>Start</button><button data-act="goMenu">Cancel</button></div>
@@ -136,6 +136,13 @@
           <label>Camera <select data-change="setOpt" data-k="camera"><option value="behind" ${s.camera !== 'broadcast' ? 'selected' : ''}>2K (behind the play)</option><option value="broadcast" ${s.camera === 'broadcast' ? 'selected' : ''}>Broadcast (sideline)</option></select></label>
           <label>Touch controls <select data-change="setOpt" data-k="touchControls">${[['auto', 'Automatic (touch devices)'], ['on', 'Always on'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${(s.touchControls || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label><input type="checkbox" ${s.autoReplay !== false ? 'checked' : ''} data-change="setOptBool" data-k="autoReplay"> Offer instant replays after big plays</label>
+          <label><input type="checkbox" ${s.showBadges !== false ? 'checked' : ''} data-change="setOptBool" data-k="showBadges"> Ability pop-ups during games</label>
+          <h3 style="margin-top:8px">Performance (playable games)</h3>
+          
+          <label>Preset <select data-change="perfPreset"><option value="">Choose…</option><option value="high">High quality</option><option value="balanced">Balanced</option><option value="low">Low-end device</option></select></label>
+          <label>Graphics detail <select data-change="setOpt" data-k="gfx">${[['high', 'High (full arena, crowd, floor)'], ['medium', 'Medium (no roof, banners or floor planks)'], ['low', 'Low (plain arena, no fans or jumbotron)']].map(([v, l]) => `<option value="${v}" ${(s.gfx || 'high') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label>Resolution <select data-change="setOpt" data-k="renderScale">${[['1', '100% (sharpest)'], ['0.75', '75%'], ['0.5', '50% (fastest)']].map(([v, l]) => `<option value="${v}" ${String(s.renderScale || 1) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label>Frame-rate limit <select data-change="setOpt" data-k="fpsCap">${[['0', 'Match the display'], ['60', '60 FPS'], ['30', '30 FPS (saves battery)']].map(([v, l]) => `<option value="${v}" ${String(s.fpsCap || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label><input type="checkbox" ${document.fullscreenElement ? 'checked' : ''} data-change="toggleFs"> Fullscreen</label>
           <label><input type="checkbox" ${s.challengeMode ? 'checked' : ''} data-change="setOptBool" data-k="challengeMode"> Hide the suggested positions while drafting in the Daily Challenge and Endless Draft</label>
           <h3 style="margin-top:8px">Show (drafted Pokémon and league menus; draft prospects follow the mode's own rules)</h3>
@@ -160,6 +167,7 @@
     back() { UI.go(PB.G && PB.G.league ? 'hub' : 'menu', PB.G && PB.G.league ? { tab: 'home' } : {}, true); },
   };
   const persist = () => { PB.Save.settingsSave(PB.settings); if (PB.G) PB.G.settings = PB.settings; };
+  A.perfPreset = el => { const P = { high: ['high', 1, 0], balanced: ['medium', 0.75, 60], low: ['low', 0.5, 30] }[el.value]; if (!P) return; Object.assign(PB.settings, { gfx: P[0], renderScale: P[1], fpsCap: P[2] }); persist(); UI.refresh(); };
   A.setOpt = (el, d) => { PB.settings[d.k] = el.value; persist(); };
   A.setOptNum = (el, d) => { PB.settings[d.k] = +el.value; persist(); if (PB.Audio) PB.Audio.apply(); };
   A.setOptBool = (el, d) => { PB.settings[d.k] = el.checked; persist(); if (PB.Audio) PB.Audio.apply(); };

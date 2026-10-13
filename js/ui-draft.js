@@ -68,21 +68,25 @@
       if (n > 11) { clearInterval(iv); UI._rolling = null; if (UI.cur === 'draft') UI.refresh(); }
     }, 70);
   }
+  // every roll comes from its own generator seeded by (game seed, pick number, kind), so using a re-roll never shifts later rolls: two players on the same seed see the same roll at each pick
+  const pickRng = (G, pick, kind) => { let h = (G.seed >>> 0) ^ Math.imul(pick + 1, 2654435761); for (const c of kind) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return new PB.RNG(h >>> 0); };
   A.roll = () => {
     const G = PB.G, D = G.draft;
     if (D.roll || UI._rolling) return;
-    const combo = PB.rollCombo(G, G.rng);
-    D.roll = combo; D.cands = PB.genCandidates(G, G.rng, D.pick, combo.gen, combo.type, undefined, G.userTeam).map(m => m.id);
+    const rng = pickRng(G, D.pick, 'roll');
+    const combo = PB.rollCombo(G, rng);
+    D.roll = combo; D.cands = PB.genCandidates(G, rng, D.pick, combo.gen, combo.type, undefined, G.userTeam).map(m => m.id);
     animateRoll('both', combo);
   };
   A.reroll = (el, d) => {
     const G = PB.G, D = G.draft;
     const rr = D.rerolls || (D.rerolls = { region: 1, type: 1 });
     if (!D.roll || UI._rolling || !rr[d.w]) return;
-    const combo = PB.rerollCombo(G, G.rng, D.roll, d.w);
+    const rng = pickRng(G, D.pick, d.w);
+    const combo = PB.rerollCombo(G, rng, D.roll, d.w);
     if (!combo) { PB.toast('No other option'); return; }
     rr[d.w]--;
-    D.roll = combo; D.cands = PB.genCandidates(G, G.rng, D.pick, combo.gen, combo.type, undefined, G.userTeam).map(m => m.id);
+    D.roll = combo; D.cands = PB.genCandidates(G, rng, D.pick, combo.gen, combo.type, undefined, G.userTeam).map(m => m.id);
     animateRoll(d.w, combo);
   };
 

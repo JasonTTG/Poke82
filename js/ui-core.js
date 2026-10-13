@@ -18,8 +18,12 @@
   const miniBars = (m, keys) => `<div class="bars">${(keys || KEYBARS.slice(0, 8)).map(([l, k]) => bar(l, m.r[k])).join('')}</div>`;
   // official base stats (always visible); bars scaled to 200
   const BASE = [['HP', 'hp'], ['ATK', 'atk'], ['DEF', 'def'], ['SPA', 'spa'], ['SPD', 'spd'], ['SPE', 'spe']];
-  const sbar = (label, v) => `<span>${label}</span><div class="bar"><i style="width:${Math.min(100, v / 1.8)}%;background:${barColor(Math.min(99, v * 0.75))}"></i></div><b>${v}</b>`;
-  const baseBars = m => `<div class="bars">${BASE.map(([l, k]) => sbar(l, m[k])).join('')}</div>`;
+  // what each base stat does on the court (how it feeds the basketball ratings), so the link between a Pokémon's stats and its overall is visible
+  const ROLE = { hp: ['stamina', 'Stamina and durability'], atk: ['power', 'Dunking, strength and finishing'], def: ['defense', 'Interior defense, rebounding and strength'], spa: ['shooting', 'Three-point, mid-range and free-throw shooting, plus game IQ'], spd: ['passing', 'Passing, game IQ and perimeter defense'], spe: ['speed', 'Speed, ball handling and steals'] };
+  const sbar = (label, v, k) => `<span title="${ROLE[k][1]}">${label} <small class="dim">${ROLE[k][0]}</small></span><div class="bar"><i style="width:${Math.min(100, v / 1.8)}%;background:${barColor(Math.min(99, v * 0.75))}"></i></div><b>${v}</b>`;
+  // the total of the six base stats tracks overall rating more closely than any single stat
+  const totalBar = m => { const v = Math.max(0, Math.min(99, 40 + (m.bst - 200) / 500 * 55)); return `<span title="The sum of the six base stats follows overall rating closely"><b>Total</b></span><div class="bar" style="height:8px"><i style="width:${Math.max(4, Math.min(100, (m.bst - 150) / 6))}%;background:${barColor(v)}"></i></div><b>${m.bst}</b>`; };
+  const baseBars = m => `<div class="bars">${BASE.map(([l, k]) => sbar(l, m[k], k)).join('')}<div style="grid-column:1/-1;border-top:1px solid var(--line);margin:2px 0"></div>${totalBar(m)}</div>`;
   // what the player chose to reveal (Settings): basketball ratings, positions, archetypes, overall
   // ratings, positions, archetypes and overall show for drafted Pokemon and in league menus, never for draft prospects.
   // vis(true) = hide everything (draft tables); vis(mon) = hide only if that mon is an undrafted prospect on a draft screen
@@ -62,7 +66,7 @@
       <div class="col" style="align-items:center;min-width:170px">${spr(m, 160)}<div class="center"><b style="font-size:20px">${esc(m.dispName)}</b><div>${typePills(m)}</div><div class="dim" style="font-size:12px">#${m.id} · ${m.region} · ${PB.fmtHeight(m.h)} · ${PB.fmtWeight(m.w)} · ${m.shape}</div></div>
         ${v.O ? ovrBadge(m.ovr) : ''}${v.P ? `<div>${posBadges(m)}</div>` : ''}${v.A ? `<div class="dim center" style="font-size:12px"><b>${m.archOff}</b><br>${m.archDef}</div>` : ''}</div>
       <div class="grow" style="min-width:280px">
-        <h3>Base stats</h3>${baseBars(m)}<div class="dim" style="font-size:12px;margin-top:4px">Total ${m.bst}${m.reg ? ' · ' + m.region + ' regional form' : ''}</div>
+        <h3>Base stats</h3>${baseBars(m)}${m.reg ? `<div class="dim" style="font-size:12px;margin-top:4px">${m.region} regional form</div>` : ''}
         <h3 style="margin-top:12px">Ability</h3>${UI.abilBlock(m.id)}
         ${v.P ? `<h3 style="margin-top:12px">Position fit</h3>${UI.posFitHtml(m)}` : ''}
         ${v.R ? `<h3 style="margin-top:12px">Basketball ratings</h3><div class="bars" style="font-size:12px;gap:4px 8px">${keys.map(k => bar(PB.RLABELS[k], m.r[k])).join('')}</div>
@@ -110,7 +114,7 @@
     $('#screen').innerHTML = `<div class="screen" id="scr">${html}</div>`;
     if (sc.mount) sc.mount(UI.params);
     const f = $('#scr').querySelector('[autofocus]') || $('#scr').querySelector('.mcard, button:not([disabled]), [data-act]');
-    if (f && !sc.game && !sc.noFocus) f.focus({ preventScroll: true });
+    if (f && !sc.game && !sc.noFocus && document.body.classList.contains('padnav')) f.focus({ preventScroll: true });      // only when a keyboard / controller is in use
   };
   UI.refresh = function () { const y = $('#scr') ? $('#scr').scrollTop : 0; UI.render(); const s = $('#scr'); if (s) s.scrollTop = y; };
   UI.defaultTop = () => `<div class="logo">POKÉ<b>HOOPS</b> 82</div><div class="spacer"></div>
@@ -151,5 +155,7 @@
   };
   UI.pct = (a, b) => b ? (a / b * 100).toFixed(1) : '0.0';
   UI.fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
-  UI.teamLabel = (G, id) => { const t = G.teams[id]; return `<span style="${t.user ? 'color:var(--gold);font-weight:700' : ''}">${UI.logo ? UI.logo(t, 16) + ' ' : ''}${esc(t.name)}</span>`; };
+  // league news about a human team is gold only when it is about *your* team (several humans can share a league online)
+  UI.newsMine = (G, n) => { if (!n.user) return false; if (G.teams.filter(t => t.user).length < 2) return true; const T = G.teams[G.userTeam]; return n.txt.includes(T.abbr) || n.txt.includes(T.name) || T.roster.some(id => n.txt.includes(PB.BYID[id].dispName)); };
+  UI.teamLabel = (G, id) => { const t = G.teams[id]; return `<span style="${id === G.userTeam ? 'color:var(--gold);font-weight:700' : ''}">${UI.logo ? UI.logo(t, 16) + ' ' : ''}${esc(t.name)}</span>`; };
 })(window.PB);

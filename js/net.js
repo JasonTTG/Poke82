@@ -47,12 +47,26 @@
     N.mode = 'p2p'; N.connected = true; N.id = null;
   };
   const J = m => typeof m === 'string' ? JSON.parse(m) : m;        // everything travels as JSON text
-  const openPeer = id => new Promise((res, rej) => {
-    const p = id ? new window.Peer(id) : new window.Peer();
-    const t = setTimeout(() => { try { p.destroy(); } catch (e) { } rej(new Error('Could not reach the matchmaking service')); }, 10000);
+  // STUN finds a direct route; the TURN relay is the fallback when two players' networks block direct connections (the usual reason a code "does not work")
+  const ICE = { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' },
+    { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'], username: 'openrelayproject', credential: 'openrelayproject' },
+  ] };
+  const openPeerOnce = id => new Promise((res, rej) => {
+    const opts = { config: ICE, debug: 0 };
+    const p = id ? new window.Peer(id, opts) : new window.Peer(opts);
+    const t = setTimeout(() => { try { p.destroy(); } catch (e) { } rej(new Error('Could not reach the matchmaking service')); }, 9000);
     p.on('open', () => { clearTimeout(t); res(p); });
     p.on('error', e => { clearTimeout(t); try { p.destroy(); } catch (x) { } rej(e); });
   });
+  // the matchmaking broker sometimes drops a request: try a few times before giving up (a taken room code is not retried)
+  const openPeer = async id => {
+    let last = null;
+    for (let i = 0; i < 3; i++) {
+      try { return await openPeerOnce(id); } catch (e) { last = e; if (e && e.type === 'unavailable-id') throw e; await new Promise(r => setTimeout(r, 400 + i * 600)); }
+    }
+    throw last;
+  };
   // the relay that serve.py provides, run inside the host's browser
   function Relay(code, mode, max, title) {
     this.code = code; this.mode = mode; this.max = max; this.title = title; this.members = []; this.started = false;
@@ -149,7 +163,10 @@
         conn.on('data', m => { if (c) { try { relay.handle(c, J(m)); } catch (e) { console.error(e); } } });
         conn.on('close', () => { if (c) relay.drop(c); });
       });
-      peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) { } });
+      // if the broker connection drops, new players can no longer find the room: keep reconnecting
+      const keep = () => { if (peer.destroyed) return; try { peer.reconnect(); } catch (e) { } setTimeout(() => { if (!peer.destroyed && peer.disconnected) keep(); }, 3000); };
+      peer.on('disconnected', keep);
+      peer.on('error', e => { console.warn('room peer', e && e.type); if (e && e.type === 'network') keep(); });
       N.room = relay.info(); fire('room', N.room);
     } catch (e) { fire('error', e.message || 'Could not host (is the internet reachable?)'); }
   };
@@ -162,22 +179,51 @@
     N.to(c.id, { k: 'rejoin', data: PB.Save.serialize(PB.G), teams: ses.teams, names: ses.names, mode: ses.mode, seq: N.seq });
     fire('teams', { teams: ses.teams, names: ses.names });
   };
+  // one attempt at joining: resolves { ok } once the host says "joined", { fatal } for a definite no (wrong code, full, started), { retry } if it just went quiet
+  const tryJoin = (code, rejoin, spectate) => new Promise(async resolve => {
+    let done = false, peer = null, timer = null;
+    const fin = r => {
+      if (done) return; done = true; clearTimeout(timer);
+      if (!r.ok) { try { peer && peer.destroy(); } catch (e) { } N.peers = N.peers.filter(x => x !== peer); }
+      resolve(r);
+    };
+    timer = setTimeout(() => fin({ retry: 'No room with code ' + code + ' (or it could not be reached)' }), 12000);
+    try { peer = await openPeer(null); } catch (e) { return fin({ retry: 'Could not reach the matchmaking service' }); }
+    if (done) { try { peer.destroy(); } catch (e) { } return; }
+    N.peers.push(peer);
+    peer.on('error', e => { if (e && e.type === 'peer-unavailable') fin({ fatal: 'No room with code ' + code }); else if (!done) fin({ retry: 'Connection problem: ' + (e && e.type) }); });
+    const conn = peer.connect('pokehoops-' + code, { reliable: true });
+    conn.on('open', () => {
+      const direct = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } };
+      direct({ t: 'hello', name: N.name }); direct({ t: 'join', code, name: N.name, rejoin: !!rejoin, spectate: !!spectate });
+    });
+    conn.on('data', raw => {
+      const m = J(raw);
+      if (m && m.t === 'error' && !done) { fin({ fatal: m.err }); return; }          // the host refused us (full, already started, wrong code)
+      if (m && m.t === 'joined') { N.conn = conn; N.link = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } }; N._recv(m); fin({ ok: true }); return; }
+      N._recv(m);
+    });
+    conn.on('close', () => {
+      if (!done) { fin({ retry: 'The connection closed before joining' }); return; }
+      if (N.conn !== conn) return;
+      const had = !!N.room; N.room = null; N.link = null; if (had) { fire('closed', 'The host left or the connection dropped.'); fire('disconnected'); }
+    });
+  });
   N.p2pJoin = async function (code, rejoin, spectate) {
     try {
+      code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (code.length !== 4) { fire('error', 'Room codes are 4 letters'); return; }
       if (rejoin) { for (const p of N.peers) { try { p.destroy(); } catch (e) { } } N.peers = []; }
       N.lastCode = code;
-      const peer = await openPeer(null); N.peers.push(peer);
-      const conn = peer.connect('pokehoops-' + code, { reliable: true });
-      N.conn = conn;
-      const t = setTimeout(() => { if (!N.room) fire('error', 'No room with code ' + code + ' (or it could not be reached)'); }, 12000);
-      peer.on('error', e => { clearTimeout(t); fire('error', e && e.type === 'peer-unavailable' ? 'No room with code ' + code : 'Connection problem: ' + (e && e.type)); });
-      conn.on('open', () => {
-        const direct = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } };
-        direct({ t: 'hello', name: N.name }); direct({ t: 'join', code, name: N.name, rejoin: !!rejoin, spectate: !!spectate });
-      });
-      // only the connection the host accepted becomes the live link (a retry that loses the race must not replace it)
-      conn.on('data', raw => { const m = J(raw); if (m && m.t === 'joined') { clearTimeout(t); N.conn = conn; N.link = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } }; } N._recv(m); });
-      conn.on('close', () => { const had = !!N.room; N.room = null; N.link = null; if (had) { fire('closed', 'The host left or the connection dropped.'); fire('disconnected'); } });
+      let msg = 'Could not connect';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt) fire('status', 'Still trying… (' + (attempt + 1) + ' of 3)');
+        const r = await tryJoin(code, rejoin, spectate);
+        if (r.ok) return;
+        if (r.fatal) { fire('error', r.fatal); return; }
+        msg = r.retry;
+      }
+      fire('error', msg + '. Check the code, and that the host still has the lobby open.');
     } catch (e) { fire('error', e.message || 'Could not connect'); }
   };
   N.toAll = d => N.send({ t: 'msg', to: 'all', d });

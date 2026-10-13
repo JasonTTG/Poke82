@@ -5,6 +5,7 @@
   const R = PB.Report = {};
   const LINK = 'https://poke82-beta.vercel.app/';
   const ROUNDS = (po, n) => po && po.conf ? (n === po.nRounds ? 'the Finals' : n === po.nRounds - 1 ? 'the conference finals' : n === po.nRounds - 2 ? 'the conference semifinals' : 'round ' + n) : po && po.single ? (n === po.nRounds ? 'the Finals' : n === po.nRounds - 1 && po.nRounds > 2 ? 'the semifinals' : n === 1 ? 'the first round' : 'round ' + n) : (['the first round', 'the semifinals', 'the conference finals', 'the Finals'][n - 1] || 'round ' + n);
+  R.ROUNDS = ROUNDS;
   const gsc = s => (s.pts + 0.4 * s.fgm - 0.7 * s.fga - 0.4 * (s.fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov) / Math.max(1, s.gp);
   const LET = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'];
 
@@ -39,20 +40,18 @@
     // expectation: roster strength rank early in the season vs where you finished
     const first = lg.pr && lg.pr.length ? lg.pr[0].order : null;
     const expected = first ? first.indexOf(ut) + 1 : G.teams.slice().sort((a, b) => PB.teamOvr(b) - PB.teamOvr(a)).findIndex(t => t.id === ut) + 1;
-    let pts = 5 + (expected - leagueRank) / Math.max(2, n / 6) * 1.1 + (champ ? 2.2 : run.made ? 0.4 + 0.5 * Math.min(3, run.rounds - (run.exit ? 1 : 0)) : -0.8);
-    pts = Math.max(0, Math.min(10, pts));
-    const grade = LET[Math.max(0, Math.min(10, Math.round(10 - pts)))];
+    const sg = GR.seasonGrade(G, ut), grade = sg.grade;
     // moves
     let moves = null;
     if (GR && G.grades) {
       const S = G.grades, y = G.fr ? G.fr.year : 0, keys = Object.keys(S.drafts), dk = G.fr ? 'f' + y : 'main';
       const d = S.drafts[dk] || (keys.length ? S.drafts[keys[keys.length - 1]] : null);
       const dr = d ? GR.teamDraft(G, d, ut) : null;
-      const picks = dr ? dr.rows.slice().sort((a, b) => a.gap - b.gap) : [];
+      const picks = dr ? dr.rows.slice().sort((a, b) => b.z - a.z) : [];
       const trades = S.trades.filter(t => (t.a === ut || t.b === ut) && (!G.fr || t.y === y)).map(t => { const g = GR.gradeTrade(G, t), me = t.a === ut ? g.a : g.b; return { t, g: me, pts: GR.points(me.grade), s: me.s }; }).sort((a, b) => b.s - a.s);
       moves = { draft: dr && dr.rows.length ? { letter: dr.letter, best: picks[0], worst: picks[picks.length - 1] } : null, bestTrade: trades[0] || null, worstTrade: trades.length > 1 ? trades[trades.length - 1] : null };
     }
-    return { year: G.fr ? G.fr.year : 1, ut, rec, leagueRank, confRank, run, champ, finish, mine, leaders, awards: lg.awards, bigWin, bigLoss, bestStreak: best, star, expected, grade, moves, champion: lg.champion, teams: n };
+    return { year: G.fr ? G.fr.year : 1, ut, rec, leagueRank, confRank, run, champ, finish, mine, leaders, awards: lg.awards, bigWin, bigLoss, bestStreak: best, star, expected, grade, sg, moves, champion: lg.champion, teams: n };
   };
   R.text = function (G, r) {
     const T = G.teams[r.ut], lines = [`PokeHoops 82${G.fr ? ' · Season ' + r.year : ''} report`, `${T.name}: ${r.rec.w}-${r.rec.l} (#${r.leagueRank} of ${r.teams}) · ${r.finish}`];
@@ -76,7 +75,7 @@
     const moveLine = (label, x, fn) => x ? `<div class="row between" style="padding:2px 0"><span class="dim">${label}</span><span>${fn(x)}</span></div>` : '';
     return `<div class="panel" style="border-color:${r.champ ? 'var(--gold)' : 'var(--line)'}"><div class="row between wrap"><div><div class="dim">${G.fr ? 'Season ' + r.year : 'Season'} report</div><h2 style="margin:0">${UI.logo ? UI.logo(T, 28) + ' ' : ''}${esc(T.name)}</h2><div style="font-size:18px"><b class="${r.champ ? 'gold' : ''}">${r.champ ? '🏆 ' : ''}${esc(r.finish)}</b></div></div>
         <div class="kpi"><div><b>${r.rec.w}-${r.rec.l}</b><span>Record</span></div><div><b>#${r.leagueRank}</b><span>of ${r.teams}</span></div><div><b style="color:${color(r.grade)}">${r.grade}</b><span>Season grade</span></div></div></div>
-      <div class="dim" style="font-size:12px;margin-top:6px">Graded against what your roster was expected to do (you were ranked #${r.expected} early in the season) and how far you went.</div></div>
+      <div style="margin-top:8px"><div class="dim" style="font-size:12px;margin-bottom:4px">How the grade adds up (${r.sg.total.toFixed(0)} of 100)</div>${r.sg.parts.map(x => `<div style="margin:3px 0"><div class="row between" style="font-size:12px"><span>${x.k} <span class="dim">· ${esc(x.note)}</span></span><b>${x.v.toFixed(0)} / ${x.max}</b></div><div style="background:var(--bg2);border-radius:3px;height:8px"><div style="width:${(100 * x.v / x.max).toFixed(0)}%;height:8px;border-radius:3px;background:${color(r.grade)}"></div></div></div>`).join('')}</div></div>
       <div class="layout2" style="margin-top:10px"><div>
         <div class="panel"><h3>Top performers</h3>${r.mine.map(x => `<div class="row between" style="padding:3px 0"><span data-act="${PB.Career ? 'career' : 'inspect'}" data-id="${x.id}" tabindex="0" style="cursor:pointer">${tag(G, x.id)}</span><span class="dim">${line(x.s, x.s.gp)}</span></div>`).join('') || '<div class="dim">No data.</div>'}</div>
         ${series ? `<div class="panel" style="margin-top:10px"><h3>Playoff run</h3>${series}</div>` : ''}
@@ -102,6 +101,6 @@
   UI.hubTabs.home = function (G, lg, p) {
     const html = home(G, lg, p);
     if (lg.phase !== 'done') return html;
-    return `<div class="panel row between wrap" style="border-color:var(--gold);margin-bottom:12px"><div><b class="gold">Your season report is ready</b><div class="dim" style="font-size:12px">Finish, playoff run, top performers, awards and your season grade.</div></div><button class="primary" data-act="hubTab" data-tab="report">Open report</button></div>` + html;
+    return `<div class="panel row between wrap" style="border-color:var(--gold);margin-bottom:12px"><div><b class="gold">Your season report is ready</b></div><button class="primary" data-act="hubTab" data-tab="report">Open report</button></div>` + html;
   };
 })(window.PB);

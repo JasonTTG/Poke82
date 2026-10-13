@@ -14,7 +14,7 @@ button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #ff727
 button.gold { background: linear-gradient(180deg, #ffd84a, #e0a800); color: #231a00; border-color: #fff2a8; font-weight: 700; }
 button.ghost { background: transparent; }
 button.small { padding: 4px 9px; font-size: 12px; }
-button:focus, [data-act]:focus, select:focus, input:focus { outline: 3px solid var(--accent2); outline-offset: 2px; }
+button:focus-visible, [data-act]:focus-visible, select:focus-visible, input:focus-visible, body.padnav button:focus, body.padnav [data-act]:focus, body.padnav select:focus, body.padnav input:focus { outline: 3px solid var(--accent2); outline-offset: 2px; }
 select, input[type=text], input[type=number], input[type=date] { font: inherit; background: var(--bg2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 input[type=range] { accent-color: var(--accent2); }
 h1, h2, h3 { margin: 0 0 8px; }

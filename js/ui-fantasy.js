@@ -24,15 +24,16 @@
     const v = UI.vis(true);
     const list = poolRows(G);
     const mine = F.current(G) === G.userTeam;
+    const TIP = { HP: 'Stamina and durability', ATK: 'Dunking, strength and finishing', DEF: 'Interior defense, rebounding and strength', SPA: 'Shooting (three, mid-range, free throws) and IQ', SPD: 'Passing, IQ and perimeter defense', SPE: 'Speed, handling and steals', BST: 'Total of the six base stats: tracks overall rating closely' };
     const cols = v.R ? [['3PT', 'three'], ['DNK', 'dunk'], ['PAS', 'pass'], ['HDL', 'handle'], ['SPD', 'speed'], ['INT', 'intD'], ['PER', 'perD'], ['REB', 'dreb'], ['STA', 'stamina']]
       : [['HP', 'hp'], ['ATK', 'atk'], ['DEF', 'def'], ['SPA', 'spa'], ['SPD', 'spd'], ['SPE', 'spe'], ['BST', 'bst']];
     const rows = list.slice(0, 80).map(m => `<tr>
       <td><span data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 28)} <b>${esc(m.dispName)}</b></span></td>
       <td>${m.types.map(t => `<span class="pill" style="background:${PB.TYPE_COLORS[t]};font-size:9px">${t}</span>`).join(' ')}</td>
       ${v.P ? `<td>${UI.posBadges(m)}</td>` : ''}${v.O ? `<td class="n"><b>${m.ovr}</b></td>` : ''}${v.A ? `<td class="dim" style="font-size:11px">${m.archOff}</td>` : ''}
-      ${cols.map(([, k]) => `<td class="n">${v.R ? m.r[k] : m[k]}</td>`).join('')}
+      ${cols.map(([, k]) => `<td class="n">${k === 'bst' && !v.R ? '<b>' + m[k] + '</b>' : v.R ? m.r[k] : m[k]}</td>`).join('')}
       <td><button class="small ${mine ? 'primary' : ''}" data-act="fDraft" data-id="${m.id}" ${mine ? '' : 'disabled'}>Draft</button></td></tr>`).join('');
-    return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? '<th class="n">OVR</th>' : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l]) => `<th class="n">${l}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? '<th class="n">OVR</th>' : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l]) => `<th class="n" ${!v.R && TIP[l] ? 'title="' + TIP[l] + '"' : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   function sortOptions() {
     const v = UI.vis(true);
@@ -73,7 +74,7 @@
           </div>
           <div class="col">
             <div class="panel"><div class="row between"><h3 style="margin:0">${viewTeam == null || viewTeam === G.userTeam ? 'Your roster' : esc(vt.name)} (${vt.roster.length}/12)</h3>
-              <select data-change="fViewTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === vt.id ? 'selected' : ''}>${t.user ? '★ ' : ''}${esc(t.abbr)}</option>`).join('')}</select></div>
+              <select data-change="fViewTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === vt.id ? 'selected' : ''}>${t.id === G.userTeam ? '★ ' : ''}${esc(t.abbr)}</option>`).join('')}</select></div>
               <div class="slots" style="margin-top:6px">${vt.roster.map(id => { const m = PB.BYID[id]; return `<div class="slot fill" data-act="inspect" data-id="${m.id}" tabindex="0">${UI.spr(m, 32)}<b class="grow">${esc(m.dispName)}</b>${UI.vis().P ? UI.posBadges(m) : ''}${UI.vis().O ? `<b>${m.ovr}</b>` : ''}</div>`; }).join('')}</div>
               ${UI.vis().R ? PB.needs(vt.roster).map(x => `<div class="need">${x}</div>`).join('') : ''}</div>
             <div class="panel"><h3>Draft order</h3><div style="font-size:12px;max-height:200px;overflow:auto">${up.map((p, i) => { const t = F.teamAt(G, p); return `<div class="row between" style="${i === 0 ? 'font-weight:800;color:var(--gold)' : ''}"><span>R${Math.floor(p / n) + 1}.${p % n + 1}</span><span>${UI.teamLabel(G, t)}</span></div>`; }).join('')}</div></div>

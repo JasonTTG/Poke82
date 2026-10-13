@@ -1,0 +1,48 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script><script src="../js/court.js"></script><script src="../js/court-ai.js"></script><script>PB.UI=PB.UI||{esc:x=>x,actions:{},screens:{},hubTabs:{},addHubTab(){},spr(){return""},teamLabel(){return""}};</script><script src="../js/grades.js"></script><script src="../js/natures.js"></script><script src="../js/advstats.js"></script><script>PB.UI.inspect=PB.UI.inspect||function(){};PB.UI.inDraft=()=>false;</script><script src="../js/career.js"></script><script src="../js/shotzones.js"></script><script>PB.UI.logo=()=>"";</script><script src="../js/recordbook.js"></script><script src="../js/ops.js"></script><script src="../js/logos.js"></script><script src="../js/teamlook.js"></script>
+<script>
+// Live engine: the inbounder stays planted, badge pop-ups fire, foul-trouble rules, intentional fouls on request, fatigue messages.
+PB.buildDB();PB.settings=PB.defaultSettings();
+const out=[],fail=[];const ck=(c,m)=>{if(!c)fail.push(m)};
+const G=PB.newGame(11,'main',30,0);PB.aiDraftRounds(G,G.rng,G.teams.map(t=>t.id),0);G.settings=PB.settings;PB.G=G;
+let maxMove=0,ibFrames=0,pops=0,popNames={},said=[];
+{
+  const m=new PB.Match(G,{oppId:4,auto:true,rng:new PB.RNG(21),quarterMin:3});
+  const bp=m.badgePop.bind(m);m.badgePop=function(b,n,t){pops++;popNames[n]=(popNames[n]||0)+1;return bp(b,n,t)};
+  const say=m.say.bind(m);m.say=function(t,b){said.push(t);return say(t,b)};
+  let f=0,last=null;
+  while(!m.over&&f<120000){
+    m.update(1/30,null);f++;
+    if(m.phase==='inbound'&&m.inbounder&&m.ball.holder===m.inbounder){
+      const ib=m.inbounder;if(last&&last.ib===ib&&last.phase===m.inboundT){}
+      if(last&&last.ib===ib){maxMove=Math.max(maxMove,Math.hypot(ib.x-last.x,ib.y-last.y))}
+      last={ib,x:ib.x,y:ib.y};ibFrames++;
+    }else last=null;
+  }
+  ck(m.over,'auto game ends');
+  ck(ibFrames>50,'there were inbound frames '+ibFrames);
+  ck(maxMove<1e-6,'inbounder never moves while holding the ball (max '+maxMove.toFixed(4)+')');
+  out.push('inbound frames '+ibFrames+', max inbounder movement '+maxMove.toFixed(5));
+  out.push('badge pop-ups fired '+pops+' '+JSON.stringify(popNames));
+  ck(pops>5,'badge pop-ups fire in a game');
+  out.push('tired messages '+said.filter(t=>/gassed/.test(t)).length+', fouls: '+said.filter(t=>/foul/i.test(t)).length);
+}
+// foul trouble in the simulation
+{
+  const R=PB.Rules;ck(R.trouble(2,1,500,0)===1&&R.trouble(1,1,500,0)===0&&R.trouble(3,2,300,0)===1&&R.trouble(5,4,600,0)===1&&R.trouble(5,4,200,3)===0&&R.trouble(5,4,200,20)===1,'trouble rules');
+  let fouledOut=0,games=0,troubleMin=0,n=0;
+  for(let i=0;i<60;i++){const a=G.teams[(i*3)%30],b=G.teams[(i*5+1)%30];if(a===b)continue;const g=new PB.Game(a,b,{rng:new PB.RNG(900+i),quarterMin:12});g.run();games++;for(const s of g.sides)for(const p of s.court.concat(s.bench))if(p.st.pf>=6)fouledOut++}
+  out.push('sim games '+games+': fouled-out players per game '+(fouledOut/games).toFixed(2));
+}
+// intentional fouling on request: trailing team with strat.hack on
+{
+  const m=new PB.Match(G,{oppId:4,auto:true,rng:new PB.RNG(33),quarterMin:3});
+  let f=0,cnt=0;const say=m.say.bind(m);m.say=function(t,b){if(/Intentional/.test(t))cnt++;return say(t,b)};
+  // put the game in Q4 with the user trailing
+  m.gs(0).strat.hack='on';
+  while(!m.over&&f<150000){m.update(1/30,null);f++}
+  out.push('intentional fouls with hack on (both sides ai): '+cnt);
+  ck(m.over,'hack game ends');
+}
+document.getElementById('o').textContent=(fail.length?'FAIL\n'+fail.join('\n')+'\n':'ALL OK\n')+out.join('\n');window.ready=true;
+</script>

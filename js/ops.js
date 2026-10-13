@@ -104,7 +104,15 @@
     return null;
   };
   L().humanGamesToday = G => G.teams.filter(t => t.user).map(t => L().gamesFor(G, t.id)).filter(Boolean);
-  H.simDays = (G, a) => { const lg = G.league; const target = lg.day + (a.n || 1); let guard = 0; while (lg.phase !== 'done' && guard++ < 4000) { L().simDay(G, true); if (L().humanGamesToday(G).length) break; if (lg.phase === 'regular' ? lg.day >= target : guard >= (a.n || 1)) break; } };
+  // a.all: the host sims straight through, including every player's own game (nobody is stopped on the way)
+  H.simDays = (G, a) => {
+    const lg = G.league, target = lg.day + (a.n || 1); let guard = 0;
+    while (lg.phase !== 'done' && guard++ < 4000) {
+      L().simDay(G, !a.all);
+      if (!a.all && L().humanGamesToday(G).length) break;                      // stop for a player's game unless the host chose to sim through
+      if (lg.phase === 'regular' ? lg.day >= target : guard >= (a.n || 1)) break;
+    }
+  };
   // play on until the next human game (nobody is skipped past a game they have not played)
   H.advance = (G, a) => { const lg = G.league; let guard = 0; while (lg.phase !== 'done' && guard++ < 4000 && !L().humanGamesToday(G).length) L().simDay(G, true); };
   H.simRest = (G) => { const lg = G.league; let guard = 0; while (lg.phase === 'regular' && guard++ < 4000) L().simDay(G, false); };
