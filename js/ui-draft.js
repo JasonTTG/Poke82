@@ -37,7 +37,7 @@
         main = `<div class="panel center" style="padding:30px"><h2>Pick ${D.pick + 1} of 12</h2>
 
           <div class="rollbox"><div class="rollitem"><small>Region</small>?</div><div class="rollitem"><small>Type</small>?</div></div>
-          <button class="gold" style="font-size:20px;padding:12px 40px" data-act="roll" autofocus>🎲 ROLL</button></div>`;
+          <button class="gold" style="font-size:20px;padding:12px 40px" data-act="roll" autofocus>${PB.I('die')} ROLL</button></div>`;
       } else {
         const rr = D.rerolls || (D.rerolls = { region: 1, type: 1 });
         const rolling = UI._rolling;

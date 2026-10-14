@@ -15,7 +15,7 @@
         <div class="col">
           <label>Your name <input type="text" id="ol-name" maxlength="20" value="${esc(N.name || '')}" placeholder="Trainer"></label>
           <div class="dim" style="font-size:12px">The host's browser runs the game room; friends join with the code. Uses a free public matchmaking service and needs internet; very strict networks can block it.</div>
-          <div class="row wrap"><button class="primary" data-act="olConnect" ${connected ? 'disabled' : ''} autofocus>${connected ? 'Connected ✓' : 'Connect'}</button>${connected ? '<button data-act="olDisconnect">Disconnect</button>' : ''}<span class="dim">${esc(view.status)}</span><button class="small" data-act="diagCopy" title="Copies recent connection events for troubleshooting">Copy problem report</button></div>
+          <div class="row wrap"><button class="primary" data-act="olConnect" ${connected ? 'disabled' : ''} autofocus>${connected ? 'Connected ' + PB.I('check') : 'Connect'}</button>${connected ? '<button data-act="olDisconnect">Disconnect</button>' : ''}<span class="dim">${esc(view.status)}</span><button class="small" data-act="diagCopy" title="Copies recent connection events for troubleshooting">Copy problem report</button></div>
         </div>
         ${connected ? `<hr style="border-color:var(--line);margin:16px 0">
         ${leagueKind ? `<h3>Resume a saved league (you host)</h3>
@@ -27,7 +27,7 @@
           ${Object.entries(MODES).filter(([k]) => vm.includes(k)).map(([k, l]) => `<div class="menu-card" tabindex="0" data-act="olHost" data-mode="${k}"><h3>${l}</h3><div class="dim" style="font-size:12px">${k === 'exhibition' ? 'One-on-one live game on the court' : k === 'coop' ? 'You and a friend each control a Pokémon on the same team' : k === 'franchise' ? 'Several people each run a team in one growing league' : 'Snake draft with friends, then a full season'}</div></div>`).join('')}
         </div>
         <h3 style="margin-top:16px">Join a game</h3>
-        <div class="row wrap"><input type="text" id="ol-code" maxlength="4" placeholder="CODE" value="${esc(view.code)}" style="width:90px;text-transform:uppercase"><button data-act="olJoinCode">Join</button><button data-act="olWatchCode" title="Watch a game or league without playing">👁 Watch</button></div>` : ''}
+        <div class="row wrap"><input type="text" id="ol-code" maxlength="4" placeholder="CODE" value="${esc(view.code)}" style="width:90px;text-transform:uppercase"><button data-act="olJoinCode">Join</button><button data-act="olWatchCode" title="Watch a game or league without playing">${PB.I('eye')} Watch</button></div>` : ''}
         <div class="row" style="margin-top:14px"><button data-act="goMenu">Back</button></div></div>`;
     },
 
@@ -79,9 +79,9 @@
       const canStart = host && (r.mode === 'exhibition' || r.mode === 'coop' ? full : r.players.length >= 1);
       return `<div class="panel" style="max-width:640px;margin:16px auto"><h2>${esc(MODES[r.mode] || r.mode)}</h2>
         <div class="row between"><div class="dim">Room code</div><div style="font-size:34px;font-weight:900;letter-spacing:.2em" class="gold">${esc(r.code)}</div></div>
-        ${spec ? '<div class="tag" style="margin-top:8px">👁 You are watching</div>' : ''}
-        <h3 style="margin-top:12px">Players (${r.players.length}/${r.max})${r.spectators ? ' · 👁 ' + r.spectators + ' watching' : ''}</h3>
-        ${r.players.map(p => `<div class="row" style="padding:3px 0"><span style="font-size:18px">${p.id === r.host ? '👑' : '🎮'}</span><b>${esc(p.name)}</b>${p.id === N.id ? '<span class="tag good">you</span>' : ''}</div>`).join('')}
+        ${spec ? '<div class="tag" style="margin-top:8px">' + PB.I('eye') + ' You are watching</div>' : ''}
+        <h3 style="margin-top:12px">Players (${r.players.length}/${r.max})${r.spectators ? ' · ' + PB.I('eye') + ' ' + r.spectators + ' watching' : ''}</h3>
+        ${r.players.map(p => `<div class="row" style="padding:3px 0"><span style="font-size:18px">${p.id === r.host ? PB.I('crown') : PB.I('pad')}</span><b>${esc(p.name)}</b>${p.id === N.id ? '<span class="tag good">you</span>' : ''}</div>`).join('')}
         <div class="col" style="margin-top:12px">${settings}</div>
         <div class="row" style="margin-top:14px">${host ? `<button class="gold" data-act="lbStart" ${canStart ? '' : 'disabled'} autofocus>${startLabel}</button>` : `<span class="dim">${spec ? 'Waiting for the game to start. It will open here.' : 'Waiting for the host to start…'}</span>`}<button data-act="lbLeave">Leave</button></div>
         ${host && r.mode === 'exhibition' && !full ? '<div class="dim" style="margin-top:8px">Waiting for a second player to join with the code above.</div>' : ''}</div>`;
@@ -205,7 +205,7 @@
       const mine = picks[N.id];
       const taken = new Set(Object.values(picks));
       const who = tid => { const pid = Object.keys(picks).find(p => picks[p] === tid); return pid ? N.nameOf(+pid) : ''; };
-      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Pick your team</h2><div class="dim">${N.room ? N.room.players.map(p => esc(p.name) + (picks[p.id] != null ? ' ✓' : ' …')).join(' · ') : ''}</div></div></div>
+      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Pick your team</h2><div class="dim">${N.room ? N.room.players.map(p => esc(p.name) + (picks[p.id] != null ? (' ' + PB.I('check')) : ' …')).join(' · ') : ''}</div></div></div>
         <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))">${G.teams.map(t => `<div class="mcard ${picks[N.id] === t.id ? 'sel' : ''}" tabindex="0" data-act="exPick" data-t="${t.id}" style="${taken.has(t.id) && picks[N.id] !== t.id ? 'opacity:.5' : ''}">
           <div class="top"><div><div class="name">${esc(t.name)}</div><div class="dim" style="font-size:11px">${PB.OFF_STRATS[t.strat.off]} · ${PB.DEF_STRATS[t.strat.def]}</div></div>${UI.vis().O ? UI.ovrBadge(Math.round(PB.teamOvr(t))) : ''}</div>
           <div class="row" style="flex-wrap:wrap;gap:0">${t.starters.map(id => UI.spr(PB.BYID[id], 40)).join('')}</div>
@@ -255,7 +255,7 @@
     render() {
       const G = PB.G, T = G.teams[0], picks = view.co.picks;
       const who = slot => { const pid = Object.keys(picks).find(p => picks[p] === slot); return pid ? N.nameOf(+pid) : ''; };
-      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Choose your Pokémon</h2><div class="dim">${N.room ? N.room.players.map(p => esc(p.name) + (picks[p.id] != null ? ' ✓' : ' …')).join(' · ') : ''} — you play ${esc(T.name)} against an AI team</div></div></div>
+      return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Choose your Pokémon</h2><div class="dim">${N.room ? N.room.players.map(p => esc(p.name) + (picks[p.id] != null ? (' ' + PB.I('check')) : ' …')).join(' · ') : ''} — you play ${esc(T.name)} against an AI team</div></div></div>
         <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">${T.starters.map((id, i) => `<div class="mcard ${picks[N.id] === i ? 'sel' : ''}" tabindex="0" data-act="coopPick" data-i="${i}" style="${who(i) && picks[N.id] !== i ? 'opacity:.5' : ''}"><div class="top"><div class="name">${esc(PB.BYID[id].dispName)}</div></div><div class="sprwrap">${UI.spr(PB.BYID[id], 96)}</div><div class="dim center">${PB.POS[i]} · ${esc(PB.Abil.describe(id).badge)}</div>${who(i) ? `<div class="tag good">${esc(who(i))}</div>` : ''}</div>`).join('')}</div>`;
     },
   };
@@ -315,7 +315,7 @@
     if (rc) { clearTimeout(rc.timer); rc = null; } UI.closeModal();
     try { await N.connectP2P(N.name); N.session = null; UI.stack = []; UI.go('online', {}, true); hostResume(d); } catch (e) { PB.toast(e.message || 'Could not open a room', 4000); }
   };
-  A.rcGiveUp = () => { if (rc) { clearTimeout(rc.timer); rc = null; } UI.closeModal(); N.session = null; UI.stack = []; UI.go('menu', {}, true); PB.toast('Could not rejoin. Open Play Online → Rejoin to try again.', 5000); };
+  A.rcGiveUp = () => { if (rc) { clearTimeout(rc.timer); rc = null; } UI.closeModal(); N.session = null; UI.stack = []; UI.go('menu', {}, true); PB.toast('Could not rejoin. Open Play Online > Rejoin to try again.', 5000); };
   N.on('rejoin', d => {
     if (rc) { clearTimeout(rc.timer); rc = null; UI.closeModal(); }
     const G = PB.Save.deserialize(d.data); PB.Save.relink(G);
@@ -422,7 +422,7 @@
   UI.onlineReadyHtml = function (G) {
     const ready = G.ready || {}, humans = G.teams.filter(t => t.user);
     const errs = PB.validateLineup(G.teams[G.userTeam]);
-    return `<div class="row wrap"><button class="gold" data-act="olReady" ${errs.length || ready[G.userTeam] ? 'disabled' : ''}>${ready[G.userTeam] ? 'Ready ✓' : 'I am ready'}</button>
+    return `<div class="row wrap"><button class="gold" data-act="olReady" ${errs.length || ready[G.userTeam] ? 'disabled' : ''}>${ready[G.userTeam] ? 'Ready ' + PB.I('check') : 'I am ready'}</button>
       ${N.isHost() ? `<button class="primary" data-act="olStartSeason" ${humans.every(t => ready[t.id]) ? '' : ''}>Start the season (${humans.filter(t => ready[t.id]).length}/${humans.length} ready)</button>` : `<span class="dim">${humans.filter(t => ready[t.id]).length}/${humans.length} ready — the host starts the season</span>`}</div>`;
   };
   A.olReady = () => run('ready', { tid: PB.G.userTeam }, () => UI.refresh());
@@ -441,17 +441,17 @@
     const rows = humans.map(t => {
       const g = lg.phase !== 'done' ? L.gamesFor(G, t.id) : null;
       const pid = pidOfTeam(t.id);
-      return `<div class="row between" style="font-size:12px"><span>${t.id === G.userTeam ? '★ ' : ''}<b>${esc(t.name)}</b> <span class="dim">${esc(N.nameOf(pid))}</span></span><span class="${g ? 'gold' : 'dim'}">${lg.phase === 'done' ? '' : g ? 'game pending' : 'done for today'}</span></div>`;
+      return `<div class="row between" style="font-size:12px"><span>${t.id === G.userTeam ? PB.I('star') + ' ' : ''}<b>${esc(t.name)}</b> <span class="dim">${esc(N.nameOf(pid))}</span></span><span class="${g ? 'gold' : 'dim'}">${lg.phase === 'done' ? '' : g ? 'game pending' : 'done for today'}</span></div>`;
     }).join('');
-    if (N.spectator) return `<div class="panel" style="margin-bottom:12px;border-color:var(--blue)"><b>👁 Spectating ${N.room ? esc(N.room.code) : ''}</b> <span class="dim">You can browse standings, stats and rosters, but only the players change anything. Live matches between players open on their own.</span></div>` + html;
-    const info = `<div class="panel" style="margin-bottom:12px;border-color:var(--blue)"><div class="row between wrap"><b>🌐 Online league <span class="gold">${esc(N.room ? N.room.code : '')}</span></b><span class="dim">${host ? 'You are the host: you advance the calendar.' : 'The host advances the calendar.'}</span></div>${rows}
+    if (N.spectator) return `<div class="panel" style="margin-bottom:12px;border-color:var(--blue)"><b>${PB.I('eye')} Spectating ${N.room ? esc(N.room.code) : ''}</b> <span class="dim">You can browse standings, stats and rosters, but only the players change anything. Live matches between players open on their own.</span></div>` + html;
+    const info = `<div class="panel" style="margin-bottom:12px;border-color:var(--blue)"><div class="row between wrap"><b>${PB.I('globe')} Online league <span class="gold">${esc(N.room ? N.room.code : '')}</span></b><span class="dim">${host ? 'You are the host: you advance the calendar.' : 'The host advances the calendar.'}</span></div>${rows}
       ${mine && !host ? '<div class="dim" style="font-size:12px;margin-top:6px">Play or simulate your game; the host moves the league forward once everyone is done.</div>' : ''}</div>`;
     return info + html;
   };
   const hubTop = S.hub.top;
   S.hub.top = function (p) {
     let h = hubTop(p);
-    if (isOn()) h = h.replace('<div class="spacer"></div>', `<div class="spacer"></div><span class="tag good">${N.spectator ? '👁 WATCHING' : 'ONLINE'} ${N.room ? esc(N.room.code) : ''}${N.room && N.room.spectators && !N.spectator ? ' · 👁 ' + N.room.spectators : ''}</span><span class="tag netpill good">…</span>`);
+    if (isOn()) h = h.replace('<div class="spacer"></div>', `<div class="spacer"></div><span class="tag good">${N.spectator ? PB.I('eye') + ' WATCHING' : 'ONLINE'} ${N.room ? esc(N.room.code) : ''}${N.room && N.room.spectators && !N.spectator ? ' · ' + PB.I('eye') + ' ' + N.room.spectators : ''}</span><span class="tag netpill good">…</span>`);
     return h;
   };
 
@@ -496,7 +496,7 @@
   UI.onlineSaveTab = function (G, lg) {
     const host = N.isHost();
     const slot = n => { const m = saveMeta(n); return `<div class="panel row between"><div><b>Online slot ${n}</b><div class="dim" style="font-size:12px">${m ? esc(m.label) + ' · ' + new Date(m.t).toLocaleString() : 'Empty'}</div></div><button data-act="olSaveSlot" data-slot="${n}" ${host ? '' : 'disabled'}>Save here</button></div>`; };
-    return `<div class="col" style="max-width:700px"><div class="panel" style="border-color:var(--blue)"><h3>Online league</h3><div class="dim" style="font-size:12px;margin-bottom:6px">${host ? 'You are the host. Saves live in this browser (or a file); resume from Play Online → Resume. The league also autosaves to slot 1 as it progresses.' : 'Only the host can save this league.'}</div>${slot(1)}${slot(2)}<div class="row" style="margin-top:8px"><button data-act="olSaveFile" ${host ? '' : 'disabled'}>Download save file</button></div></div></div>`;
+    return `<div class="col" style="max-width:700px"><div class="panel" style="border-color:var(--blue)"><h3>Online league</h3><div class="dim" style="font-size:12px;margin-bottom:6px">${host ? 'You are the host. Saves live in this browser (or a file); resume from Play Online > Resume. The league also autosaves to slot 1 as it progresses.' : 'Only the host can save this league.'}</div>${slot(1)}${slot(2)}<div class="row" style="margin-top:8px"><button data-act="olSaveFile" ${host ? '' : 'disabled'}>Download save file</button></div></div></div>`;
   };
   let lastAuto = 0;
   N.on('applied', () => { if (isOn() && N.isHost() && Date.now() - lastAuto > 8000) { lastAuto = Date.now(); UI.onlineSave(1, true); } });

@@ -29,7 +29,7 @@
         <div class="tabs">${UI.tabsFor(G).map(([k, l]) => `<button class="${(p.tab || 'home') === k ? 'on' : ''}" data-act="hubTab" data-tab="${k}">${l}</button>`).join('')}</div>
         <div class="spacer"></div>
         <span style="font-size:13px">${G.mode === 'franchise' ? 'Season ' + G.fr.year + ' · ' : ''}<b class="gold">${esc(T.name)}</b> ${recStr(r)}</span>
-        <button class="small" data-act="goSettings">⚙</button><button class="small" data-act="goMenu">Menu</button>`;
+        <button class="small" data-act="goSettings">${PB.I('gear')}</button><button class="small" data-act="goMenu">Menu</button>`;
     },
     render(p) {
       const G = PB.G, lg = G.league;
@@ -51,9 +51,9 @@
       ['Undefeated championship season (' + lg.games + '-0 and a perfect run)', a.undefeatedChampion, a.perfect ? 'Playoff losses: ' + a.poRecordLosses : 'Requires an undefeated regular season'],
     ];
     const mvp = lg.awards ? PB.BYID[lg.awards.mvp] : null;
-    return `<div class="panel" style="border-color:${a.undefeatedChampion ? 'var(--gold)' : 'var(--line)'}"><h2>${a.undefeatedChampion ? '🏆 PERFECTION! ' : ''}Season Complete</h2>
+    return `<div class="panel" style="border-color:${a.undefeatedChampion ? 'var(--gold)' : 'var(--line)'}"><h2>${a.undefeatedChampion ? PB.I('trophy') + ' PERFECTION! ' : ''}Season Complete</h2>
       <div class="kpi"><div><b>${r.w}-${r.l}</b><span>Final record</span></div><div><b>${champ != null ? esc(G.teams[champ].abbr) : '-'}</b><span>Champion</span></div>${mvp ? `<div><b>${esc(mvp.dispName)}</b><span>League MVP</span></div>` : ''}</div>
-      <div class="col" style="margin-top:12px">${items.map(([t, ok, sub]) => `<div class="row"><span style="font-size:22px">${ok ? '✅' : '⬜'}</span><div><b class="${ok ? 'gold' : 'dim'}">${t}</b><div class="dim" style="font-size:12px">${sub}</div></div></div>`).join('')}</div>
+      <div class="col" style="margin-top:12px">${items.map(([t, ok, sub]) => `<div class="row"><span style="font-size:22px">${ok ? PB.I('checked') : PB.I('box')}</span><div><b class="${ok ? 'gold' : 'dim'}">${t}</b><div class="dim" style="font-size:12px">${sub}</div></div></div>`).join('')}</div>
       <div class="row" style="margin-top:14px"><button data-act="hubTab" data-tab="standings">Final standings</button><button data-act="goMenu" class="primary">Main menu</button></div></div>`;
   }
 
@@ -75,7 +75,7 @@
     const gameCard = ug ? `<div class="panel" style="border-color:var(--gold)"><h3>${po ? 'Playoff game ' + ug.n : 'Game day'} · ${dayLabel(lg, lg.day)}</h3>
         <div class="row between wrap" style="font-size:20px"><b>${ug.h === G.userTeam ? esc(T.name) : esc(opp.name)} ${ug.h === G.userTeam ? '' : ''}</b><span class="dim">${ug.h === G.userTeam ? 'vs' : '@'}</span><b>${ug.h === G.userTeam ? esc(opp.name) : esc(T.name)}</b></div>
         <div class="dim">${UI.vis().O ? `OVR ${PB.teamOvr(opp).toFixed(1)} vs ${PB.teamOvr(T).toFixed(1)} · ` : ''}${PB.OFF_STRATS[opp.strat.off]} / ${PB.DEF_STRATS[opp.strat.def]}</div>
-        <div class="row wrap" style="margin-top:10px"><button class="gold" data-act="playGame" autofocus>🏀 Play game</button><button data-act="simGame">Simulate game</button><button data-act="hubTab" data-tab="roster">Adjust lineup</button></div></div>`
+        <div class="row wrap" style="margin-top:10px"><button class="gold" data-act="playGame" autofocus>${PB.I('ball')} Play game</button><button data-act="simGame">Simulate game</button><button data-act="hubTab" data-tab="roster">Adjust lineup</button></div></div>`
       : `<div class="panel"><h3>${po ? 'Playoffs' : 'Next game'}</h3>
         ${nxt ? `<div style="font-size:18px">${nxt.h === G.userTeam ? 'vs' : '@'} <b>${esc(opp.name)}</b> <span class="dim">· ${L.dateStr(nxt.day)}</span></div>` : po ? (userSer ? `<div>Series vs ${esc(G.teams[userSer.hi === G.userTeam ? userSer.lo : userSer.hi].name)}</div>` : `<div class="dim">${esc(PB.runResult ? PB.runResult(G) : 'Eliminated')}</div>`) : ''}
         <div class="row wrap" style="margin-top:10px"><button class="primary" data-act="toNextGame" autofocus>${po ? 'Advance playoffs to my next game' : 'Sim to my next game'}</button></div></div>`;
@@ -111,7 +111,7 @@
         <div class="scroll"><table class="t"><thead><tr><th>#</th><th>Date</th><th></th><th>Opponent</th><th>Result</th><th class="n">Record</th></tr></thead><tbody>
         ${games.map((g, i) => { const home = g.h === tid; const o = G.teams[home ? g.a : g.h]; let res = '', rc = ''; if (g.done) { const my = home ? g.sc[0] : g.sc[1], th = home ? g.sc[1] : g.sc[0]; if (my > th) w++; else l++; res = `<b class="${my > th ? 'good' : 'bad'}">${my > th ? 'W' : 'L'} ${my}-${th}${g.ot ? ' OT' : ''}</b>`; rc = w + '-' + l; }
           return `<tr class="${g.day === lg.day ? 'me' : ''}"><td class="dim">${i + 1}</td><td>${L.dateStr(g.day)}</td><td>${home ? 'vs' : '@'}</td><td>${UI.teamLabel(G, o.id)}</td><td>${res || '<span class="dim">—</span>'}</td><td class="n">${rc}</td></tr>`; }).join('')}</tbody></table></div></div>
-      <div class="panel"><div class="row between"><h3>Games by date</h3><div class="row"><button class="small" data-act="schedDay" data-d="-1">◀</button><b>${L.dateStr(sday)}</b><button class="small" data-act="schedDay" data-d="1">▶</button></div></div>
+      <div class="panel"><div class="row between"><h3>Games by date</h3><div class="row"><button class="small" data-act="schedDay" data-d="-1">${PB.I('left')}</button><b>${L.dateStr(sday)}</b><button class="small" data-act="schedDay" data-d="1">${PB.I('right')}</button></div></div>
         <table class="t"><tbody>${dayGames.map(g => `<tr><td>${UI.teamLabel(G, g.a)}</td><td class="n">${g.done ? g.sc[1] : ''}</td><td>@</td><td>${UI.teamLabel(G, g.h)}</td><td class="n">${g.done ? g.sc[0] : ''}</td><td class="dim">${g.done ? 'F' + (g.ot ? '/OT' : '') : ''}</td></tr>`).join('') || '<tr><td class="dim">No games.</td></tr>'}</tbody></table>
         </div></div>`;
   };
@@ -200,7 +200,7 @@
       const e = L.confStandings(G, 'East').slice(0, 8), w = L.confStandings(G, 'West').slice(0, 8);
       return `<div class="layout2" style="--side:1fr">${list('East', e)}${list('West', w)}</div>`;
     }
-    return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">🏆 ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel">${UI.bracket(G, lg.po)}</div>`;
+    return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">${PB.I('trophy')} ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel">${UI.bracket(G, lg.po)}</div>`;
   };
 
   // ---------------- AWARDS ----------------
@@ -290,7 +290,7 @@
     return `<div class="row wrap" style="margin-bottom:6px"><select data-change="boxSide"><option value="1" ${side === 1 ? 'selected' : ''}>${esc(G.teams[b.a].name)}</option><option value="0" ${side === 0 ? 'selected' : ''}>${esc(G.teams[b.h].name)}</option></select>
       <select data-change="boxPid"><option value="all">All players</option>${ids.map(id => `<option value="${id}" ${String(pid) === String(id) ? 'selected' : ''}>${esc(PB.BYID[id].dispName)}</option>`).join('')}</select><span class="dim" style="font-size:12px">${real ? 'Real shot locations' : 'Estimated locations (simulated game)'}</span></div>
       <div class="row wrap" style="align-items:flex-start"><div class="grow" style="min-width:260px">${courtSvg(sel)}</div><div style="min-width:200px;font-size:13px"><div class="kpi"><div><b>${made}/${sel.length}</b><span>FG</span></div><div><b>${sel.length ? Math.round(made / sel.length * 100) : 0}%</b><span>FG%</span></div></div>
-        <div style="margin-top:8px">${zone('At the rim', x => x[4] === 0)}${zone('Post', x => x[4] === 2)}${zone('Mid-range', x => x[4] === 1)}${zone('Three-pointers', x => x[4] === 3)}</div><div class="dim" style="font-size:11px;margin-top:6px"><span style="color:#2fd47a">●</span> made · <span style="color:#ff5a5f">✕</span> missed</div></div></div>`;
+        <div style="margin-top:8px">${zone('At the rim', x => x[4] === 0)}${zone('Post', x => x[4] === 2)}${zone('Mid-range', x => x[4] === 1)}${zone('Three-pointers', x => x[4] === 3)}</div><div class="dim" style="font-size:11px;margin-top:6px"><span style="color:#2fd47a">${PB.I('dot')}</span> made · <span style="color:#ff5a5f">${PB.I('cross')}</span> missed</div></div></div>`;
   }
   UI.boxModal = function (b) {
     const G = PB.G; UI._box = b; UI._boxTab = UI._boxTab || 'box';

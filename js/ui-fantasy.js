@@ -34,7 +34,7 @@
       ${v.P ? `<td>${UI.posBadges(m)}</td>` : ''}${v.O ? `<td class="n"><b>${m.ovr}</b></td>` : ''}${v.A ? `<td class="dim" style="font-size:11px">${m.archOff}</td>` : ''}
       ${cols.map(([, k]) => `<td class="n">${k === 'bst' && !v.R ? '<b>' + m[k] + '</b>' : v.R ? m.r[k] : m[k]}</td>`).join('')}
       <td><button class="small ${mine ? 'primary' : ''}" data-act="fDraft" data-id="${m.id}" ${mine ? '' : 'disabled'}>Draft</button></td></tr>`).join('');
-    return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? `<th class="n ${flt.sort === 'ovr' ? 'sorted' : ''}" data-act="fSortCol" data-k="ovr" style="cursor:pointer">OVR${flt.sort === 'ovr' ? ' ▼' : ''}</th>` : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l, k]) => `<th class="n ${flt.sort === k ? 'sorted' : ''}" data-act="fSortCol" data-k="${k}" style="cursor:pointer" ${!v.R && TIP[l] ? 'title="' + TIP[l] + '"' : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}${flt.sort === k ? ' ▼' : ''}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? `<th class="n ${flt.sort === 'ovr' ? 'sorted' : ''}" data-act="fSortCol" data-k="ovr" style="cursor:pointer">OVR${flt.sort === 'ovr' ? (' ' + PB.I('down')) : ''}</th>` : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l, k]) => `<th class="n ${flt.sort === k ? 'sorted' : ''}" data-act="fSortCol" data-k="${k}" style="cursor:pointer" ${!v.R && TIP[l] ? 'title="' + TIP[l] + '"' : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}${flt.sort === k ? (' ' + PB.I('down')) : ''}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   function sortOptions() {
     const v = UI.vis(true);
@@ -61,7 +61,7 @@
       return `<div class="row between wrap" style="margin-bottom:10px">
         <div><h2 style="margin:0">Fantasy Draft — Round ${F.round(G) + 1} of 12, Pick ${D.pick % n + 1}</h2>
         <div class="dim">Overall ${D.pick + 1}/${D.total} · snake order · ${mine ? '<b class="gold">YOU ARE ON THE CLOCK</b>' : 'on the clock: ' + UI.teamLabel(G, cur) + ' · your pick in ' + until + ' picks'}${PB.Net && PB.Net.onlineLeague() ? ' · <span class="tag good">ONLINE</span>' : ''}</div></div>
-        <div class="row wrap"><button data-act="fToUser" ${mine ? 'disabled' : ''}>⏩ Sim to my pick</button><button data-act="fAuto" ${mine ? '' : 'disabled'}>✨ Auto-pick for me</button><button data-act="fSimAll">⏭ Auto-draft the rest</button></div></div>
+        <div class="row wrap"><button data-act="fToUser" ${mine ? 'disabled' : ''}>${PB.I('ff')} Sim to my pick</button><button data-act="fAuto" ${mine ? '' : 'disabled'}>${PB.I('sparkle')} Auto-pick for me</button><button data-act="fSimAll">${PB.I('skip')} Auto-draft the rest</button></div></div>
         <div class="layout2" style="--side:380px">
           <div class="panel">
             <div class="row wrap" style="margin-bottom:8px">
@@ -75,7 +75,7 @@
           </div>
           <div class="col">
             <div class="panel"><div class="row between"><h3 style="margin:0">${viewTeam == null || viewTeam === G.userTeam ? 'Your roster' : esc(vt.name)} (${vt.roster.length}/12)</h3>
-              <select data-change="fViewTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === vt.id ? 'selected' : ''}>${t.id === G.userTeam ? '★ ' : ''}${esc(t.abbr)}</option>`).join('')}</select></div>
+              <select data-change="fViewTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === vt.id ? 'selected' : ''}>${t.id === G.userTeam ? '(you) ' : ''}${esc(t.abbr)}</option>`).join('')}</select></div>
               <div class="slots" style="margin-top:6px">${vt.roster.map(id => { const m = PB.BYID[id]; return `<div class="slot fill" data-act="inspect" data-id="${m.id}" tabindex="0">${UI.spr(m, 32)}<b class="grow">${esc(m.dispName)}</b>${UI.vis().P ? UI.posBadges(m) : ''}${UI.vis().O ? `<b>${m.ovr}</b>` : ''}</div>`; }).join('')}</div>
               ${UI.vis().R ? PB.needs(vt.roster).map(x => `<div class="need">${x}</div>`).join('') : ''}</div>
             <div class="panel"><h3>Draft order</h3><div style="font-size:12px;max-height:200px;overflow:auto">${up.map((p, i) => { const t = F.teamAt(G, p); return `<div class="row between" style="${i === 0 ? 'font-weight:800;color:var(--gold)' : ''}"><span>R${Math.floor(p / n) + 1}.${p % n + 1}</span><span>${UI.teamLabel(G, t)}</span></div>`; }).join('')}</div></div>

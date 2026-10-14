@@ -23,15 +23,15 @@
     // header
     g.textBaseline = 'middle'; g.textAlign = 'left';
     if (opts.anon) {        // Daily / Endless: no team name or logo, just the result
-      g.fillStyle = '#ffcb05'; g.font = '900 56px Segoe UI, Arial, sans-serif'; g.fillText(opts.title || 'My lineup', 50, 100, W - 470);
+      g.fillStyle = '#ffcb05'; g.font = '56px Pixel, monospace'; g.fillText(opts.title || 'My lineup', 50, 100, W - 470);
     } else {
       PB.Logo.canvas(g, T, 100, 100, 130, false);
       const name = opts.showName === false ? 'My Team' : T.name;
-      g.fillStyle = '#fff'; g.font = '900 52px Segoe UI, Arial, sans-serif'; g.fillText(name, 190, 82, W - 460);
-      g.fillStyle = '#ffcb05'; g.font = '700 28px Segoe UI, Arial, sans-serif'; g.fillText(opts.title || '', 192, 130, W - 460);
+      g.fillStyle = '#fff'; g.font = '52px Pixel, monospace'; g.fillText(name, 190, 82, W - 460);
+      g.fillStyle = '#ffcb05'; g.font = '28px Pixel, monospace'; g.fillText(opts.title || '', 192, 130, W - 460);
     }
-    g.textAlign = 'right'; g.fillStyle = '#e8ecf5'; g.font = '900 30px Segoe UI, Arial, sans-serif'; g.fillText('POKÉHOOPS 82', W - 50, 70);
-    g.fillStyle = '#9aa7c2'; g.font = '600 20px Segoe UI, Arial, sans-serif'; g.fillText(opts.sub || '', W - 50, 104);
+    g.textAlign = 'right'; g.fillStyle = '#e8ecf5'; g.font = '30px Pixel, monospace'; g.fillText('POKÉHOOPS 82', W - 50, 70);
+    g.fillStyle = '#9aa7c2'; g.font = '20px Pixel, monospace'; g.fillText(opts.sub || '', W - 50, 104);
     // starters
     const cw = 204, gap = 14, x0 = (W - (cw * 5 + gap * 4)) / 2, y0 = 190, ch = 300;
     starters.forEach((m, i) => {
@@ -39,17 +39,17 @@
       g.fillStyle = 'rgba(8,12,24,.62)'; rr(g, x, y0, cw, ch, 20); g.fill();
       g.strokeStyle = m.leg || m.myth ? '#ffcb05' : 'rgba(255,255,255,.18)'; g.lineWidth = m.leg || m.myth ? 3 : 2; rr(g, x, y0, cw, ch, 20); g.stroke();
       const im = imgs[i]; if (im) { const s = 150 / Math.max(im.width, im.height), w = im.width * s, h = im.height * s; g.imageSmoothingEnabled = false; g.drawImage(im, x + cw / 2 - w / 2, y0 + 22 + (150 - h) / 2, w, h); }
-      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '800 22px Segoe UI, Arial, sans-serif'; g.fillText(m.dispName, x + cw / 2, y0 + 205, cw - 20);
-      if (vis.P) { g.fillStyle = '#9aa7c2'; g.font = '700 17px Segoe UI, Arial, sans-serif'; g.fillText(['PG', 'SG', 'SF', 'PF', 'C'][i] + ' · ' + m.pos[0], x + cw / 2, y0 + 232); }
-      if (vis.O) { g.fillStyle = m.ovr >= 85 ? '#ffcb05' : m.ovr >= 70 ? '#2fd47a' : '#7cc4ff'; g.font = '900 34px Segoe UI, Arial, sans-serif'; g.fillText(String(m.ovr), x + cw / 2, y0 + 270); }
+      g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = '22px Pixel, monospace'; g.fillText(m.dispName, x + cw / 2, y0 + 205, cw - 20);
+      if (vis.P) { g.fillStyle = '#9aa7c2'; g.font = '17px Pixel, monospace'; g.fillText(['PG', 'SG', 'SF', 'PF', 'C'][i] + ' · ' + m.pos[0], x + cw / 2, y0 + 232); }
+      if (vis.O) { g.fillStyle = m.ovr >= 85 ? '#ffcb05' : m.ovr >= 70 ? '#2fd47a' : '#7cc4ff'; g.font = '34px Pixel, monospace'; g.fillText(String(m.ovr), x + cw / 2, y0 + 270); }
     });
     // bench
-    g.textAlign = 'left'; g.fillStyle = '#9aa7c2'; g.font = '700 16px Segoe UI, Arial, sans-serif'; g.fillText('BENCH', x0, 520);
+    g.textAlign = 'left'; g.fillStyle = '#9aa7c2'; g.font = '16px Pixel, monospace'; g.fillText('BENCH', x0, 520);
     bench.forEach((m, i) => { const im = imgs[5 + i]; if (!im) return; const s = 50 / Math.max(im.width, im.height); g.imageSmoothingEnabled = false; g.drawImage(im, x0 + 78 + i * 60 + (50 - im.width * s) / 2, 494 + (50 - im.height * s) / 2, im.width * s, im.height * s); });
     // footer
-    g.textAlign = 'left'; g.fillStyle = '#e8ecf5'; g.font = '600 20px Segoe UI, Arial, sans-serif';
+    g.textAlign = 'left'; g.fillStyle = '#e8ecf5'; g.font = '20px Pixel, monospace';
     g.fillText(opts.foot || '', x0, 596);
-    g.textAlign = 'right'; g.fillStyle = '#ffcb05'; g.font = '800 22px Segoe UI, Arial, sans-serif'; g.fillText(LINK, W - 50, 596);
+    g.textAlign = 'right'; g.fillStyle = '#ffcb05'; g.font = '22px Pixel, monospace'; g.fillText(LINK, W - 50, 596);
     return c;
   };
   TC.blob = c => new Promise(res => c.toBlob(res, 'image/png'));
@@ -76,7 +76,7 @@
     redraw();
   };
   UI.actions.teamCard = (el, d) => UI.teamCard(+d.tid, d.daily ? { showName: false, anon: true, title: d.title || '', foot: d.foot || '' } : {});
-  UI.teamCardButtonSaved = (kind, key, label) => `<button class="small" data-act="runCard" data-kind="${kind}" data-k="${key}">${label || '🖼 Team card'}</button>`;
+  UI.teamCardButtonSaved = (kind, key, label) => `<button class="small" data-act="runCard" data-kind="${kind}" data-k="${key}">${label || (PB.I('image') + ' Team card')}</button>`;
   UI.actions.tcName = el => { st.showName = el.checked; redraw(); };
   UI.actions.tcDownload = async () => {
     if (!st.canvas) return;
@@ -87,7 +87,7 @@
     try { const b = await TC.blob(st.canvas); await navigator.clipboard.write([new ClipboardItem({ 'image/png': b })]); PB.toast('Image copied'); }
     catch (e) { PB.toast('Copying images is not supported here. Use Download instead.', 3500); }
   };
-  UI.teamCardButton = (tid, label) => `<button data-act="teamCard" data-tid="${tid}">${label || '🖼 Team card'}</button>`;
+  UI.teamCardButton = (tid, label) => `<button data-act="teamCard" data-tid="${tid}">${label || (PB.I('image') + ' Team card')}</button>`;
 
   // roster tab gets a button
   const roster = UI.hubTabs.roster;

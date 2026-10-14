@@ -100,7 +100,7 @@
     const hot = data.map((v, i) => i).filter(i => i % 2 === 0 && data[i] >= 8).map(i => ({ z: i / 2, d: data[i + 1] / data[i] - (ref[i] ? ref[i + 1] / ref[i] : 0.4) })).sort((a, b) => b.d - a.d);
     return `<div class="panel"><div class="row between wrap"><h3 style="margin:0">Season shot charts</h3><div class="row wrap">
         <label>View <select data-change="szMode">${[['player', 'Player'], ['team', 'Team shooting'], ['allowed', 'Shots allowed'], ['league', 'Whole league']].map(([v, l]) => `<option value="${v}" ${view.mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-        ${view.mode !== 'league' ? `<label>Team <select data-change="szTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === view.team ? 'selected' : ''}>${esc(t.abbr)}${t.id === G.userTeam ? ' ★' : ''}</option>`).join('')}</select></label>` : ''}
+        ${view.mode !== 'league' ? `<label>Team <select data-change="szTeam">${G.teams.map(t => `<option value="${t.id}" ${t.id === view.team ? 'selected' : ''}>${esc(t.abbr)}${t.id === G.userTeam ? ' (you)' : ''}</option>`).join('')}</select></label>` : ''}
         ${view.mode === 'player' ? `<label>Pokémon <select data-change="szPid">${ids.map(id => `<option value="${id}" ${id === +view.pid ? 'selected' : ''}>${esc(PB.BYID[id].dispName)}</option>`).join('')}</select></label>` : ''}
         ${hasPO ? `<label><input type="checkbox" data-change="szPO" ${view.po ? 'checked' : ''}> Playoffs</label>` : ''}</div></div>
       <div class="dim" style="font-size:12px;margin:6px 0">Warm zones are above the league average, cool zones below.</div>

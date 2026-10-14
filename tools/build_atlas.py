@@ -22,7 +22,9 @@ for s in range(0, len(ids), per):
             im.thumbnail((CELL, CELL), Image.NEAREST)
         col, row = k % COLS, k // COLS
         sheet.paste(im, (col * CELL + (CELL - im.width) // 2, row * CELL + (CELL - im.height) // 2))
-        m[i] = [len(sheets), col, row]
+        bb = im.getchannel('A').point(lambda a: 255 if a > 20 else 0).getbbox() or (0, 0, im.width, im.height)
+        ox, oy = (CELL - im.width) // 2, (CELL - im.height) // 2
+        m[i] = [len(sheets), col, row, bb[0] + ox, bb[1] + oy, bb[2] + ox, bb[3] + oy]      # sheet, cell, then the visible box inside the cell
     name = f'sprites/atlas/sheet-{len(sheets)}.webp'
     sheet.save(name, 'WEBP', lossless=True, quality=100, method=6)
     sheets.append(name)

@@ -46,6 +46,6 @@ window.PB = window.PB || {};
   PB.fmtHeight = dm => { const inch = Math.round(dm * 3.937); return Math.floor(inch / 12) + '′' + (inch % 12) + '″'; };
   PB.fmtWeight = hg => Math.round(hg * 0.220462) + ' lbs';
   PB.cap = s => s.charAt(0).toUpperCase() + s.slice(1);
-  const KEEP_HYPHEN = { 'ho-oh': 'Ho-Oh', 'porygon-z': 'Porygon-Z', 'jangmo-o': 'Jangmo-o', 'hakamo-o': 'Hakamo-o', 'kommo-o': 'Kommo-o', 'nidoran-f': 'Nidoran♀', 'nidoran-m': 'Nidoran♂', 'wo-chien': 'Wo-Chien', 'chien-pao': 'Chien-Pao', 'ting-lu': 'Ting-Lu', 'chi-yu': 'Chi-Yu' };
+  const KEEP_HYPHEN = { 'ho-oh': 'Ho-Oh', 'porygon-z': 'Porygon-Z', 'jangmo-o': 'Jangmo-o', 'hakamo-o': 'Hakamo-o', 'kommo-o': 'Kommo-o', 'nidoran-f': 'Nidoran F', 'nidoran-m': 'Nidoran M', 'wo-chien': 'Wo-Chien', 'chien-pao': 'Chien-Pao', 'ting-lu': 'Ting-Lu', 'chi-yu': 'Chi-Yu' };
   PB.fmtName = n => KEEP_HYPHEN[n] || n.split('-').map(PB.cap).join(' ');
 })(window.PB);

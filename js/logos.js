@@ -22,15 +22,16 @@
       return { shape, path: PATHS[shape], c1, c2, txt: lum(c1) > 0.58 ? '#101828' : '#ffffff', abbr: (t.abbr || '???').slice(0, 3) };
     },
     svg(t, size) {
-      const s = L.spec(t), fs = s.abbr.length > 2 ? 30 : 36;
-      return `<svg class="logo" viewBox="0 0 100 100" width="${size || 20}" height="${size || 20}" style="vertical-align:middle"><path d="${s.path}" fill="${s.c1}" stroke="${s.c2}" stroke-width="7" stroke-linejoin="round"/><text x="50" y="${s.shape === 'bolt' ? 60 : 62}" text-anchor="middle" font-family="Segoe UI, Arial Black, sans-serif" font-weight="900" font-size="${fs}" fill="${s.txt}" ${s.shape === 'bolt' ? 'stroke="' + s.c1 + '" stroke-width="2"' : ''}>${s.abbr}</text></svg>`;
+      const s = L.spec(t), fs = s.abbr.length > 2 ? 22 : 28;
+      return `<svg class="logo" viewBox="0 0 100 100" width="${size || 20}" height="${size || 20}" style="vertical-align:middle"><path d="${s.path}" fill="${s.c1}" stroke="${s.c2}" stroke-width="7" stroke-linejoin="round"/>${s.icon ? (d => `<g transform="translate(${50 - d.w * 50 / Math.max(d.w, d.h) / 2} ${54 - d.h * 50 / Math.max(d.w, d.h) / 2}) scale(${50 / Math.max(d.w, d.h)})">${PB.Icon.rects(s.icon, s.txt)}</g>`)(PB.Icon.dims(s.icon)) : `<text x="50" y="${s.shape === 'bolt' ? 60 : 62}" text-anchor="middle" font-family="PressStart, Pixel, monospace" font-size="${fs}" fill="${s.txt}" ${s.shape === 'bolt' ? 'stroke="' + s.c1 + '" stroke-width="2"' : ''}>${s.abbr}</text>`}</svg>`;
     },
     // draw centered at (cx, cy) with the given size in the canvas's current units
     canvas(g, t, cx, cy, size, withText) {
       const s = L.spec(t), p = new Path2D(s.path);
       g.save(); g.translate(cx - size / 2, cy - size / 2); g.scale(size / 100, size / 100);
       g.fillStyle = s.c1; g.fill(p); g.lineWidth = 7; g.lineJoin = 'round'; g.strokeStyle = s.c2; g.stroke(p);
-      if (withText !== false) { g.fillStyle = s.txt; g.font = '900 ' + (s.abbr.length > 2 ? 30 : 36) + 'px Segoe UI, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s.abbr, 50, 56); }
+      if (s.icon) PB.Icon.paint(g, s.icon, 50, 54, 50, s.txt);
+      else if (withText !== false) { g.fillStyle = s.txt; g.font = '' + (s.abbr.length > 2 ? 22 : 28) + 'px PressStart, monospace'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s.abbr, 50, 56); }
       g.restore();
     },
   };

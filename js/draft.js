@@ -130,5 +130,5 @@
     return G;
   };
 
-  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.6, sfx: true, sfxVol: 0.8, music: true, musicVol: 0.3, crowd: true, mute: false, shotMeter: true, camera: 'behind', meterSkin: 'bar', meterColor: 'classic', autoReplay: true, gfx: 'high', renderScale: 1, fpsCap: 0, challengeMode: false, touchControls: 'auto', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
+  PB.defaultSettings = () => ({ difficulty: 'normal', quarterMin: 5, simSpeed: 1, gameSpeed: 1, volume: 0.6, sfx: true, sfxVol: 0.8, music: true, musicVol: 0.3, crowd: true, mute: false, shotMeter: true, camera: 'behind', meterSkin: 'bar', meterColor: 'classic', autoReplay: true, gfx: 'high', pxl: 2, fpsCap: 0, challengeMode: false, touchControls: 'auto', showRatings: true, showPositions: true, showArchetypes: true, showOverall: true });
 })(window.PB);

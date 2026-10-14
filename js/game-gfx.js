@@ -253,14 +253,13 @@
     g.save();
     g.setTransform((u[0] - o[0]) / lu, (u[1] - o[1]) / lu, (v[0] - o[0]) / lv, (v[1] - o[1]) / lv, o[0], o[1]);
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    lines.forEach((ln, i) => { g.font = `900 ${ln.size}px Segoe UI, sans-serif`; g.fillStyle = ln.color || '#ffffff'; g.fillText(ln.t, lu / 2, lv * (i + 1) / (lines.length + 1)); });
+    lines.forEach((ln, i) => { g.font = `${ln.size}px Pixel, monospace`; g.fillStyle = ln.color || '#ffffff'; g.fillText(ln.t, lu / 2, lv * (i + 1) / (lines.length + 1)); });
     g.restore();
   }
 
   function drawArena(g, m, w, h, home, homeCol) {
-    const bg = g.createLinearGradient(0, 0, 0, h); bg.addColorStop(0, '#04060b'); bg.addColorStop(0.5, '#080b14'); bg.addColorStop(1, '#0a0e18');
-    g.fillStyle = bg; g.fillRect(0, 0, w, h);
-    for (const lx of [0.15, 0.38, 0.62, 0.85]) { const rg = g.createRadialGradient(w * lx, 0, 0, w * lx, 0, h * 0.45); rg.addColorStop(0, 'rgba(255,244,214,.20)'); rg.addColorStop(1, 'rgba(255,244,214,0)'); g.fillStyle = rg; g.fillRect(0, 0, w, h * 0.5); }
+    g.fillStyle = '#080b14'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#0a0e18'; g.fillRect(0, h * 0.5, w, h * 0.5);
     const bcast = PB.settings.camera === 'broadcast';
     const gq = PB.settings.gfx || 'high', hi = gq === 'high', lo = gq === 'low';      // graphics detail: high = everything, medium = no roof / banners / floor planks, low = also no upper deck, fans or jumbotron
     // a band between two rings (inner -> outer); near-side sections are skipped on the broadcast camera
@@ -287,7 +286,7 @@
     const truss = [[18, 4, 58], [76, 4, 58], [76, 46, 58], [18, 46, 58]];
     strokeLine(g, truss, '#2a3346', 0.6, true);
     strokeLine(g, [[18, 25, 58], [76, 25, 58]], '#2a3346', 0.5);
-    for (let x = 22; x <= 72; x += 6) for (const y of [4, 46]) { const q = proj(x, y, 57.4); if (q) { const r = Math.max(1.5, 0.9 * cam.F / q[2]); const gl = g.createRadialGradient(q[0], q[1], 0, q[0], q[1], r * 3); gl.addColorStop(0, 'rgba(255,248,225,.95)'); gl.addColorStop(1, 'rgba(255,248,225,0)'); g.fillStyle = gl; g.fillRect(q[0] - r * 3, q[1] - r * 3, r * 6, r * 6); } }
+    for (let x = 22; x <= 72; x += 6) for (const y of [4, 46]) { const q = proj(x, y, 57.4); if (q) { const r = Math.max(1.5, 0.9 * cam.F / q[2]); const rs = Math.max(2, Math.round(r)); g.fillStyle = 'rgba(255,248,225,.28)'; g.fillRect(Math.round(q[0] - rs * 1.5), Math.round(q[1] - rs * 1.5), rs * 3, rs * 3); g.fillStyle = '#fff8e1'; g.fillRect(Math.round(q[0] - rs / 2), Math.round(q[1] - rs / 2), rs, rs); } }
     }
     // banners hanging from the roof behind each baseline
     if (hi) for (const bx of [-30, 124]) for (let i = 0; i < 5; i++) {
@@ -304,8 +303,9 @@
       const q = proj(p.x, p.y, p.z + jump); if (!q || q[2] < 10) continue;
       const sz = Math.max(1, 0.6 * cam.F / q[2]);
       g.globalAlpha = p.a;
-      g.fillStyle = p.col; g.fillRect(q[0] - sz * 0.6, q[1] - sz * 0.9, sz * 1.2, sz * 1.3);
-      g.fillStyle = p.skin; g.fillRect(q[0] - sz * 0.35, q[1] - sz * 1.6, sz * 0.7, sz * 0.7);
+      const zz = Math.max(1, Math.round(sz)), qx = Math.round(q[0]), qy = Math.round(q[1]);
+      g.fillStyle = p.col; g.fillRect(qx - zz, qy - zz, zz * 2, zz * 2);
+      g.fillStyle = p.skin; g.fillRect(qx - Math.round(zz * 0.5), qy - zz * 2, zz, zz);
     }
     g.globalAlpha = 1;
     // jumbotron over center court
@@ -321,7 +321,6 @@
         fillPoly(g, [[s0[0], s0[1], 41], [s1[0], s1[1], 41], [s1[0], s1[1], 47], [s0[0], s0[1], 47]], hyped ? homeCol[0] : '#0b2a4a');
         const sx = (s1[0] - s0[0]) * cam.r[0] + (s1[1] - s0[1]) * cam.r[1];
         const Lp = sx >= 0 ? s0 : s1, Rp = sx >= 0 ? s1 : s0;
-        quadText(g, [Lp[0], Lp[1], 47], [Rp[0], Rp[1], 47], [Lp[0], Lp[1], 41], lines);
       }
       strokeLine(g, [[44, 25, 48], [44, 25, 62]], '#222a3a', 0.25); strokeLine(g, [[50, 25, 48], [50, 25, 62]], '#222a3a', 0.25);
     }
@@ -342,21 +341,25 @@
       const vis = drawBox(g, 40, 54, -4.4, -2.6, 0, 2.6, '#1a2030', '#121826', '#0b1220');
       for (const f of vis) if (f.n[1] === 1) {
         fillPoly(g, [[40.4, -2.6, 0.5], [53.6, -2.6, 0.5], [53.6, -2.6, 2.1], [40.4, -2.6, 2.1]], homeCol[0]);
-        const sx = cam.r[0] > 0 ? 1 : -1;
-        quadText(g, [sx > 0 ? 40.4 : 53.6, -2.6, 2.1], [sx > 0 ? 53.6 : 40.4, -2.6, 2.1], [sx > 0 ? 40.4 : 53.6, -2.6, 0.5], [{ t: 'POKÉHOOPS', size: 1.1 }]);
       }
     } });
     [0, 1].forEach(s => {
-      const x0 = s === 0 ? 22 : 58, sd = m.gs(s);
-      const bp = proj(x0 + 7, -4.2, 0); if (!bp) return;
+      const L = 26, x0 = s === 0 ? 11 : 57, sd = m.gs(s), tc = PB.teamColors(m.teams[s])[0];
+      const bp = proj(x0 + L / 2, -4.2, 0); if (!bp) return;
       items.push({ d: bp[2] + 0.1, kind: 'prop', draw: g => {
-        drawBox(g, x0, x0 + 14, -5.2, -3.6, 0, 1.6, '#2a3348', '#1c2333', '#1c2333');
-        sd.bench.slice(0, 7).forEach((pl, i) => {
-          const q = proj(x0 + 1 + i * 2, -4.4, 1.2); if (!q) return;
-          const dh = (2.4 + 2.2 * pl.mon.r.sH) * cam.F / q[2];
+        // a long bench with a team-colored front panel, a backrest rail and a seat cushion
+        drawBox(g, x0, x0 + L, -5.2, -3.6, 0, 1.5, '#2a3348', '#1c2333', '#1c2333');
+        fillPoly(g, [[x0 + 0.3, -3.6, 0.3], [x0 + L - 0.3, -3.6, 0.3], [x0 + L - 0.3, -3.6, 1.1], [x0 + 0.3, -3.6, 1.1]], tc);
+        strokeLine(g, [[x0, -5.1, 1.5], [x0, -5.1, 3.2], [x0 + L, -5.1, 3.2], [x0 + L, -5.1, 1.5]], '#3a4766', 0.25);
+        const n = Math.min(7, sd.bench.length), gap = L / 7;
+        // seated back to front by size so the big ones never hide the small ones
+        const seats = sd.bench.slice(0, 7).map((pl, i) => ({ pl, i })).sort((a, b) => a.pl.mon.r.sH - b.pl.mon.r.sH);
+        for (const { pl, i } of seats) {
+          const q = proj(x0 + gap * (i + 0.5), -4.4, 1.5); if (!q) continue;
+          const dh = Math.min(4.1, 2.4 + 2.2 * pl.mon.r.sH) * cam.F / q[2];
           const hop = crowd.hype * 0.5 * Math.abs(Math.sin(m.t * 9 + i)) * cam.F / q[2];
-          drawSprite(g, pl.mon, q[0], q[1] - hop, dh, false);
-        });
+          drawSprite(g, pl.mon, q[0], q[1] - hop, dh, s === 0);
+        }
       } });
     });
   }

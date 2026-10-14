@@ -24,9 +24,9 @@
         <div class="msec">Game modes</div>
         <div class="mgrid g-modes">
           <div class="menu-card mc-md c-blue" tabindex="0" data-act="goEndless"><h3>Endless Draft</h3><div class="dim">The Daily Challenge with no limit: pick a challenge or none.</div><span class="mh-tag mc-tag" style="background:#5b9bff">UNLIMITED</span></div>
-          <div class="menu-card mc-md c-gold" tabindex="0" data-act="newFranchise"><h3>Franchise</h3><div class="dim">Draft, develop, evolve and trade across regions. The full multi-season mode.</div><button class="small mc-online" data-act="goOnline" data-modes="franchise">🌐 Play online</button></div>
-          <div class="menu-card mc-md c-purple" tabindex="0" data-act="newFantasy"><h3>Fantasy Draft</h3><div class="dim">Snake draft against the league, best Pokémon available.</div><button class="small mc-online" data-act="goOnline" data-modes="fantasy">🌐 Play online</button></div>
-          <div class="menu-card mc-md" tabindex="0" data-act="goQuick"><h3>Quick Play</h3><div class="dim">Exhibition · 3v3 street · Practice · Co-op</div><button class="small mc-online" data-act="goOnline" data-modes="exhibition,coop">🌐 Play online (1v1, co-op)</button></div>
+          <div class="menu-card mc-md c-gold" tabindex="0" data-act="newFranchise"><h3>Franchise</h3><div class="dim">Draft, develop, evolve and trade across regions. The full multi-season mode.</div><button class="small mc-online" data-act="goOnline" data-modes="franchise">${PB.I('globe')} Play online</button></div>
+          <div class="menu-card mc-md c-purple" tabindex="0" data-act="newFantasy"><h3>Fantasy Draft</h3><div class="dim">Snake draft against the league, best Pokémon available.</div><button class="small mc-online" data-act="goOnline" data-modes="fantasy">${PB.I('globe')} Play online</button></div>
+          <div class="menu-card mc-md" tabindex="0" data-act="goQuick"><h3>Quick Play</h3><div class="dim">Exhibition · 3v3 street · Practice · Co-op</div><button class="small mc-online" data-act="goOnline" data-modes="exhibition,coop">${PB.I('globe')} Play online (1v1, co-op)</button></div>
         </div>
         ${recent.length ? `<div class="msec">Saved games</div><div class="mgrid msaves">${recent.map(r => slot(r.n, r.m)).join('')}</div>` : ''}
         <div class="msec">Extras</div>
@@ -144,7 +144,7 @@
           
           <label>Preset <select data-change="perfPreset"><option value="">Choose…</option><option value="high">High quality</option><option value="balanced">Balanced</option><option value="low">Low-end device</option></select></label>
           <label>Graphics detail <select data-change="setOpt" data-k="gfx">${[['high', 'High (full arena, crowd, floor)'], ['medium', 'Medium (no roof, banners or floor planks)'], ['low', 'Low (plain arena, no fans or jumbotron)']].map(([v, l]) => `<option value="${v}" ${(s.gfx || 'high') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-          <label>Resolution <select data-change="setOpt" data-k="renderScale">${[['1', '100% (sharpest)'], ['0.75', '75%'], ['0.5', '50% (fastest)']].map(([v, l]) => `<option value="${v}" ${String(s.renderScale || 1) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label>Pixel size <select data-change="setOpt" data-k="pxl">${[['2', 'Fine'], ['3', 'Normal'], ['4', 'Chunky'], ['6', 'Blocky (fastest)']].map(([v, l]) => `<option value="${v}" ${String(s.pxl || 2) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label>Frame-rate limit <select data-change="setOpt" data-k="fpsCap">${[['0', 'Match the display'], ['60', '60 FPS'], ['30', '30 FPS (saves battery)']].map(([v, l]) => `<option value="${v}" ${String(s.fpsCap || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label><input type="checkbox" ${document.fullscreenElement ? 'checked' : ''} data-change="toggleFs"> Fullscreen</label>
           <label><input type="checkbox" ${s.challengeMode ? 'checked' : ''} data-change="setOptBool" data-k="challengeMode"> Hide the suggested positions while drafting in the Daily Challenge and Endless Draft</label>
@@ -170,7 +170,7 @@
     back() { UI.go(PB.G && PB.G.league ? 'hub' : 'menu', PB.G && PB.G.league ? { tab: 'home' } : {}, true); },
   };
   const persist = () => { PB.Save.settingsSave(PB.settings); if (PB.G) PB.G.settings = PB.settings; };
-  A.perfPreset = el => { const P = { high: ['high', 1, 0], balanced: ['medium', 0.75, 60], low: ['low', 0.5, 30] }[el.value]; if (!P) return; Object.assign(PB.settings, { gfx: P[0], renderScale: P[1], fpsCap: P[2] }); persist(); UI.refresh(); };
+  A.perfPreset = el => { const P = { high: ['high', 2, 0], balanced: ['medium', 3, 60], low: ['low', 4, 30] }[el.value]; if (!P) return; Object.assign(PB.settings, { gfx: P[0], pxl: P[1], fpsCap: P[2] }); persist(); UI.refresh(); };
   A.setOpt = (el, d) => { PB.settings[d.k] = el.value; persist(); };
   A.setOptNum = (el, d) => { PB.settings[d.k] = +el.value; persist(); if (PB.Audio) PB.Audio.apply(); };
   A.setOptBool = (el, d) => { PB.settings[d.k] = el.checked; persist(); if (PB.Audio) PB.Audio.apply(); };

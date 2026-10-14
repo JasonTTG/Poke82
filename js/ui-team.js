@@ -9,13 +9,13 @@
     const pen = slot != null ? PB.slotPenalty(m, slot) : 0;
     const fit = (slot == null || !UI.vis().P) ? '' : pen === 0 ? '<span class="tag good">fit</span>' : pen < 0.04 ? '<span class="tag" style="background:#6b5b10;color:#ffe27a">stretch</span>' : '<span class="tag bad">out of position −' + Math.round(pen * 100) + '%</span>';
     const label = l === 'S' ? PB.POS[i] : l === 'R' ? 'RES' : 'B' + (i + 1);
-    const inj = G.fr && G.fr.inj[id] && G.fr.inj[id].g > 0 ? `<span class="tag bad">🩹 ${UI.esc(G.fr.inj[id].k)} · ${G.fr.inj[id].g}g</span>` : '';
+    const inj = G.fr && G.fr.inj[id] && G.fr.inj[id].g > 0 ? `<span class="tag bad">${PB.I('medic')} ${UI.esc(G.fr.inj[id].k)} · ${G.fr.inj[id].g}g</span>` : '';
     const on = sel && sel.l === l && sel.i === i;
     return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="lineupClick" data-l="${l}" data-i="${i}">
       <span class="pos p${l === 'S' ? i : 2}" style="min-width:34px">${label}</span>${UI.spr(m, 44)}
       <div class="grow"><b>${esc(m.dispName)}</b> ${fit} ${inj} ${UI.abilTagSmall ? UI.abilTagSmall(m.id) : ''}${slot != null && UI.vis().P && PB.slotPenalty(m, slot) > 0 ? ' <span class="tag">best at ' + m.pos[0] + '</span>' : ''}<div class="dim" style="font-size:11px">${[UI.vis().A ? m.archOff + ' · ' + m.archDef : '', UI.vis().R ? `3PT ${m.r.three} · DNK ${m.r.dunk} · PAS ${m.r.pass} · SPD ${m.r.speed} · STA ${m.r.stamina}` : `HP ${m.hp} · ATK ${m.atk} · DEF ${m.def} · SPA ${m.spa} · SPD ${m.spd} · SPE ${m.spe}`].filter(Boolean).join(' · ')}</div></div>
       <div>${UI.vis().P ? UI.posBadges(m) : ''}</div>${UI.vis().O ? UI.ovrBadge(m.ovr) : ''}
-      <button class="small ghost" data-act="inspect" data-id="${m.id}" title="Scouting report">🔍</button></div>`;
+      <button class="small ghost" data-act="inspect" data-id="${m.id}" title="Scouting report">${PB.I('search')}</button></div>`;
   }
 
   function profileBars(T) {

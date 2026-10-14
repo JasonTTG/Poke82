@@ -11,9 +11,14 @@
     im.src = D().sheets[i];
   }));
   // the style that shows one Pokémon from its sheet (percentages, so any size works)
-  A.css = (m, size) => {
+  // tight = fit the visible part of the sprite to the box (small sprites in tables and lists fill their space instead of floating in padding)
+  A.css = (m, size, tight) => {
     const e = A.loc(m); if (!e) return null;
     A.sheet(e[0]); const d = D();
+    if (tight && e.length >= 7) {
+      const w = e[5] - e[3], h = e[6] - e[4], k = size / Math.max(w, h);
+      return `width:${size}px;height:${size}px;background-image:url(${d.sheets[e[0]]});background-size:${(d.cols * d.cell * k).toFixed(2)}px ${(d.rows * d.cell * k).toFixed(2)}px;background-position:${(-(e[1] * d.cell + e[3]) * k + (size - w * k) / 2).toFixed(2)}px ${(-(e[2] * d.cell + e[4]) * k + (size - h * k) / 2).toFixed(2)}px`;
+    }
     return `width:${size}px;height:${size}px;background-image:url(${d.sheets[e[0]]});background-size:${d.cols * 100}% ${d.rows * 100}%;background-position:${(e[1] / (d.cols - 1) * 100).toFixed(4)}% ${(e[2] / (d.rows - 1) * 100).toFixed(4)}%`;
   };
   // one sprite cropped from its sheet into its own canvas (null if the atlas is not available); this only draws, so it works even where reading pixels back is blocked

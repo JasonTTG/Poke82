@@ -66,7 +66,7 @@
     const topGp = Math.max(1, ...Object.values(lg.tgp));
     rows = rows.filter(r => r.gp >= (UI.statsPO() ? 1 : Math.round(topGp * view.qual)) && (view.team === 'all' || r.tid === +view.team));
     rows.sort((a, b) => ((b[view.sort] == null ? -1e9 : b[view.sort]) - (a[view.sort] == null ? -1e9 : a[view.sort])) * (view.desc ? 1 : -1));
-    const th = ([k, l]) => `<th class="n ${view.sort === k ? 'sorted' : ''}" data-act="advSort" data-k="${k}" style="cursor:pointer" title="Sort by ${l}">${l}${view.sort === k ? (view.desc ? ' ▼' : ' ▲') : ''}</th>`;
+    const th = ([k, l]) => `<th class="n ${view.sort === k ? 'sorted' : ''}" data-act="advSort" data-k="${k}" style="cursor:pointer" title="Sort by ${l}">${l}${view.sort === k ? (view.desc ? (' ' + PB.I('down')) : (' ' + PB.I('up'))) : ''}</th>`;
     return `<div class="panel"><div class="row between wrap"><h3 style="margin:0">Advanced stats</h3><div class="row wrap">
         <label>Team <select data-change="advTeam"><option value="all">All teams</option>${G.teams.map(t => `<option value="${t.id}" ${String(view.team) === String(t.id) ? 'selected' : ''}>${esc(t.abbr)}</option>`).join('')}</select></label>
         <label>Qualify <select data-change="advQual">${[[0, 'Everyone'], [0.2, '20% of games'], [0.4, '40% of games'], [0.7, '70% of games']].map(([v, l]) => `<option value="${v}" ${view.qual === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>

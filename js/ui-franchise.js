@@ -14,7 +14,7 @@
     for (;;) { const nxt = [].concat(...cur.map(x => F.kids(x.id).map(k => PB.BYID[k]))); if (!nxt.length) break; stages.push(nxt); cur = nxt; }
     if (stages.length === 1) return '<span class="dim">No evolution</span>';
     const nm = x => x.id === m.id ? `<b>${esc(x.dispName)}</b>` : esc(x.dispName);
-    return stages.map(st => st.length > 3 ? st.slice(0, 3).map(nm).join(' / ') + ' +' + (st.length - 3) : st.map(nm).join(' / ')).join(' → ');
+    return stages.map(st => st.length > 3 ? st.slice(0, 3).map(nm).join(' / ') + ' +' + (st.length - 3) : st.map(nm).join(' / ')).join(' ' + PB.I('right') + ' ');
   }
   UI.evoLine = evoLine;
   // an injured player's timeline: where he is in recovery and roughly when he is back (counting the team's remaining games)
@@ -27,7 +27,7 @@
       <div style="background:var(--bg2);border-radius:3px;height:6px;margin-top:3px"><div style="width:${done}%;height:6px;border-radius:3px;background:#4aa3ff"></div></div>
       <div class="dim" style="font-size:11px">${i.g} more game${i.g === 1 ? '' : 's'} of ${i.n}${back}${i.sb ? ' · setback' + (i.sb > 1 ? 's ×' + i.sb : '') : ''}</div></div>`;
   }
-  function injTag(G, id) { const i = G.fr.inj[id]; return i && i.g > 0 ? `<span class="tag bad" title="${esc(i.k)}">🩹 ${esc(i.k)} · ${i.g}g</span>` : ''; }
+  function injTag(G, id) { const i = G.fr.inj[id]; return i && i.g > 0 ? `<span class="tag bad" title="${esc(i.k)}">${PB.I('medic')} ${esc(i.k)} · ${i.g}g</span>` : ''; }
   function devCell(G, id) {
     const m = PB.BYID[id], dev = Math.round(G.fr.dev[id] || 0);
     const opts = F.evoOptions(G, id);
@@ -47,7 +47,7 @@
     const cur = w === 'd' ? view.dSort : view.faSort;
     return (v.R ? ['3PT', 'DNK', 'PAS', 'HDL', 'SPD', 'INT', 'PER', 'REB'] : ['HP', 'ATK', 'DEF', 'SPA', 'SPD', 'SPE', 'BST']).map((l, i) => {
       const key = v.R && l === 'SPD' ? 'speed' : COLKEY[l], tip = BASE_TIP[l] && !v.R ? `title="${BASE_TIP[l]}"` : '';
-      return `<th class="n ${w && cur === key ? 'sorted' : ''}" ${tip} ${w ? `data-act="frSortCol" data-w="${w}" data-k="${key}" style="cursor:pointer"` : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}${w && cur === key ? ' ▼' : ''}</th>`;
+      return `<th class="n ${w && cur === key ? 'sorted' : ''}" ${tip} ${w ? `data-act="frSortCol" data-w="${w}" data-k="${key}" style="cursor:pointer"` : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}${w && cur === key ? (' ' + PB.I('down')) : ''}</th>`;
     }).join('');
   }
   A.frSortCol = (el, d) => { view[d.w === 'd' ? 'dSort' : 'faSort'] = d.k; UI.refresh(); };
@@ -216,7 +216,7 @@
         <button class="primary" data-act="frStartDraft" autofocus>Continue to the draft</button></div>
       ${ready.length ? `<div class="panel"><h3>Ready to evolve</h3>${evo}</div>` : '<div class="panel dim">No one on your roster is ready to evolve yet.</div>'}
       <div class="panel"><h3>Development progress</h3><table class="t"><tbody>${others.map(m => `<tr><td>${monCell(m)}</td><td>${evoLine(m)}</td><td>${devCell(G, m.id)}</td></tr>`).join('')}</tbody></table></div>
-      ${fr.evoLog.filter(e => e.y === fr.year).length ? `<div class="panel"><h3>League evolutions this offseason</h3><div style="font-size:12px;max-height:160px;overflow:auto">${fr.evoLog.filter(e => e.y === fr.year).map(e => `<div>${esc(G.teams[e.t].abbr)}: ${esc(PB.BYID[e.from].dispName)} → <b>${esc(PB.BYID[e.to].dispName)}</b></div>`).join('')}</div></div>` : ''}
+      ${fr.evoLog.filter(e => e.y === fr.year).length ? `<div class="panel"><h3>League evolutions this offseason</h3><div style="font-size:12px;max-height:160px;overflow:auto">${fr.evoLog.filter(e => e.y === fr.year).map(e => `<div>${esc(G.teams[e.t].abbr)}: ${esc(PB.BYID[e.from].dispName)} ${PB.I('right')} <b>${esc(PB.BYID[e.to].dispName)}</b></div>`).join('')}</div></div>` : ''}
     </div>`;
   }
   A.frEvolve = (el, d) => run('evolve', { tid: PB.G.userTeam, id: +d.id, to: +d.to }, () => { if (UI.modalOpen()) UI.closeModal(); });
@@ -238,7 +238,7 @@
     return `<div class="row between wrap" style="margin-bottom:10px">
       <div><h2 style="margin:0">${esc(F.draftLabel(G, D))}</h2><div class="dim">Pick ${Math.min(D.pick + 1, D.seq.length)} of ${D.seq.length} · ${D.prospects.length} prospects left${D.nLeg != null ? ' (' + D.prospects.filter(id => PB.isLegend(PB.BYID[id])).length + ' legendary / mythical)' : ''} · ${mine ? '<b class="gold">YOU ARE ON THE CLOCK</b>' : 'on the clock: ' + (cur != null ? UI.teamLabel(G, cur) : '—') + (myLeft ? ' · you pick in ' + (D.seq.slice(D.pick).indexOf(me)) : '')}</div>
       ${D.added.length ? `<div class="dim" style="font-size:12px">Expansion: ${D.added.map(id => esc(G.teams[id].name)).join(', ')} (pick first)</div>` : ''}${prot}</div>
-      <div class="row wrap"><button data-act="frDraftToMe" ${mine ? 'disabled' : ''}>⏩ Sim to my pick</button>${mine ? '<button data-act="frDraftAuto">✨ Auto-pick for me</button>' : ''}<button data-act="frDraftRest">⏭ Auto-draft the rest</button></div></div>
+      <div class="row wrap"><button data-act="frDraftToMe" ${mine ? 'disabled' : ''}>${PB.I('ff')} Sim to my pick</button>${mine ? '<button data-act="frDraftAuto">' + PB.I('sparkle') + ' Auto-pick for me</button>' : ''}<button data-act="frDraftRest">${PB.I('skip')} Auto-draft the rest</button></div></div>
       ${lotteryHtml(G, D)}
       <div class="layout2" style="--side:340px"><div class="panel">
         <div class="row wrap" style="margin-bottom:8px"><select data-change="frDFilter" data-k="type"><option value="ALL">All types</option>${PB.TYPES.map(t => `<option ${view.dType === t ? 'selected' : ''}>${t}</option>`).join('')}</select>${sortSelect(view.dSort, 'frDFilter', true)}
@@ -262,7 +262,7 @@
   function lotteryHtml(G, D) {
     const me = G.userTeam, pts = (G.fr.scoutPts && G.fr.scoutPts[me]) || 0;
     const L = D.lottery;
-    const lot = L && L.teams.length ? `<div style="font-size:12px"><b>Draft lottery:</b> ${L.drawn.length ? L.drawn.map((t, i) => '#' + (D.added.length + i + 1) + ' ' + esc(G.teams[t].abbr)).join(' · ') + ' won the top picks' : 'no lottery this year'}${L.odds.length ? ' <span class="dim">· best odds: ' + L.odds.slice(0, 3).map(o => esc(G.teams[o.t].abbr) + ' ' + Math.round(o.p * 100) + '%').join(', ') + '</span>' : ''} <button class="small" data-act="frLottery">🎰 Watch the lottery</button></div>` : '';
+    const lot = L && L.teams.length ? `<div style="font-size:12px"><b>Draft lottery:</b> ${L.drawn.length ? L.drawn.map((t, i) => '#' + (D.added.length + i + 1) + ' ' + esc(G.teams[t].abbr)).join(' · ') + ' won the top picks' : 'no lottery this year'}${L.odds.length ? ' <span class="dim">· best odds: ' + L.odds.slice(0, 3).map(o => esc(G.teams[o.t].abbr) + ' ' + Math.round(o.p * 100) + '%').join(', ') + '</span>' : ''} <button class="small" data-act="frLottery">${PB.I('slot')} Watch the lottery</button></div>` : '';
     return `<div class="panel row between wrap" style="margin-bottom:10px"><div>${lot}<div class="dim" style="font-size:12px">Scouting points <b class="gold">${pts}</b> — scouting a prospect reveals a grade for its hidden talent and ceiling (you can scout the next class all season long in the Scouting tab). Rookies are marked when they join.</div></div></div>`;
   }
   A.frScout = (el, d) => run('scout', { tid: PB.G.userTeam, id: +d.id });
@@ -317,13 +317,13 @@
       ${ids.map((id, i) => { const m = PB.BYID[id], s = lg.pstats[id], g = s ? s.gp : 0;
         return `<tr><td>${lab(i)}</td><td>${monCell(m)}</td>${v.P ? `<td>${UI.posBadges(m)}</td>` : ''}${v.O ? `<td class="n"><b>${m.ovr}</b></td>` : ''}<td>${injTag(G, id) || '<span class="dim">Healthy</span>'}</td><td>${devCell(G, id)}${editable && F.evoOptions(G, id).some(o => o.ready) ? ' <button class="small gold" data-act="frEvoOpen" data-id="' + id + '">Evolve</button>' : ''}</td>
         <td class="n">${g}</td><td class="n">${g ? (s.sec / g / 60).toFixed(1) : '-'}</td><td class="n">${g ? (s.pts / g).toFixed(1) : '-'}</td><td class="n">${g ? ((s.oreb + s.dreb) / g).toFixed(1) : '-'}</td><td class="n">${g ? (s.ast / g).toFixed(1) : '-'}</td>
-        ${editable ? `<td><button class="small ${fr.focus[id] ? 'gold' : 'ghost'}" data-act="frFocus" data-id="${id}" title="Training focus: bonus development this offseason">★</button></td><td><button class="small ghost" data-act="frRelease" data-id="${id}" title="Release to free agency">✕</button></td>` : ''}</tr>`; }).join('')}</tbody></table></div>`;
+        ${editable ? `<td><button class="small ${fr.focus[id] ? 'gold' : 'ghost'}" data-act="frFocus" data-id="${id}" title="Training focus: bonus development this offseason">${PB.I('star')}</button></td><td><button class="small ghost" data-act="frRelease" data-id="${id}" title="Release to free agency">${PB.I('cross')}</button></td>` : ''}</tr>`; }).join('')}</tbody></table></div>`;
   }
   const origRoster = TAB.roster;
   TAB.roster = function (G, lg) {
     if (G.mode !== 'franchise') return origRoster(G, lg);
     const T = G.teams[G.userTeam], fr = G.fr;
-    return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">${esc(T.name)} roster</h2><div class="dim">${T.roster.length}/${fr.cfg.rosterMax} Pokémon · training focus ★ ${Object.keys(fr.focus).length}/3 (extra development at season's end)</div></div><button class="primary" data-act="editLineup">Lineup & strategy</button></div>
+    return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">${esc(T.name)} roster</h2><div class="dim">${T.roster.length}/${fr.cfg.rosterMax} Pokémon · training focus ${PB.I('star')} ${Object.keys(fr.focus).length}/3 (extra development at season's end)</div></div><button class="primary" data-act="editLineup">Lineup & strategy</button></div>
       <div class="panel">${rosterTable(G, T, true)}</div>`;
   };
   A.frFocus = (el, d) => run('focus', { tid: PB.G.userTeam, id: +d.id });
@@ -360,11 +360,11 @@
     const protOk = key => !(+key.slice(2).split('.')[0] === fr.year && fr.stage === 'draft');
     const pickRow = key => {
       const on = sel.includes(key), N = view.prot[key] != null ? view.prot[key] : (fr.prot && fr.prot[key]) || 0;
-      return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="frTradeSel" data-side="${side}" data-id="${key}"><span style="font-size:18px">🎟️</span><div class="grow"><b>${esc(F.pickLabel(G, key, 0))}</b><div class="dim" style="font-size:10px">${fr.prot && fr.prot[key] ? 'already top-' + fr.prot[key] + ' protected' : 'value ' + F.pickVal(G, key).toFixed(2)}</div></div>${on ? '<span class="tag good">✓</span>' : ''}</div>`
+      return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="frTradeSel" data-side="${side}" data-id="${key}"><span style="font-size:18px">${PB.I('ticket')}</span><div class="grow"><b>${esc(F.pickLabel(G, key, 0))}</b><div class="dim" style="font-size:10px">${fr.prot && fr.prot[key] ? 'already top-' + fr.prot[key] + ' protected' : 'value ' + F.pickVal(G, key).toFixed(2)}</div></div>${on ? '<span class="tag good">' + PB.I('check') + '</span>' : ''}</div>`
         + (on ? `<div class="row" style="padding:0 8px 6px;font-size:12px"><label>Protection <select data-change="frProt" data-k="${key}" ${protOk(key) ? '' : 'disabled'}>${F.PROTECTIONS.map(n => `<option value="${n}" ${N === n ? 'selected' : ''}>${n ? 'Top ' + n + ' protected' : 'Unprotected'}</option>`).join('')}</select></label>${protOk(key) ? '' : '<span class="dim"> (the draft is under way)</span>'}</div>` : '');
     };
     return `<div class="panel"><h3>${esc(T.name)} <span class="dim">(${T.roster.length})</span></h3><div class="slots">${T.roster.map(id => { const m = PB.BYID[id], on = sel.includes(id);
-      return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="frTradeSel" data-side="${side}" data-id="${id}">${UI.spr(m, 30)}<div class="grow"><b>${esc(m.dispName)}</b> ${injTag(G, id)}<div class="dim" style="font-size:10px">${m.hp}/${m.atk}/${m.def}/${m.spa}/${m.spd}/${m.spe}${UI.vis().O ? ' · OVR ' + m.ovr : ''}</div></div>${on ? '<span class="tag good">✓</span>' : ''}</div>`; }).join('')}</div>
+      return `<div class="slot fill ${on ? 'sel' : ''}" tabindex="0" data-act="frTradeSel" data-side="${side}" data-id="${id}">${UI.spr(m, 30)}<div class="grow"><b>${esc(m.dispName)}</b> ${injTag(G, id)}<div class="dim" style="font-size:10px">${m.hp}/${m.atk}/${m.def}/${m.spa}/${m.spd}/${m.spe}${UI.vis().O ? ' · OVR ' + m.ovr : ''}</div></div>${on ? '<span class="tag good">' + PB.I('check') + '</span>' : ''}</div>`; }).join('')}</div>
       <h3 style="margin-top:10px">Draft picks <span class="dim">(${picks.length})</span></h3><div class="dim" style="font-size:11px;margin-bottom:4px">A protected pick that lands in its protected range stays with its original team; the new owner gets that team's next first-available pick instead.</div>
       <div class="slots" style="max-height:240px;overflow:auto">${picks.map(pickRow).join('') || '<div class="dim">No picks.</div>'}</div></div>`;
   }
@@ -393,7 +393,7 @@
     const list = ids => ids.map(i => F.isPick(i) ? esc(F.pickLabel(G, i)) : esc(PB.BYID[i].dispName)).join(', ');
     const offers = view.offers;
     return `<div class="row between wrap" style="margin-bottom:10px"><div><h2 style="margin:0">Trades</h2><div class="dim">${blocked ? '<span class="bad">' + esc(blocked) + '</span>' : 'Select Pokémon and draft picks on both sides (picks can be protected). The AI values talent, potential, development and the pick.'}</div></div>
-      <div class="row"><label>Trade with <select data-change="frTradeTeam">${others.map(t => `<option value="${t.id}" ${t.id === other.id ? 'selected' : ''}>${esc(t.name)}${t.id === G.userTeam ? ' ★' : ''}</option>`).join('')}</select></label></div></div>
+      <div class="row"><label>Trade with <select data-change="frTradeTeam">${others.map(t => `<option value="${t.id}" ${t.id === other.id ? 'selected' : ''}>${esc(t.name)}${t.id === G.userTeam ? ' (you)' : ''}</option>`).join('')}</select></label></div></div>
       ${incoming.length ? `<div class="panel" style="border-color:var(--gold);margin-bottom:10px"><h3>Offers for you</h3>${incoming.map(o => `<div class="row between wrap"><span><b>${esc(G.teams[o.a].name)}</b> give ${list(o.giveA)} for ${list(o.giveB)}</span><span class="row"><button class="small gold" data-act="frOfferReply" data-id="${o.id}" data-accept="1">Accept</button><button class="small" data-act="frOfferReply" data-id="${o.id}" data-accept="">Decline</button></span></div>`).join('')}</div>` : ''}
       ${out.length ? `<div class="panel" style="margin-bottom:10px"><h3>Your pending offers</h3>${out.map(o => `<div>To <b>${esc(G.teams[o.b].name)}</b>: ${list(o.giveA)} for ${list(o.giveB)}</div>`).join('')}</div>` : ''}
       <div class="layout2" style="--side:1fr">${tradeSide(G, me, view.tA, 'A')}${tradeSide(G, other, view.tB, 'B')}</div>
@@ -422,7 +422,7 @@
   TAB.history = function (G) {
     const fr = G.fr;
     const seasons = fr.history.map(h => `<tr class="${h.champ === G.userTeam ? 'me' : ''}"><td>${h.y}</td><td class="dim">${h.gens && h.gens.length ? h.gens.map(g => PB.REGIONS[g]).join(', ') : 'Mixed'}</td><td class="n">${h.teams}</td><td class="n">${h.games}</td><td>${UI.teamLabel(G, h.champ)}</td><td>${h.mvp != null ? esc(PB.BYID[h.mvp].dispName) : '-'}</td><td class="n">${h.rec}</td><td>${esc(h.result)}</td></tr>`).join('');
-    const evo = fr.evoLog.slice().reverse().slice(0, 60).map(e => `<div style="font-size:12px"><span class="dim">S${e.y}</span> ${esc(G.teams[e.t].abbr)}: ${esc(PB.BYID[e.from].dispName)} → <b>${esc(PB.BYID[e.to].dispName)}</b></div>`).join('');
+    const evo = fr.evoLog.slice().reverse().slice(0, 60).map(e => `<div style="font-size:12px"><span class="dim">S${e.y}</span> ${esc(G.teams[e.t].abbr)}: ${esc(PB.BYID[e.from].dispName)} ${PB.I('right')} <b>${esc(PB.BYID[e.to].dispName)}</b></div>`).join('');
     return `<div class="col"><div class="panel"><h3>Seasons</h3>${seasons ? `<table class="t"><thead><tr><th>Season</th><th>Regions</th><th class="n">Teams</th><th class="n">GP</th><th>Champion</th><th>MVP</th><th class="n">You</th><th>Result</th></tr></thead><tbody>${seasons}</tbody></table>` : '<div class="dim">No completed seasons yet.</div>'}</div>
       <div class="layout2" style="--side:1fr"><div class="panel"><h3>Evolutions</h3><div style="max-height:320px;overflow:auto">${evo || '<div class="dim">None yet.</div>'}</div></div>
       <div class="panel"><h3>League news</h3><div style="max-height:320px;overflow:auto">${fr.news.map(n => `<div style="font-size:12px;${UI.newsMine(G, n) ? 'color:var(--gold)' : ''}"><span class="dim">S${n.y}</span> ${esc(n.txt)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div></div></div>`;

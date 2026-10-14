@@ -7,7 +7,8 @@
   UI.esc = esc;
 
   // ---------- components ----------
-  const spr = (m, size) => { const c = PB.Atlas && PB.Atlas.css(m, size || 96); return c ? `<span class="spr sp-a" role="img" aria-label="${esc(m.dispName)}" style="${c}"></span>` : sprImg(m, size); };
+  const spr = (m, size) => { size = size || 96; const tight = size <= 40; if (tight) size = Math.round(size * 1.3 / 2) * 2;      // small table and list sprites are trimmed to the visible art and drawn larger so they can be made out
+    const c = PB.Atlas && PB.Atlas.css(m, size, tight); return c ? `<span class="spr sp-a" role="img" aria-label="${esc(m.dispName)}" style="${c}"></span>` : sprImg(m, size); };
   const sprImg = (m, size) => `<img class="spr" src="${m.sprite}" onerror="this.onerror=null;this.src='${m.remote}'" width="${size || 96}" height="${size || 96}" alt="${esc(m.dispName)}" loading="lazy">`;
   const tier = n => n >= 90 ? 't5' : n >= 80 ? 't4' : n >= 70 ? 't3' : n >= 60 ? 't2' : 't1';
   const ovrBadge = n => `<div class="ovr ${tier(n)}">${n}</div>`;
@@ -53,7 +54,7 @@
       <div class="sprwrap">${spr(m, 96)}</div>
       <div class="row between"><div>${v.P ? posBadges(m) : ''}</div><div class="dim" style="font-size:11px">${PB.fmtHeight(m.h)} · ${PB.fmtWeight(m.w)}</div></div>
       ${v.A ? `<div class="arch"><b>${m.archOff}</b> · ${m.archDef}</div>` : ''}
-      <div class="arch" title="${esc(PB.Abil.describe(m.id).desc)}">⚡ <b>${esc(PB.Abil.describe(m.id).ability)}</b> · ${esc(PB.Abil.describe(m.id).badge)}</div>
+      <div class="arch" title="${esc(PB.Abil.describe(m.id).desc)}">${PB.I('bolt')} <b>${esc(PB.Abil.describe(m.id).ability)}</b> · ${esc(PB.Abil.describe(m.id).badge)}</div>
       ${v.R ? miniBars(m) : baseBars(m)}
       <div>${legend ? '<span class="tag leg">' + (m.myth ? 'MYTHICAL' : 'LEGENDARY') + '</span>' : ''}</div>
       ${o.btn ? `<button class="${o.btnClass || 'primary'}" data-act="${o.btnAct}" data-id="${m.id}">${o.btn}</button>` : ''}

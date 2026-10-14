@@ -21,7 +21,7 @@
       if (ready.length) html = `<div class="panel row between wrap" style="border-color:var(--gold);margin-bottom:12px"><div><b class="gold">Ready to evolve:</b> ${ready.map(x => esc(PB.BYID[x.id].dispName)).join(', ')}</div><button class="small gold" data-act="hubTab" data-tab="roster">Open roster</button></div>` + html;
     }
     if (G.mode === 'franchise' && lg.phase === 'done') UI.ceremonyAuto(G);
-    if (lg.phase === 'done' && lg.awards) html = `<div class="panel row between wrap" style="margin-bottom:12px"><b>Season awards are in.</b><button class="gold" data-act="ceremony">🏆 Watch the awards ceremony</button></div>` + html;
+    if (lg.phase === 'done' && lg.awards) html = `<div class="panel row between wrap" style="margin-bottom:12px"><b>Season awards are in.</b><button class="gold" data-act="ceremony">${PB.I('trophy')} Watch the awards ceremony</button></div>` + html;
     return html;
   };
 
@@ -56,7 +56,7 @@
       const s = steps[i], last = i === steps.length - 1;
       const sprites = (s.ids || []).map(id => `<div class="cer-card">${UI.spr(PB.BYID[id], 150)}<div class="cer-name">${esc(PB.BYID[id].dispName)}</div><div class="dim">${esc(G.teams[L.teamOf(G, id)].name)}</div></div>`).join('');
       const groups = (s.groups || []).map(([t, ids]) => `<div style="margin:8px 0"><div class="gold" style="font-weight:800">${esc(t)}</div><div class="row wrap" style="justify-content:center">${ids.map(id => `<div class="center" style="width:84px">${UI.spr(PB.BYID[id], 60)}<div style="font-size:11px">${esc(PB.BYID[id].dispName)}</div><div class="dim" style="font-size:10px">${esc(G.teams[L.teamOf(G, id)].abbr)}</div></div>`).join('')}</div></div>`).join('');
-      UI.modal(`<div class="cer"><div class="cer-conf">${s.team != null ? '🎉 🏆 🎉' : '✨'}</div><div class="cer-title">${esc(s.title)}</div>${s.team != null ? `<div class="cer-team" style="color:${PB.teamColors(G.teams[s.team])[0]}">${esc(G.teams[s.team].name)}</div>` : ''}<div class="cer-spot">${sprites}${groups}</div><div class="dim">${esc(s.sub || '')}</div>
+      UI.modal(`<div class="cer"><div class="cer-conf">${s.team != null ? PB.I('confetti') + PB.I('trophy') + PB.I('confetti') : PB.I('sparkle')}</div><div class="cer-title">${esc(s.title)}</div>${s.team != null ? `<div class="cer-team" style="color:${PB.teamColors(G.teams[s.team])[0]}">${esc(G.teams[s.team].name)}</div>` : ''}<div class="cer-spot">${sprites}${groups}</div><div class="dim">${esc(s.sub || '')}</div>
         <div class="row center" style="margin-top:14px"><button data-act="cerSkip">Skip</button><button class="gold" data-act="cerNext" autofocus>${last ? 'Done' : 'Next'}</button></div></div>`);
     };
     UI._cer = { next: () => { i++; if (i >= steps.length) { UI._cer = null; UI.closeModal(); } else show(); }, skip: () => { UI._cer = null; UI.closeModal(); } };

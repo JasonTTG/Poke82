@@ -15,7 +15,7 @@
   css.textContent = `
     .lot { text-align: center; } .lot-main { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; margin: 10px 0; }
     .lot-machine { position: relative; width: 270px; height: 210px; border-radius: 50% / 45%; border: 3px solid var(--line); background: radial-gradient(circle at 50% 35%, rgba(255,255,255,.08), rgba(0,0,0,.35)); overflow: hidden; }
-    .lball { position: absolute; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 900 11px Segoe UI, sans-serif; border: 2px solid rgba(255,255,255,.7); box-shadow: inset -4px -4px 8px rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.5); }
+    .lball { position: absolute; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 11px Pixel, monospace; border: 2px solid rgba(255,255,255,.7); box-shadow: inset -4px -4px 8px rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.5); }
     .lball.pop { animation: lpop .7s ease-in forwards; }
     @keyframes lpop { 0% { transform: scale(1); opacity: 1; } 60% { transform: translate(0, -90px) scale(1.7); opacity: 1; } 100% { transform: translate(0, -110px) scale(0); opacity: 0; } }
     .lot-board { min-width: 250px; text-align: left; } .lot-row { display: flex; gap: 8px; align-items: center; padding: 3px 8px; border-radius: 6px; font-size: 14px; border: 1px solid transparent; }
@@ -33,7 +33,7 @@
       return `<div class="lball" data-t="${t}" style="left:${r(10, 215)}px;top:${r(30, 150)}px;background:${c[0]};color:${l.txt};--dx:${r(-90, 90)}px;--dy:${r(-70, 55)}px;--d:${(0.9 + Math.random() * 1.1).toFixed(2)}s;--dl:-${(Math.random() * 2).toFixed(2)}s">${esc(T.abbr)}</div>`; }).join('');
     const rows = Array.from({ length: S.nLot }, (_, i) => `<div class="lot-row hid" data-rank="${i + 1}"><span class="no">#${S.A0 + i + 1}</span><span class="nm">· · ·</span></div>`).join('');
     const odds = S.Lt.odds.slice(0, 6).map(o => `<span class="tag">${esc(G.teams[o.t].abbr)} ${Math.round(o.p * 100)}%</span>`).join(' ');
-    UI.modal(`<div class="lot"><h2>🎰 Season ${fr.year} Draft Lottery</h2>
+    UI.modal(`<div class="lot"><h2>${PB.I('slot')} Season ${fr.year} Draft Lottery</h2>
       <div class="dim" style="font-size:13px">${S.nLot} teams missed the playoffs. The top ${S.k} picks are drawn; the rest follow the standings.</div>
       <div class="dim" style="font-size:12px;margin-top:4px">Best odds for the top pick: ${odds}</div>
       <div class="lot-main"><div class="lot-machine" id="lot-machine">${balls}</div><div class="lot-board" id="lot-board">${S.A0 ? `<div class="dim" style="font-size:12px">Expansion teams pick first (${S.A0}).</div>` : ''}${rows}</div></div>
@@ -80,7 +80,7 @@
   const reveal = (st, fresh) => {
     const r = run, G = r.G, S = r.S, T = G.teams[st.t], row = board(st.rank); if (!row) return;
     row.className = 'lot-row' + (st.t === r.me ? ' me' : '') + (fresh ? ' fresh' : '');
-    row.querySelector('.nm').innerHTML = `${UI.logo ? UI.logo(T, 20) : ''} <b>${esc(T.name)}</b> ${st.moved > 0 ? `<span class="up">▲ up ${st.moved}</span>` : st.moved < 0 ? `<span class="dn">▼ down ${-st.moved}</span>` : ''}`;
+    row.querySelector('.nm').innerHTML = `${UI.logo ? UI.logo(T, 20) : ''} <b>${esc(T.name)}</b> ${st.moved > 0 ? `<span class="up">${PB.I('up')} up ${st.moved}</span>` : st.moved < 0 ? `<span class="dn">${PB.I('down')} down ${-st.moved}</span>` : ''}`;
     const b = document.querySelector('.lball[data-t="' + st.t + '"]'); if (b) { if (fresh) { b.classList.add('pop'); setTimeout(() => b.remove(), 750); } else b.remove(); }
   };
   const step = () => {

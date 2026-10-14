@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8"><title>Icons</title>
+<link rel="stylesheet" href="../css/style.css"><link rel="stylesheet" href="../css/pixel.css">
+<body style="overflow:auto;padding:24px">
+<h2>Icons</h2>
+<div id="sheet" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px"></div>
+<script>window.PB = {};</script>
+<script src="../js/icons.js"></script>
+<script>
+document.getElementById('sheet').innerHTML = PB.Icon.names.map((n, i) => `<div class="panel" style="text-align:center;padding:14px 6px"><div style="font-size:56px;height:64px;display:flex;align-items:center;justify-content:center">${PB.I(n)}</div><div style="margin-top:8px;font-size:18px">${i + 1}. ${n}</div><div style="margin-top:6px;font-size:16px">${PB.I(n)} text ${PB.I(n)}</div></div>`).join('');
+</script>

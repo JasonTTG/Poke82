@@ -1,0 +1,97 @@
+/* ================= pixel skin: flat colors, hard edges, stepped motion, pixel fonts ================= */
+@font-face { font-family: 'Pixel'; src: url('../fonts/VT323.ttf') format('truetype'); font-display: swap; size-adjust: 128%; }
+@font-face { font-family: 'PressStart'; src: url('../fonts/PressStart2P-Regular.ttf') format('truetype'); font-display: swap; }
+:root { --r: 0; --edge: #05080f; font-family: 'Pixel', 'Segoe UI', system-ui, sans-serif; -webkit-font-smoothing: none; font-smooth: never; }
+body { font-size: 16px; } * { font-weight: 400 !important; }
+html, body { background-color: var(--bg); background-image: linear-gradient(45deg, rgba(255,255,255,.025) 25%, transparent 25% 75%, rgba(255,255,255,.025) 75%), linear-gradient(45deg, rgba(255,255,255,.025) 25%, transparent 25% 75%, rgba(255,255,255,.025) 75%); background-size: 8px 8px; background-position: 0 0, 4px 4px; }
+*, *::before, *::after { border-radius: 0 !important; }
+#touch *, .lball, .lball *, .pxround { border-radius: 50% !important; }
+img, canvas, svg.logo { image-rendering: pixelated; }
+svg { shape-rendering: crispEdges; }
+#court2 { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: auto; }
+* { transition: none !important; }
+
+/* pixel type for headings and big numbers */
+.topbar .logo, .hero h1, h2, .cer-title, .rv-n, .ovr, .mh-tag, .kpi b, .rollitem, .cer-conf { font-family: 'PressStart', 'Pixel', monospace; font-weight: 400; letter-spacing: 0; }
+.topbar .logo { font-size: 13px; line-height: 1.4; } .topbar .logo b { color: var(--accent); }
+.hero h1 { font-size: clamp(18px, 4.6vh, 34px) !important; line-height: 1.3; text-shadow: 4px 4px 0 rgba(0,0,0,.55); }
+h2 { font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
+h3 { font-size: 14px; letter-spacing: .06em; font-weight: 700; }
+.cer-title { font-size: 18px; line-height: 1.4; } .rv-n { font-size: 18px; } .cer-conf { font-size: 20px; }
+.ovr { font-size: 15px; padding: 8px 6px; min-width: 46px; }
+.kpi b { font-size: 15px; line-height: 1.5; } .rollitem { font-size: 18px; line-height: 1.4; }
+.mh-tag { font-size: 8px; line-height: 1.4; }
+.cer-name, .rv-name { font-weight: 700; }
+
+/* buttons: chunky bevel that presses down */
+button, .btn { border: 2px solid var(--edge); background: var(--panel2); box-shadow: inset 0 -4px 0 rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.14), 0 3px 0 var(--edge); padding: 7px 14px 9px; font-weight: 700; margin-bottom: 3px; position: relative; }
+button:hover:not(:disabled), .btn:hover { background: #33446a; border-color: var(--edge); }
+button:active:not(:disabled), .btn:active { transform: translateY(3px); box-shadow: inset 0 -2px 0 rgba(0,0,0,.35), inset 0 2px 0 rgba(255,255,255,.14), 0 0 0 var(--edge); }
+button.primary { background: #e23b3b; border-color: var(--edge); box-shadow: inset 0 -4px 0 #8f1c1c, inset 0 2px 0 rgba(255,255,255,.35), 0 3px 0 var(--edge); }
+button.primary:hover:not(:disabled) { background: #f35151; }
+button.gold { background: #f2c200; color: #231a00; border-color: var(--edge); box-shadow: inset 0 -4px 0 #a37c00, inset 0 2px 0 rgba(255,255,255,.5), 0 3px 0 var(--edge); }
+button.gold:hover:not(:disabled) { background: #ffd62e; }
+button.ghost { background: transparent; box-shadow: none; border-color: var(--line); }
+button.small { padding: 3px 8px 5px; font-size: 13px; }
+.tabs button { box-shadow: none; margin-bottom: 0; background: transparent; border-color: transparent; }
+.tabs button.on { background: var(--panel); border-color: var(--line); border-bottom-color: var(--panel); }
+.tabs button:active:not(:disabled) { transform: none; }
+button:focus-visible, [data-act]:focus-visible, select:focus-visible, input:focus-visible, body.padnav button:focus, body.padnav [data-act]:focus, body.padnav select:focus, body.padnav input:focus { outline: 3px solid var(--accent2); outline-offset: 0; }
+select, input[type=text], input[type=number], input[type=date] { border: 2px solid var(--edge); background: #0f1520; box-shadow: inset 0 3px 0 rgba(0,0,0,.4); padding: 5px 8px; }
+
+/* panels and cards: double edge with a hard drop shadow */
+.panel, .menu-card, .mcard, .modal, .rv-card, .rollitem { border: 2px solid var(--line); box-shadow: 0 0 0 2px var(--edge), 4px 4px 0 2px rgba(0,0,0,.45); }
+.slot, .posfit .pf, .series, .kpi div { border: 2px solid var(--line); box-shadow: 0 0 0 2px var(--edge); }
+.topbar { border-bottom: 4px solid var(--edge); background: #0a0e16; box-shadow: 0 2px 0 var(--line); }
+.menu-card:hover, .menu-card:focus-visible, .mcard:hover, .mcard:focus { transform: translate(-2px, -2px); box-shadow: 0 0 0 2px var(--edge), 6px 6px 0 2px rgba(0,0,0,.45); }
+.mcard.sel { box-shadow: 0 0 0 2px var(--edge), 0 0 0 5px var(--good); }
+.mcard.legend { background: #33290b; }
+.mcard .sprwrap { background-color: rgba(255,255,255,.05); background-image: linear-gradient(45deg, rgba(255,255,255,.05) 25%, transparent 25% 75%, rgba(255,255,255,.05) 75%), linear-gradient(45deg, rgba(255,255,255,.05) 25%, transparent 25% 75%, rgba(255,255,255,.05) 75%); background-size: 8px 8px; background-position: 0 0, 4px 4px; }
+.c-gold { background: #3a3110; } .c-blue { background: #172a4d; } .c-purple { background: #2e1d4d; } .c-fire { background: #4a2512; }
+.mgrid .mc-xs, .mgrid .mc-save { background: transparent; box-shadow: none; border-color: var(--line); }
+.mc-online { box-shadow: 0 0 0 2px var(--edge); }
+.modal-layer, #reveal { background: rgba(2, 4, 9, .82); }
+.modal { border-color: #5b7099; box-shadow: 0 0 0 3px var(--edge), 8px 8px 0 3px rgba(0,0,0,.55); }
+.rv-card { background: #1a2233; border: 4px solid var(--gold); box-shadow: 0 0 0 3px var(--edge), 8px 8px 0 3px rgba(0,0,0,.55); }
+.toast { background: #0b1a33; border: 2px solid var(--blue); box-shadow: 0 0 0 2px var(--edge), 4px 4px 0 2px rgba(0,0,0,.5); }
+.cer { background: rgba(255,203,5,.08); }
+
+/* chips */
+.pill, .tag, .pos { border: 2px solid var(--edge); box-shadow: inset 0 -2px 0 rgba(0,0,0,.28); }
+.pill { padding: 1px 8px; } .tag { padding: 0 5px; } .pos { padding: 0 4px; }
+.ovr { border: 2px solid var(--edge); box-shadow: inset 0 -4px 0 rgba(0,0,0,.3), inset 0 2px 0 rgba(255,255,255,.35); }
+.ovr.t5 { background: #ffc61a; } .ovr.t4 { background: #3ed17f; } .ovr.t3 { background: #5ba2ff; }
+body.cb .ovr.t4 { background: #4bb0ee; }
+
+/* tables */
+table.t th { border-bottom: 2px solid var(--line); font-weight: 700; }
+table.t td { border-bottom: 2px solid #1a2233; }
+table.t tr:hover td { background: #26324b; }
+
+/* bars: segmented like a health bar */
+.bars .bar, .meter { border: 2px solid var(--edge); background: #0a0f18; }
+.bars .bar { height: 10px; } .meter { height: 14px; }
+.bars .bar i, .meter i { -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 5px, transparent 5px 7px); mask-image: repeating-linear-gradient(90deg, #000 0 5px, transparent 5px 7px); box-shadow: inset 0 -3px 0 rgba(0,0,0,.28); }
+.meter i { background: linear-gradient(90deg, #ff5a5f 0 33%, #ffcb05 33% 66%, #2fd47a 66%); }
+
+/* motion in whole steps */
+.rolling { animation: pulse .3s steps(2, jump-none) infinite alternate; }
+.cer-title, .cer-conf, #reveal.on { animation-timing-function: steps(5, end); }
+.cer-card, .rv-spr { animation-timing-function: steps(7, end); }
+.cer-card img, .cer-card .spr, .rv-spr img, .rv-spr .spr { filter: drop-shadow(4px 4px 0 rgba(0,0,0,.55)); }
+
+/* hard scroll edges and chunky scrollbars */
+.scroll, .topbar .tabs, .subtabs { background: none; }
+* { scrollbar-width: thin; scrollbar-color: #44567a #0a0f18; }
+::-webkit-scrollbar { width: 12px; height: 12px; } ::-webkit-scrollbar-track { background: #0a0f18; border: 2px solid var(--edge); }
+::-webkit-scrollbar-thumb { background: #44567a; border: 2px solid var(--edge); box-shadow: inset 0 2px 0 rgba(255,255,255,.2); } ::-webkit-scrollbar-corner { background: #0a0f18; }
+
+@media (max-width: 900px) { .topbar .logo { font-size: 10px; } .hero h1 { font-size: 18px !important; } h2 { font-size: 12px; } .cer-title { font-size: 14px; } }
+
+/* pixel icons */
+.pi { display: inline-block; vertical-align: -.14em; margin: 0 .1em; image-rendering: pixelated; flex: none; }
+.pi-up, .pi-down { margin: 0 .15em; }
+button .pi:only-child, .tag .pi:only-child { margin: 0; }
+
+.tag, .pill { white-space: nowrap; }
+table.t td { padding-top: 5px; padding-bottom: 5px; }

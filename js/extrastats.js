@@ -112,7 +112,7 @@
     const D = X.awardCounts(G);
     let rows = D.players.filter(r => av.team === 'all' || (G.claimed[r.id] != null ? G.claimed[r.id] : r.last) === +av.team);
     rows.sort((a, b) => ((b[av.sort] || 0) - (a[av.sort] || 0)) * (av.desc ? 1 : -1) || b.score - a.score);
-    const th = (k, l, tip) => `<th class="n ${av.sort === k ? 'sorted' : ''}" data-act="awSort" data-k="${k}" style="cursor:pointer" title="${tip || ''}">${l}${av.sort === k ? (av.desc ? ' ▼' : ' ▲') : ''}</th>`;
+    const th = (k, l, tip) => `<th class="n ${av.sort === k ? 'sorted' : ''}" data-act="awSort" data-k="${k}" style="cursor:pointer" title="${tip || ''}">${l}${av.sort === k ? (av.desc ? (' ' + PB.I('down')) : (' ' + PB.I('up'))) : ''}</th>`;
     const tt = Object.entries(D.teams).sort((a, b) => b[1] - a[1]);
     return `<div class="panel"><div class="row between wrap"><div><h2 style="margin:0">Award counts</h2></div>
         <label>Team <select data-change="awTeam"><option value="all">All teams</option>${G.teams.map(t => `<option value="${t.id}" ${String(av.team) === String(t.id) ? 'selected' : ''}>${esc(t.abbr)}</option>`).join('')}</select></label></div></div>
@@ -135,7 +135,7 @@
       case 'gp': return g; case 'ppg': return per(s.pts, g); case 'rpg': return per((s.oreb || 0) + (s.dreb || 0), g); case 'apg': return per(s.ast, g); case 'spg': return per(s.stl, g); case 'bpg': return per(s.blk, g);
       case 'fg': return s.fga ? s.fgm / s.fga : -1; case 'tp': return s.tpa ? s.tpm / s.tpa : -1; default: return 0; } };
     rows.sort((a, b) => { const x = val(a), y = val(b); return (typeof x === 'string' ? x.localeCompare(y) : x - y) * (pv.desc ? -1 : 1); });
-    const th = (k, l, left) => `<th class="${left ? '' : 'n'} ${pv.sort === k ? 'sorted' : ''}" data-act="plSort" data-k="${k}" style="cursor:pointer">${l}${pv.sort === k ? (pv.desc ? ' ▼' : ' ▲') : ''}</th>`;
+    const th = (k, l, left) => `<th class="${left ? '' : 'n'} ${pv.sort === k ? 'sorted' : ''}" data-act="plSort" data-k="${k}" style="cursor:pointer">${l}${pv.sort === k ? (pv.desc ? (' ' + PB.I('down')) : (' ' + PB.I('up'))) : ''}</th>`;
     const f1 = v => v.toFixed(1), pct = (a, b) => b ? (100 * a / b).toFixed(1) : '-';
     return `<div class="panel"><div class="row between wrap"><div><h2 style="margin:0">Players</h2></div>
       <div class="row wrap"><label>Team <select data-change="plTeam"><option value="all">All teams</option>${G.teams.map(t => `<option value="${t.id}" ${pv.team === String(t.id) ? 'selected' : ''}>${esc(t.abbr)} · ${esc(t.name)}</option>`).join('')}${fa.length ? `<option value="-1" ${pv.team === '-1' ? 'selected' : ''}>Free agents</option>` : ''}</select></label>

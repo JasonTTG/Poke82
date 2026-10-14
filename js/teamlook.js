@@ -4,7 +4,7 @@
   const UI = PB.UI, esc = UI.esc, Logo = PB.Logo;
   const HEX = /^#[0-9a-fA-F]{6}$/;
   const PRESETS = [['#c8102e', '#ffffff'], ['#1d428a', '#ffc72c'], ['#007a33', '#ffffff'], ['#552583', '#fdb927'], ['#ff7a1a', '#101828'], ['#0e2240', '#fec524'], ['#00788c', '#f9a01b'], ['#e03a3e', '#c1d32f'], ['#f5f5f5', '#c8102e'], ['#101828', '#2fd47a'], ['#ffcb05', '#3b4cca'], ['#ec4899', '#1e1b4b']];
-  const SYMBOLS = ['', '⚡', '🔥', '🌊', '🌿', '❄️', '🐉', '👻', '⭐', '🏀', '🦅', '🌙', '💎', '🍃'];
+  const SYMBOLS = ['', '~z', '~f', '~w', '~l', '~i', '~d', '~g', '~s', '~b', '~e', '~m', '~j'];
   const SHAPES = Logo.SHAPES;
 
   // colors: [primary, accent, court paint]
@@ -15,7 +15,7 @@
     const s = baseSpec(t), c = t && t.custom;
     if (!c) return s;
     if (c.shape && Logo.PATHS[c.shape]) { s.shape = c.shape; s.path = Logo.PATHS[c.shape]; }
-    if (c.symbol) s.abbr = Array.from(c.symbol).slice(0, 3).join('');
+    if (c.symbol) { const ic = PB.Icon.of(c.symbol); if (ic) { s.icon = ic; s.abbr = ''; } else s.abbr = Array.from(c.symbol).slice(0, 3).join(''); }
     return s;
   };
 
@@ -46,7 +46,7 @@
       <div id="tl-prev" style="margin-bottom:10px"></div>
       <div class="col" style="gap:8px">
         <div><div class="dim" style="font-size:12px">Logo shape</div><div class="row wrap" id="tl-shapes">${shapeBtns}</div></div>
-        <div><div class="dim" style="font-size:12px">Symbol (replaces the letters; up to 3 characters)</div><div class="row wrap"><input type="text" id="tl-sym" value="${esc(E.symbol)}" maxlength="6" style="width:80px" oninput="PB.UI.tlSymbol(this.value)">${SYMBOLS.map(s => `<button class="small" data-act="tlSym" data-s="${s}">${s || 'Letters'}</button>`).join('')}</div></div>
+        <div><div class="dim" style="font-size:12px">Symbol (replaces the letters; up to 3 characters)</div><div class="row wrap"><input type="text" id="tl-sym" value="${esc(E.symbol)}" maxlength="6" style="width:80px" oninput="PB.UI.tlSymbol(this.value)">${SYMBOLS.map(s => `<button class="small" data-act="tlSym" data-s="${s}">${s ? PB.Icon.svg(PB.Icon.of(s)) : 'Letters'}</button>`).join('')}</div></div>
         <div class="row wrap" style="gap:14px"><label>Primary <input type="color" id="tl-c1" value="${E.c1}" oninput="PB.UI.tlColor('c1',this.value)"></label><label>Secondary <input type="color" id="tl-c2" value="${E.c2}" oninput="PB.UI.tlColor('c2',this.value)"></label><label>Court paint <input type="color" id="tl-c3" value="${E.c3}" oninput="PB.UI.tlColor('c3',this.value)"></label></div>
         <div><div class="dim" style="font-size:12px">Color presets</div><div class="row wrap">${PRESETS.map((p, i) => `<button class="small" data-act="tlPreset" data-i="${i}" style="background:linear-gradient(90deg,${p[0]} 50%,${p[1]} 50%);width:44px;height:26px;padding:0"></button>`).join('')}</div></div>
       </div>
@@ -62,5 +62,5 @@
   UI.actions.tlSave = () => PB.Ops.run('teamLook', { tid: E.tid, look: { c1: E.c1, c2: E.c2, c3: E.c3, shape: E.shape, symbol: E.symbol } }, err => { if (err) PB.toast(err, 3000); else { UI.closeModal(); UI.refresh(); } });
   UI.actions.tlReset = () => PB.Ops.run('teamLook', { tid: E.tid, look: null }, err => { if (err) PB.toast(err, 3000); else { UI.closeModal(); UI.refresh(); } });
   UI.actions.teamLook = (el, d) => UI.teamLook(+d.tid);
-  UI.teamLookButton = tid => `<button data-act="teamLook" data-tid="${tid}">🎨 Customize</button>`;
+  UI.teamLookButton = tid => `<button data-act="teamLook" data-tid="${tid}">${PB.I('palette')} Customize</button>`;
 })(window.PB);

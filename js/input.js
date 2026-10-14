@@ -5,7 +5,7 @@
   const DEFAULT_KEYS = {
     A: ['KeyJ', 'KeyF'], B: ['KeyU', 'KeyG'], X: ['KeyK', 'Space'], Y: ['KeyI', 'KeyR'],
     LB: ['KeyQ'], RB: ['KeyE'], LT: ['ControlLeft', 'KeyC'], RT: ['ShiftLeft', 'ShiftRight'],
-    START: ['Escape', 'KeyP'], BACK: ['Tab'],
+    START: ['Escape', 'KeyP'], BACK: ['Tab'], L3: ['KeyV'],
   };
   const MOVE_KEYS = { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'] };
   const AIM_KEYS = { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'] };

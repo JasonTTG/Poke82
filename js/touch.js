@@ -11,7 +11,7 @@
   #touch { position: fixed; inset: 0; z-index: 45; display: none; touch-action: none; user-select: none; -webkit-user-select: none; }
   #touch.on { display: block; }
   #touch .tz { position: absolute; touch-action: none; }
-  #touch .tb { position: absolute; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font: 900 18px Segoe UI, sans-serif; color: #fff; background: rgba(20, 28, 46, .55); border: 2px solid rgba(255, 255, 255, .35); touch-action: none; backdrop-filter: blur(2px); }
+  #touch .tb { position: absolute; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font: 18px Pixel, monospace; color: #fff; background: rgba(20, 28, 46, .55); border: 2px solid rgba(255, 255, 255, .35); touch-action: none; backdrop-filter: blur(2px); }
   #touch .tb.down { background: rgba(255, 203, 5, .55); transform: scale(.94); }
   #touch .tb small { font-size: 10px; font-weight: 700; display: block; opacity: .9; line-height: 1.05; text-align: center; max-width: 94%; }
   #touch .tb .ic { font-size: 22px; line-height: 1; }
@@ -22,27 +22,27 @@
   #touch .tb.mini .ic { font-size: 16px; }
   #touch .tb.mini small { font-size: 9px; }
   #touch .tb.off { opacity: .22; }
-  #thint { position: absolute; right: 8%; top: 26%; color: #fff; opacity: .28; font: 700 13px Segoe UI, sans-serif; pointer-events: none; text-shadow: 0 1px 3px #000; }
+  #thint { position: absolute; right: 8%; top: 26%; color: #fff; opacity: .28; font: 13px Pixel, monospace; pointer-events: none; text-shadow: 0 1px 3px #000; }
   #touch .tb.x { background: rgba(59, 130, 246, .5); } #touch .tb.a { background: rgba(47, 212, 122, .45); } #touch .tb.b { background: rgba(255, 90, 95, .45); } #touch .tb.y { background: rgba(255, 203, 5, .4); }
   #touch .tb.mini { font-size: 13px; background: rgba(20, 28, 46, .6); }
   #touch .knob { position: absolute; border-radius: 50%; background: rgba(255, 255, 255, .28); border: 2px solid rgba(255, 255, 255, .6); pointer-events: none; display: none; }
   #touch .base { position: absolute; border-radius: 50%; border: 2px dashed rgba(255, 255, 255, .3); pointer-events: none; display: none; }
-  #rotate { position: fixed; inset: 0; z-index: 46; display: none; background: rgba(5, 8, 15, .92); color: #fff; align-items: center; justify-content: center; text-align: center; font: 700 20px Segoe UI, sans-serif; }
+  #rotate { position: fixed; inset: 0; z-index: 46; display: none; background: rgba(5, 8, 15, .92); color: #fff; align-items: center; justify-content: center; text-align: center; font: 20px Pixel, monospace; }
   `;
   const BUTTONS = [
     // id, position (right/bottom offsets in units of s), size (units of s), class. Labels depend on the situation (see CTX).
     ['X', { r: 0.25, b: 0.35 }, 1.25, 'x'], ['A', { r: 1.65, b: 0.2 }, 1, 'a'], ['B', { r: 1.85, b: 1.35 }, 0.9, 'b'], ['Y', { r: 0.55, b: 1.75 }, 1, 'y'],
     ['RT', { r: 3.4, b: 0.2 }, 1, 'mini'], ['LT', { r: 3.5, b: 1.5 }, 0.8, 'mini'], ['RB', { r: 2.6, b: 2.7 }, 0.75, 'mini'], ['LB', { r: 1.2, b: 3.05 }, 0.75, 'mini'],
   ];
-  const TOP = [['START', 'II', { r: 0.2, t: 0.2 }, 0.62], ['BACK', '◀◀', { r: 1.0, t: 0.2 }, 0.62]];
+  const TOP = [['START', PB.I('pause'), { r: 0.2, t: 0.2 }, 0.62], ['BACK', PB.I('rewind'), { r: 1.0, t: 0.2 }, 0.62], ['L3', PB.I('eye'), { r: 1.8, t: 0.2 }, 0.62]];
   // what each button does right now: [icon, word]; null = nothing (shown dim)
-  const SPR = ['»', 'Sprint'];
+  const SPR = [PB.I('ff'), 'Sprint'];
   const CTX = {
-    ballO: { X: ['', 'Shoot'], A: ['➜', 'Pass'], B: ['⤵', 'Bounce'], Y: ['⤴', 'Lob'], RT: SPR, LT: ['', 'Post up'], RB: ['', 'Pass to…'], LB: ['', 'Screen'], hint: 'Drag here to dribble' },
-    offO: { X: null, A: ['', 'Call ball'], B: null, Y: ['⬆', 'Jump'], RT: SPR, LT: null, RB: null, LB: ['', 'Screen'], hint: '' },
-    def: { X: ['', 'Steal'], A: ['', 'Switch'], B: ['', 'Charge'], Y: ['⬆', 'Block'], RT: SPR, LT: ['', 'Box out'], RB: ['', 'Deny'], LB: ['', 'Scheme'], hint: 'Drag here to call help' },
-    loose: { X: null, A: null, B: null, Y: ['⬆', 'Rebound'], RT: SPR, LT: ['', 'Box out'], RB: null, LB: null, hint: '' },
-    inbound: { X: null, A: ['➜', 'Pass in'], B: ['⤵', 'Bounce in'], Y: null, RT: null, LT: null, RB: null, LB: null, hint: '' },
+    ballO: { X: ['', 'Shoot'], A: [PB.I('right'), 'Pass'], B: [PB.I('down'), 'Bounce'], Y: [PB.I('up'), 'Lob'], RT: SPR, LT: ['', 'Post up'], RB: ['', 'Pass to…'], LB: ['', 'Screen'], hint: 'Drag here to dribble' },
+    offO: { X: null, A: ['', 'Call ball'], B: null, Y: [PB.I('arrowUp'), 'Jump'], RT: SPR, LT: null, RB: null, LB: ['', 'Screen'], hint: '' },
+    def: { X: ['', 'Steal'], A: ['', 'Switch'], B: ['', 'Charge'], Y: [PB.I('arrowUp'), 'Block'], RT: SPR, LT: ['', 'Box out'], RB: ['', 'Deny'], LB: ['', 'Scheme'], hint: 'Drag here to call help' },
+    loose: { X: null, A: null, B: null, Y: [PB.I('arrowUp'), 'Rebound'], RT: SPR, LT: ['', 'Box out'], RB: null, LB: null, hint: '' },
+    inbound: { X: null, A: [PB.I('right'), 'Pass in'], B: [PB.I('down'), 'Bounce in'], Y: null, RT: null, LT: null, RB: null, LB: null, hint: '' },
     ft: { X: ['', 'Shoot'], A: null, B: null, Y: null, RT: null, LT: null, RB: null, LB: null, hint: '' },
     meter: { X: ['', 'Release'], A: null, B: null, Y: null, RT: null, LT: null, RB: null, LB: null, hint: '' },
     dead: { X: null, A: null, B: null, Y: null, RT: null, LT: null, RB: null, LB: null, hint: '' },
@@ -54,7 +54,7 @@
     const el = T.el = document.createElement('div'); el.id = 'touch';
     el.innerHTML = '<div class="tz" id="tz-l"></div><div class="tz" id="tz-r"></div><div class="base" id="tbase-l"></div><div class="knob" id="tknob-l"></div><div class="base" id="tbase-r"></div><div class="knob" id="tknob-r"></div>';
     document.body.appendChild(el);
-    const rot = document.createElement('div'); rot.id = 'rotate'; rot.innerHTML = '<div>📱↻<br>Rotate your device to landscape<br><small style="font-weight:400">The court plays best sideways</small></div>'; document.body.appendChild(rot);
+    const rot = document.createElement('div'); rot.id = 'rotate'; rot.innerHTML = '<div>'+PB.I('phone')+PB.I('rotate')+'<br>Rotate your device to landscape<br><small style="font-weight:400">The court plays best sideways</small></div>'; document.body.appendChild(rot);
     const stick = (zoneId, baseId, knobId, key) => {
       const z = document.getElementById(zoneId), base = document.getElementById(baseId), knob = document.getElementById(knobId);
       let pid = null, cx = 0, cy = 0;
