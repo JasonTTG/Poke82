@@ -174,7 +174,7 @@
     const rng = new PB.RNG((lg.seed + (lg.simSeq++) * 2654435761) >>> 0);
     const diff = [0, 0];
     if (h.user) diff[1] = settingsDiff(G); else if (a.user) diff[0] = settingsDiff(G);
-    const g = new PB.Game(PB.activeTeam(G, h), PB.activeTeam(G, a), { rng, diff, quarterMin: 12 });
+    const g = new PB.Game(PB.activeTeam(G, h), PB.activeTeam(G, a), { rng, diff, quarterMin: 12, edge: PB.edgeFor(G) });
     const res = g.run();
     L.record(G, game, res, playoff);
     return res;

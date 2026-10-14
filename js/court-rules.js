@@ -29,12 +29,12 @@
       this.nonShootingFoul(cand, h, 'Intentional foul');
     },
     // floating badge pop-ups above a player (drawn by the renderer)
-    badgePop(body, name, text) {
+    badgePop(body, name, text, bad) {
       if (!body || PB.settings.showBadges === false) return;
       this._popCd = this._popCd || {};
       const k = body.mon.id + name; if (this.t - (this._popCd[k] || -9) < 3) return;
       this._popCd[k] = this.t;
-      (this.pops = this.pops || []).push({ b: body, txt: name + (text || ''), t0: this.t });
+      (this.pops = this.pops || []).push({ b: body, txt: name + (text || ''), t0: this.t, bad: !!bad });
       if (this.pops.length > 8) this.pops.shift();
     },
     // short plain-text callouts over a player (box outs and the like); they use the same pop-up layer as badges

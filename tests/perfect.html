@@ -1,0 +1,47 @@
+<!doctype html><meta charset=utf-8><body style="font:12px monospace"><pre id=o>running...</pre>
+<script src="../data/pokemon.js"></script><script src="../js/util.js"></script><script src="../js/icons.js"></script><script src="../js/ratings.js"></script><script src="../js/abilities.js"></script><script src="../js/teams.js"></script><script src="../js/draft.js"></script><script src="../js/sim.js"></script><script src="../js/league.js"></script><script src="../js/franchise.js"></script><script src="../js/franchise2.js"></script><script src="../js/fantasy.js"></script><script src="../js/save.js"></script><script src="../js/court.js"></script><script src="../js/court-ai.js"></script><script src="../js/court-rules.js"></script><script>PB.UI=PB.UI||{esc:x=>x,actions:{},screens:{},hubTabs:{},addHubTab(){},spr(){return""},teamLabel(){return""}};</script><script src="../js/grades.js"></script><script src="../js/natures.js"></script><script src="../js/advstats.js"></script><script>PB.UI.inspect=PB.UI.inspect||function(){};PB.UI.inDraft=()=>false;</script><script src="../js/career.js"></script><script src="../js/shotzones.js"></script><script>PB.UI.logo=()=>"";</script><script src="../js/recordbook.js"></script><script src="../js/ops.js"></script><script src="../js/logos.js"></script><script src="../js/teamlook.js"></script>
+<script>
+PB.buildDB();PB.settings=PB.defaultSettings();
+const L=PB.League;
+const pickRng=(G,pick,kind)=>{let h=(G.seed>>>0)^Math.imul(pick+1,2654435761);for(const c of kind)h=Math.imul(h^c.charCodeAt(0),16777619);return new PB.RNG(h>>>0)};
+// one Daily-style run: draft the best available player every pick (optionally spending the rerolls), then play 82 games
+function run(seed,useRerolls,thr,dream){
+  const G=PB.newGame(seed,'main',30,seed%30);G.settings=Object.assign(PB.defaultSettings(),{difficulty:'normal'});
+  G.rules={legCap:0,mod:null};G.daily={date:'x',games:82,mod:null};PB.G=G;
+  const T=G.teams[G.userTeam];const rr={region:1,type:1};const smart=thr>0,filled=[0,0,0,0,0];
+  if(dream){const all=Object.values(PB.BYID).filter(m=>m.full||m.def).sort((a,b)=>b.ovr-a.ovr);let n=0;for(const m of all){if(n>=12)break;if(!PB.legalAdd(G,G.userTeam,m.id))continue;PB.Registry.claim(G,m.id,G.userTeam);n++;}}
+  for(let pick=0;pick<(dream?0:12);pick++){
+    let combo=PB.rollCombo(G,pickRng(G,pick,'roll'));let cands=PB.genCandidates(G,pickRng(G,pick,'roll'),pick,combo.gen,combo.type,undefined,G.userTeam);
+    const best=c=>Math.max(...c.map(m=>m.ovr));
+    if(useRerolls)for(const w of ['region','type']){ if(best(cands)<thr&&rr[w]){const r=pickRng(G,pick,w);const c2=PB.rerollCombo(G,r,combo,w);if(c2){rr[w]--;combo=c2;cands=PB.genCandidates(G,r,pick,combo.gen,combo.type,undefined,G.userTeam);}}}
+    // the best pick: highest overall (starters also need a spot they can play)
+    const val=m=>{ if(pick>=5||!smart)return m.ovr; let b=-1;for(let sl=0;sl<5;sl++){if(filled[sl])continue;b=Math.max(b,m.ovr*(1-PB.slotPenalty(m,sl)));}return b;};
+    cands.sort((a,b)=>val(b)-val(a));
+    if(pick<5&&smart){let bs=-1,bv=-1;for(let sl=0;sl<5;sl++){if(filled[sl])continue;const v=cands[0].ovr*(1-PB.slotPenalty(cands[0],sl));if(v>bv){bv=v;bs=sl}}filled[bs]=1;}
+    PB.Registry.claim(G,cands[0].id,G.userTeam);
+    if(pick===4)PB.autoLineup(T);
+    if(pick>4)T.bench=T.roster.filter(x=>!T.starters.includes(x)).sort((x,y)=>PB.BYID[y].ovr-PB.BYID[x].ovr);
+  }
+  PB.autoLineup(T);
+  PB.aiDraftRounds(G,G.rng,G.teams.filter(t=>!t.user).map(t=>t.id),0);
+  G.league=L.create(G,82);
+  for(const gm of G.league.sched)if(gm.h===G.userTeam||gm.a===G.userTeam)L.simOne(G,gm,false);
+  const r=G.league.rec[G.userTeam];const ai=G.teams.filter(t=>!t.user).map(t=>PB.teamOvr(t));return {w:r.w,l:r.l,ovr:PB.teamOvr(T),ai:Math.max(...ai),aiavg:ai.reduce((a,b)=>a+b,0)/ai.length};
+}
+const out=document.getElementById('o');
+async function main(){
+  const [N0,S0,MODE,EDGE]=(location.hash.slice(1)||'60,0,0').split(',');if(EDGE!==undefined)PB.DRAFT_EDGE=+EDGE;const N=+N0,SEED0=+S0;const res={};
+  for(const [name,rer,thr,dr] of [['greedy',false,0,false],['smart',true,80,false],['dream',false,0,true]].filter((_,i)=>MODE===undefined||MODE==='0'?true:i===+MODE-1)){
+    const hist={},ws=[];let perfect=0,t0=performance.now();
+    for(let i=0;i<N;i++){
+      const r=run(SEED0+5000+i*7+(rer?1:0),rer,thr,dr);ws.push(r.w);(window.INFO=window.INFO||[]).push([r.ovr.toFixed(1),r.ai.toFixed(1),r.aiavg.toFixed(1)]);if(r.w===82)perfect++;
+      hist[Math.floor(r.w/5)*5]=(hist[Math.floor(r.w/5)*5]||0)+1;
+      if(i%5===4){out.textContent=name+' '+(i+1)+'/'+N+' avgW '+(ws.reduce((a,b)=>a+b,0)/ws.length).toFixed(1)+' perfect '+perfect;await new Promise(r=>setTimeout(r,0));}
+    }
+    ws.sort((a,b)=>a-b);
+    res[name]={info:window.INFO,ws,n:N,avg:(ws.reduce((a,b)=>a+b,0)/N).toFixed(1),median:ws[N>>1],max:ws[N-1],perfect,ge80:ws.filter(w=>w>=80).length,ge75:ws.filter(w=>w>=75).length,sec:((performance.now()-t0)/1000).toFixed(0),hist};
+  }
+  out.textContent='DONE '+JSON.stringify(res);window.RESULT=res;
+}
+main().catch(e=>{out.textContent='ERR '+e.message+' '+(e.stack||'').split('\n')[1]});
+</script>

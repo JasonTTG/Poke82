@@ -20,7 +20,7 @@
     const showO = s.showOverall;
     UI.modal(`<h2>${esc(T.name)} ${ug.h === G.userTeam ? 'vs' : '@'} ${esc(O.name)}</h2>
       ${showO ? `<div><b>OVR</b> ${PB.teamOvr(T).toFixed(1)} vs ${PB.teamOvr(O).toFixed(1)}</div>` : ''}
-      <div class="row wrap" style="margin:10px 0">${O.starters.map(id => `<div class="center" style="width:70px">${UI.spr(PB.BYID[id], 56)}<div style="font-size:11px">${esc(PB.BYID[id].dispName)}</div><div class="dim" style="font-size:10px" title="${esc(PB.Abil.describe(id).desc)}">${PB.I('bolt')} ${esc(PB.Abil.describe(id).badge)}</div>${showO ? `<b>${PB.BYID[id].ovr}</b>` : ''}</div>`).join('')}</div>
+      <div class="row wrap" style="margin:10px 0">${O.starters.map(id => `<div class="center" style="width:70px">${UI.spr(PB.BYID[id], 56)}<div style="font-size:11px">${esc(PB.BYID[id].dispName)}</div><div class="dim" style="font-size:10px" title="${esc(PB.Abil.describe(id).desc)}">${PB.I(PB.Abil.describe(id).bad ? 'down' : 'bolt')} ${esc(PB.Abil.describe(id).badge)}</div>${showO ? `<b>${PB.BYID[id].ovr}</b>` : ''}</div>`).join('')}</div>
       <label>Quarter length: <b id="pq">${s.quarterMin}</b> min <input type="range" min="1" max="12" value="${s.quarterMin}" id="pqr" oninput="document.getElementById('pq').textContent=this.value"></label>
       <label style="margin-left:14px">Camera <select id="pcam"><option value="behind" ${s.camera !== 'broadcast' ? 'selected' : ''}>2K (behind the play)</option><option value="broadcast" ${s.camera === 'broadcast' ? 'selected' : ''}>Broadcast (sideline)</option></select></label>
       <div class="row wrap" style="margin-top:12px"><button class="gold" data-act="tipOff" data-opp="${oppId}" autofocus>Tip off</button><button data-act="closeModal">Cancel</button></div>`);
@@ -397,8 +397,8 @@
     const pfStyle = pl => pl.st.pf >= 5 ? 'color:#ff5a5f;font-weight:800' : foulSev(pl) ? 'color:#ffb02e;font-weight:700' : '';
     const showO = PB.settings.showOverall;
     const on = !!match.online;
-    const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · <span style="${pfStyle(pl)}">${pl.st.pf} PF</span> · ${Math.round(pl.st.sec / 60)}m</span> <span class="tag" style="font-size:10px" title="${esc(PB.Abil.describe(pl.id).desc)}">${PB.I('bolt')} ${esc(PB.Abil.describe(pl.id).badge)}</span>${foulSev(pl) ? ' <span class="tag bad" style="font-size:10px">foul trouble</span>' : ''}<div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
-    UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>${on ? '<div class="dim" style="margin-bottom:6px">Online match — the game is paused for both players.</div>' : ''}
+    const rows = list => list.map(pl => `<div class="slot fill ${UI._subSel && UI._subSel.pl === pl ? 'sel' : ''}" tabindex="0" data-act="subPick" data-id="${pl.id}"><span class="pos p${pl.slot != null ? pl.slot : 2}" style="min-width:30px">${pl.slot != null ? PB.POS[pl.slot] : 'BN'}</span>${UI.spr(pl.mon, 34)}<div class="grow"><b>${esc(pl.mon.dispName)}</b> <span class="dim" style="font-size:11px">${pl.st.pts} pts · <span style="${pfStyle(pl)}">${pl.st.pf} PF</span> · ${Math.round(pl.st.sec / 60)}m</span> <span class="tag" style="font-size:10px" title="${esc(PB.Abil.describe(pl.id).desc)}">${PB.I(PB.Abil.describe(pl.id).bad ? 'down' : 'bolt')} ${esc(PB.Abil.describe(pl.id).badge)}</span>${foulSev(pl) ? ' <span class="tag bad" style="font-size:10px">foul trouble</span>' : ''}<div class="meter" style="height:6px;margin-top:3px"><i style="width:${Math.round(pl.en)}%"></i></div></div>${pl.dq ? '<span class="tag bad">OUT</span>' : ''}${showO ? `<b>${pl.mon.ovr}</b>` : ''}</div>`).join('');
+    UI.modal(`<h2>${esc(match.teams[0].abbr)} ${match.sc(0)} – ${match.sc(1)} ${esc(match.teams[1].abbr)}</h2>${(match.pendingSubs || []).filter(q => q.s === match.me).map(q => `<div class="tag good" style="margin-bottom:6px">${PB.I('down')} ${esc(q.pl.mon.dispName)} for ${esc(q.out.mon.dispName)} at the next stoppage</div>`).join('')}${on ? '<div class="dim" style="margin-bottom:6px">Online match — the game is paused for both players.</div>' : ''}
       <div class="row wrap"><button class="gold" data-act="resumeGame" autofocus>Resume</button><button data-act="toggleAutoSub">${sd.auto ? 'Auto-subs: ON' : 'Auto-subs: OFF'}</button><button data-act="toggleCard">Player card: ${PB.settings.showCard ? 'ON' : 'OFF'}</button><button data-act="toggleBadges">Badge pop-ups: ${PB.settings.showBadges === false ? 'OFF' : 'ON'}</button><button data-act="cycleGfx">Graphics: ${({ high: 'High', medium: 'Medium', low: 'Low' })[PB.settings.gfx || 'high']}</button><button data-act="toggleCam">Camera: ${PB.settings.camera === 'broadcast' ? 'Broadcast' : '2K'}</button><button data-act="pauseView" data-v="controls">Controls</button>${match.mode3 ? '' : `<button data-act="callTimeout" ${match.timeouts[match.me] > 0 ? '' : 'disabled'}>Timeout (${match.timeouts[match.me]})</button>`}<button data-act="pauseView" data-v="clips" ${match.highlights.length ? '' : 'disabled'}>Replays (${match.highlights.length})</button><button data-act="cycleMeter">Meter: ${UI.meterSkins[PB.settings.meterSkin || 'bar']}</button>${on ? '' : '<button data-act="autoFinish">Sim to end</button>'}<button data-act="quitGame">${on ? 'Leave match' : match.mode === 'practice' ? 'End practice' : 'Forfeit'}</button></div>
       <div class="row wrap" style="margin:8px 0"><label>Offense <select data-change="gSetStrat" data-k="off">${Object.entries(PB.OFF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.off === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Defense <select data-change="gSetStrat" data-k="def">${Object.entries(PB.DEF_STRATS).map(([k, v]) => `<option value="${k}" ${sd.strat.def === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
@@ -575,6 +575,11 @@
     // the hoop sorts by where its backboard stands on the floor, not by the rim's height: a player in front of the board draws over it, one behind it draws under
     for (const bx of [5.25, W - 5.25]) { const p = proj(bx < 47 ? 3.6 : W - 3.6, 25, 0); if (p) items.push({ d: p[2], kind: 'hoop', bx }); }
     courtsideItems(m, items);
+    for (const lv of m.leavers || []) {      // a substituted player jogs to the bench and fades
+      const age = m.t - lv.t0; if (age < 0 || age > 1.7) continue;
+      const k = Math.min(1, age / 1.5), bx = lv.s === 0 ? 24 : 70, p = proj(lv.x + (bx - lv.x) * k, lv.y + (-3.2 - lv.y) * k, 0); if (!p) continue;
+      items.push({ d: p[2], kind: 'prop', draw: g => { const dh = bodyFt({ mon: lv.mon }) * cam.F / p[2] * 0.82; g.globalAlpha = 1 - Math.max(0, (age - 1.2) / 0.5); drawSprite(g, lv.mon, p[0], p[1] - Math.abs(Math.sin(age * 9)) * dh * 0.05, dh, false); g.globalAlpha = 1; } });
+    }
     items.sort((a, b) => b.d - a.d);
     const g1 = g, c2 = document.getElementById('court2'), S = c2.width / w;
     ctx2.setTransform(1, 0, 0, 1, 0, 0); ctx2.clearRect(0, 0, c2.width, c2.height); ctx2.setTransform(S, 0, 0, S, 0, 0);
@@ -663,7 +668,7 @@
       const ty = p[1] - sz * 0.86;
       if (mineCtl || partnerCtl) { g.fillStyle = mineCtl ? '#ffd23f' : '#4aa3ff'; g.beginPath(); g.moveTo(p[0] - fs * 0.45, ty - fs * 1.35); g.lineTo(p[0] + fs * 0.45, ty - fs * 1.35); g.lineTo(p[0], ty - fs * 0.75); g.closePath(); g.fill(); }
       outText(g, b.mon.dispName, p[0], ty - fs * 1.6, mineCtl ? '#ffd23f' : partnerCtl ? '#7cc4ff' : '#fff', 2 / SC);
-      if ((mineCtl || partnerCtl) && PB.settings.showBadges !== false) { g.font = `${Math.round(fs * 0.72)}px Pixel, monospace`; iconText(g, 'bolt', PB.Abil.describe(b.mon.id).badge, p[0], ty - fs * 0.62, '#ffe27a', 2 / SC, fs * 0.6); }
+      if ((mineCtl || partnerCtl) && PB.settings.showBadges !== false) { g.font = `${Math.round(fs * 0.72)}px Pixel, monospace`; { const ad = PB.Abil.describe(b.mon.id); iconText(g, ad.bad ? 'down' : 'bolt', ad.badge, p[0], ty - fs * 0.62, ad.bad ? '#ff9aa0' : '#ffe27a', 2 / SC, fs * 0.6); } }
     }
     { const hot = b.pl.hot || 0; if (hot > 0.55 || hot < -0.55) { g.font = `${Math.max(12 / SC, sz * 0.14)}px Pixel, monospace`; const ih = Math.max(12 / SC, sz * 0.14) * 0.75, nm = hot > 0 ? 'fire' : 'snow'; PB.Icon.draw(g, nm, p[0] + sz * 0.28 - PB.Icon.width(nm, ih) / 2, p[1] - sz * 0.78 - bob - ih, ih); } }
     { const pf = b.pl.st.pf; if (pf >= (b.s === m.me ? 2 : 4)) { g.font = `${Math.max(10 / SC, sz * 0.11)}px Pixel, monospace`; g.textAlign = 'center'; const ly = p[1] + sz * 0.2 + 14 / SC; outText(g, pf + ' PF', p[0], ly, pf >= 5 ? '#ff5a5f' : pf >= 4 ? '#ffb02e' : '#e8ecf5', 2 / SC); } }
@@ -709,9 +714,9 @@
         const fs = Math.max(11, Math.min(20, s.sz * 0.14)), y = s.y - s.sz * 0.2 - age * s.sz * 0.35;
         g.globalAlpha = age < 0.12 ? age / 0.12 : age > 0.7 ? 1 - (age - 0.7) / 0.3 : 1;
         g.font = `${fs}px Pixel, monospace`; g.textAlign = 'center';
-        const txt = q.txt, ih = Math.round(fs * 0.75), iw = q.plain ? 0 : PB.Icon.width('bolt', ih) + fs * 0.35, tw = g.measureText(txt).width + fs + iw;
-        plate(g, s.x - tw / 2, y - fs * 1.05, tw, fs * 1.5, mine ? '#3a2d00' : '#46141c', mine ? '#ffcb05' : '#ff7a85', 'rgba(0,0,0,.4)');
-        g.fillStyle = mine ? '#ffe27a' : '#ffb3ba'; if (q.plain) g.fillText(txt, s.x, y + fs * 0.1); else { PB.Icon.draw(g, 'bolt', s.x - tw / 2 + fs / 2, y - fs * 0.6, ih); g.textAlign = 'left'; g.fillText(txt, s.x - tw / 2 + fs / 2 + iw, y + fs * 0.1); g.textAlign = 'center'; }
+        const txt = q.txt, ih = Math.round(fs * 0.75), iw = q.plain ? 0 : PB.Icon.width(q.bad ? 'down' : 'bolt', ih) + fs * 0.35, tw = g.measureText(txt).width + fs + iw;
+        plate(g, s.x - tw / 2, y - fs * 1.05, tw, fs * 1.5, q.bad ? '#3a0c12' : mine ? '#3a2d00' : '#46141c', q.bad ? '#ff5a5f' : mine ? '#ffcb05' : '#ff7a85', 'rgba(0,0,0,.4)');
+        g.fillStyle = q.bad ? '#ff9aa0' : mine ? '#ffe27a' : '#ffb3ba'; if (q.plain) g.fillText(txt, s.x, y + fs * 0.1); else { PB.Icon.draw(g, q.bad ? 'down' : 'bolt', s.x - tw / 2 + fs / 2, y - fs * 0.6, ih, q.bad ? '#ff5a5f' : undefined); g.textAlign = 'left'; g.fillText(txt, s.x - tw / 2 + fs / 2 + iw, y + fs * 0.1); g.textAlign = 'center'; }
         g.globalAlpha = 1;
       }
     }

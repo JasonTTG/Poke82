@@ -54,7 +54,7 @@
       <div class="sprwrap">${spr(m, 96)}</div>
       <div class="row between"><div>${v.P ? posBadges(m) : ''}</div><div class="dim" style="font-size:11px">${PB.fmtHeight(m.h)} · ${PB.fmtWeight(m.w)}</div></div>
       ${v.A ? `<div class="arch"><b>${m.archOff}</b> · ${m.archDef}</div>` : ''}
-      <div class="arch" title="${esc(PB.Abil.describe(m.id).desc)}">${PB.I('bolt')} <b>${esc(PB.Abil.describe(m.id).ability)}</b> · ${esc(PB.Abil.describe(m.id).badge)}</div>
+      <div class="arch" title="${esc(PB.Abil.describe(m.id).desc)}">${PB.I(PB.Abil.describe(m.id).bad ? 'down' : 'bolt')} <b>${esc(PB.Abil.describe(m.id).ability)}</b> · ${esc(PB.Abil.describe(m.id).badge)}</div>
       ${v.R ? miniBars(m) : baseBars(m)}
       <div>${legend ? '<span class="tag leg">' + (m.myth ? 'MYTHICAL' : 'LEGENDARY') + '</span>' : ''}</div>
       ${o.btn ? `<button class="${o.btnClass || 'primary'}" data-act="${o.btnAct}" data-id="${m.id}">${o.btn}</button>` : ''}
@@ -132,8 +132,13 @@
       console.error(e); if (PB.Diag) PB.Diag.err('screen ' + UI.cur + ': ' + e.message, 'render');
       html = `<div class="panel center" style="max-width:520px;margin:30px auto"><h2>This screen could not open</h2><div class="dim">${esc(e.message)}</div><div class="row center" style="margin-top:12px"><button class="primary" data-act="goMenu" autofocus>Back to menu</button><button data-act="diagCopy">Copy problem report</button></div></div>`; top = UI.defaultTop();
     }
+    // a redraw of the same screen (a live sim ticking) keeps every horizontally or vertically scrolled box where the player left it
+    const SCROLLY = '#screen .bracket, #screen .scroll, #screen .panel, #screen .modal, #screen .subtabs';
+    const kept = UI._lastScr === UI.cur ? [...document.querySelectorAll(SCROLLY)].map(e => [e.scrollLeft, e.scrollTop]) : null;
+    UI._lastScr = UI.cur;
     $('#top').innerHTML = top;
     $('#screen').innerHTML = `<div class="screen" id="scr">${html}</div>`;
+    if (kept) document.querySelectorAll(SCROLLY).forEach((e, i) => { const k = kept[i]; if (k && (k[0] || k[1])) { e.scrollLeft = k[0]; e.scrollTop = k[1]; } });
     if (PB.Audio) PB.Audio.setScene(UI.cur === 'game' ? 'game' : 'menu');      // music on menus, crowd noise in games
     document.querySelectorAll('.tabs button.on, .subtabs button.on').forEach(b => { try { b.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch (e) { } });      // keep the current tab in view on a narrow screen
     if (sc.mount) { try { sc.mount(UI.params); } catch (e) { console.error(e); if (PB.Diag) PB.Diag.err('mount ' + UI.cur + ': ' + e.message, 'mount'); } }

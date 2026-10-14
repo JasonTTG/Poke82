@@ -45,7 +45,7 @@
       const adj = d === 'easy' ? -0.02 : d === 'hard' ? 0.02 : d === 'legend' ? 0.045 : 0;
       diff[this.gi[1]] = adj;
       this.qMin = opts.quarterMin || 5;
-      this.g = new PB.Game(this.userHome ? U : O, this.userHome ? O : U, { rng: this.rng, quarterMin: this.qMin, diff, userSide: this.gi[0], noPos: this.mode3 });
+      this.g = new PB.Game(this.userHome ? U : O, this.userHome ? O : U, { rng: this.rng, quarterMin: this.qMin, diff, userSide: this.gi[0], noPos: this.mode3, edge: PB.edgeFor(G) });
       if (this.mode3) { this.g.qLen = 99999; this.g.otLen = 99999; }
       this.g.qLen = this.qMin * 60; this.g.otLen = Math.max(60, Math.round(this.qMin * 60 * 5 / 12));
       this.teams = [U, O];
@@ -110,6 +110,11 @@
       const pl = this.gs(s).court[slot];
       if (old.pl === pl) return;
       const hadBall = this.ball.holder === old;
+      if (!hadBall && !this.replay) {
+        // the player coming off jogs to the bench while the new one jogs on from it (see updateWalks and the leavers drawn by the renderer)
+        (this.leavers = (this.leavers || []).filter(l => this.t - l.t0 < 3)).push({ mon: old.mon, s, x: old.x, y: old.y, t0: this.t });
+        old.walk = { t0: this.t, dur: 1.7, pend: true };
+      }
       old.pl = pl; old.mon = pl.mon; old.r = 1.1 + 0.9 * old.mon.r.sW; old.ai = {};
       if (hadBall) this.ball.holder = old;
     }
@@ -267,6 +272,7 @@
       this._clearActions();
       this.pickCtrl(true);
       this.inboundDelay = 0.9;
+      if (this.allBodies().some(b => b.walk)) this.inboundDelay = 2.0;      // wait for the substitutes to get on
       if (O.length <= 1) { this.phase = 'live'; this.sim.clockRun = true; this.inboundSpot = null; this.inbounder = null; this.inboundDelay = 0; }
     }
     // after a steal or defensive rebound in half-court play the ball has to come back out ("take it back")
@@ -291,6 +297,7 @@
 
     // ---------------------------------------------------------------- substitutions
     doSubs() {
+      this.applyPendingSubs();
       const g = this.g;
       g.elapsed = this.t;
       for (let si = 0; si < 2; si++) {
@@ -309,9 +316,35 @@
         }
       }
     }
+    // a substitution asked for during live play waits for the next stoppage (like a real one); during a stoppage it happens right away, with the walk
     forceSub(s, slot, benchPl) {
-      const si = this.gi[s];
+      const si = this.gi[s], sd = this.g.sides[si];
+      if (this.phase === 'live') {
+        this.pendingSubs = (this.pendingSubs || []).filter(p => !(p.s === s && p.slot === slot));
+        this.pendingSubs.push({ s, slot, pl: benchPl, out: sd.court[slot] });
+        this.say('Sub ready: ' + benchPl.mon.dispName + ' in at the next stoppage');
+        return;
+      }
       this.g.swap(si, slot, benchPl); this.rebind(s, slot); this.say('SUB: ' + benchPl.mon.dispName + ' in');
+    }
+    applyPendingSubs() {
+      const q = this.pendingSubs; if (!q || !q.length) return;
+      this.pendingSubs = [];
+      for (const p of q) {
+        const si = this.gi[p.s], sd = this.g.sides[si];
+        if (sd.court[p.slot] !== p.out || !sd.bench.includes(p.pl) || p.pl.dq) continue;
+        this.g.swap(si, p.slot, p.pl); this.rebind(p.s, p.slot); this.say('SUB: ' + p.pl.mon.dispName + ' in');
+      }
+    }
+    // incoming players run on from the sideline to the spot they were placed at
+    updateWalks(dt) {
+      for (const b of this.allBodies()) {
+        const w = b.walk; if (!w) continue;
+        if (w.pend) { w.pend = false; w.tx = b.x; w.ty = b.y; w.fx = b.s === 0 ? 24 : 70; w.fy = -3.2; }
+        const k = Math.min(1, (this.t - w.t0) / w.dur), e = k * k * (3 - 2 * k);
+        b.x = w.fx + (w.tx - w.fx) * e; b.y = w.fy + (w.ty - w.fy) * e; b.vx = b.vy = 0; b.intent = { tx: b.x, ty: b.y, sp: 0 };
+        if (k >= 1) b.walk = null;
+      }
     }
 
     // ---------------------------------------------------------------- control
@@ -353,7 +386,7 @@
       for (const u of this.U) if (u.ctrlLock > 0) u.ctrlLock -= dt;
       if (this.checkPending) this.resolveCheck();
       if (this.phase === 'dead') { this.deadT -= dt; if (this.deadT <= 0) { const f = this.afterDead; this.afterDead = null; f && f(); } return; }
-      if (this.phase === 'ft') { this.updateFT(dt, inps); this.energy(dt, false); return; }
+      if (this.phase === 'ft') { this.updateFT(dt, inps); this.updateWalks(dt); this.energy(dt, false); return; }
       if (this.phase === 'jump') { this.updateJumpBall(dt, inps); return; }
       // user input -> user actions
       this.userInput(dt, inps);
@@ -362,6 +395,7 @@
       // integrate
       for (const b of this.allBodies()) this.moveBody(b, dt);
       this.collide(dt);
+      this.updateWalks(dt);
       this.updateBall(dt);
       this.ballContests(dt);
       // clocks
@@ -794,7 +828,7 @@
       adj += this.g.form[this.gi[s]] - this.g.form[this.gi[1 - s]] * 0.5 + (this.g.diff[this.gi[s]] - this.g.diff[this.gi[1 - s]]) * 0.5;
       if (flag) { const k = b.moveWin ? 1 : 0.35; adj += k * ({ euro: 0.06, drop: 0.06, spin: 0.045, hook: 0.045, fade: -0.02 }[flag] || 0); }
       adj += PB.Abil.shotAdj(this.g, this.gi[s], b.pl, dfd && dfd.pl, { type, c, fast: this.possT != null && this.t - this.possT < 7, bigger: !!dfd && b.mon.r.sH > dfd.mon.r.sH + 0.1 });
-      if (PB.settings.showBadges !== false) for (const t of PB.Abil.tags(this.g, this.gi[s], b.pl, dfd && dfd.pl, { type, c, fast: this.possT != null && this.t - this.possT < 7, bigger: !!dfd && b.mon.r.sH > dfd.mon.r.sH + 0.1 })) this.badgePop(this.allBodies().find(x => x.pl === t.pl), t.name, ' ' + (t.v > 0 ? '+' : '') + Math.round(t.v * 100) + '%');
+      if (PB.settings.showBadges !== false) for (const t of PB.Abil.tags(this.g, this.gi[s], b.pl, dfd && dfd.pl, { type, c, fast: this.possT != null && this.t - this.possT < 7, bigger: !!dfd && b.mon.r.sH > dfd.mon.r.sH + 0.1 })) this.badgePop(this.allBodies().find(x => x.pl === t.pl), t.name, ' ' + ((t.bad ? t.ov : t.v) > 0 ? '+' : '') + Math.round((t.bad ? t.ov : t.v) * 100) + '%', t.bad);
       const strat = gS.strat, dstrat = gO.strat;
       if (dstrat.def === 'lockdown') adj -= 0.004;
       if (dstrat.def === 'zone') adj += type === 'three' ? 0.008 : type === 'rim' ? -0.018 : 0;
@@ -813,7 +847,7 @@
       // range: accuracy falls off fast beyond the arc (about 0.6 at 28 ft, 0.1 at 40 ft, a heave from half court is ~1%)
       { const sd = Math.hypot(b.x - bx, b.y - 25); if (type !== 'rim' && sd > 24.5) pMake *= Math.max(0.004, Math.exp(-(sd - 24.5) * 0.16)); }
       // shooting foul
-      const fProb = dfd ? Rules.foulProb(type, R, this.effR(dfd)) * (this.playsSafe(dfd) ? 0.6 : 1) * (0.8 + c * 1.5) * (b.rimKind === 'dunk' ? 0.8 : 1) * PB.Abil.mult(b.mon.id, 'foul') * (dfd.handUp ? 1.35 : 1) : 0;
+      const fProb = dfd ? Rules.foulProb(type, R, this.effR(dfd)) * (this.playsSafe(dfd) ? 0.6 : 1) * (0.8 + c * 1.5) * (b.rimKind === 'dunk' ? 0.8 : 1) * PB.Abil.mult(b.mon.id, 'foul') * PB.Abil.mult(dfd.mon.id, 'commit') * (dfd.handUp ? 1.35 : 1) : 0;
       const fouled = dfd && this.rng.chance(fProb);
       if (fouled) pMake *= 0.82;
       // block: defender jumping near shooter
@@ -899,7 +933,7 @@
       if (dd > 3.4) { return; }
       if (h.immune > 0) return;
       const sr = this.eff(d, 'steal'), hr = this.eff(h, 'handle');
-      let p = clamp(0.22 + (sr - hr) * 0.0075 + (this.pressure(h) * 0.05), 0.04, 0.6) * mult * PB.Abil.mult(d.mon.id, 'steal');
+      let p = clamp(0.22 + (sr - hr) * 0.0075 + (this.pressure(h) * 0.05), 0.04, 0.6) * mult * PB.Abil.mult(d.mon.id, 'steal') * PB.Abil.mult(h.mon.id, 'lose');
       if (d.stance) p *= 1.15;
       if (h.sprint) p *= 0.8;
       if (this.playsSafe(d)) p *= 0.8;
@@ -910,6 +944,7 @@
       }
     }
     stealBall(d, h) {
+      if (PB.Abil.fx(h.mon.id).key === 'klutz') this.badgePop(h, 'Butterfingers', '', true);
       if (PB.Abil.fx(d.mon.id).key === 'thief') this.badgePop(d, 'Pickpocket', '');
       this.markHighlight('steal', 'Steal: ' + d.mon.dispName, d.s);
       d.pl.st.stl++; h.pl.st.tov++; this.sfx.push('steal'); this.sfx.push({ kind: 'steal', side: d.s });

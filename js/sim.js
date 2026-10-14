@@ -49,6 +49,11 @@
   }
 
   // ------------------------------------------------------------------------
+  // Draft modes (Daily, Endless, Random draft) are meant to be more swingy than franchise and fantasy leagues: the stronger team is rewarded beyond its raw ratings,
+  // so a near-perfect draft can really go undefeated. DRAFT_EDGE is the make-probability change per point of team rating gap, for each side (the weaker side loses as much).
+  const clampE = v => Math.max(-0.06, Math.min(0.06, v));
+  PB.DRAFT_EDGE = 0.0045;
+  PB.edgeFor = G => G && G.mode === 'main' ? PB.DRAFT_EDGE : 0;
   class Game {
     constructor(teamH, teamA, opts) {
       opts = opts || {};
@@ -68,6 +73,7 @@
       this.teamFouls = [0, 0];
       this.diff = opts.diff || [0, 0]; this.noPos = !!opts.noPos;     // difficulty rating adjust (fraction) per side
       this.over = false;
+      if (opts.edge) { const o0 = PB.teamOvr(teamH), o1 = PB.teamOvr(teamA), e = clampE(opts.edge * (o0 - o1)); this.edge = [e, -e]; }
       this.refresh(0); this.refresh(1);
     }
 
@@ -241,9 +247,10 @@
         let tov = 0.116 - (ocs.playm - 60) * 0.0016 + (dcs.steal - 55) * 0.0012 + pressure * pressScale
           + (O.strat.off === 'fast' ? 0.006 : O.strat.off === 'inside' ? -0.008 : 0) - (ocs.iq - 55) * 0.0006 - (ocs.handle - 55) * 0.0008;
         if (secondChance) tov *= 0.4;
+        tov *= O.court.reduce((a, p) => a + PB.Abil.mult(p.id, 'lose'), 0) / O.court.length;      // butterfingers lose the ball more
         tov = clamp(tov, 0.05, 0.24);
         if (rng.chance(tov)) {
-          const bi = this._weightedPlayer(oi, (r, p) => (100 - r.handle * 0.22 - r.pass * 0.13 - r.iq * 0.1) * Math.pow(p.mon.tend.usage / 60, 1.8));
+          const bi = this._weightedPlayer(oi, (r, p) => (100 - r.handle * 0.22 - r.pass * 0.13 - r.iq * 0.1) * Math.pow(p.mon.tend.usage / 60, 1.8) * PB.Abil.mult(p.id, 'lose'));
           const bp = O.court[bi]; bp.st.tov++;
           const t = this._tick(Math.max(1, dur * rng.range(0.25, 0.8)));
           // steal?
@@ -308,7 +315,7 @@
         // blocks
         const blkIdx = this._weightedPlayer(di, (r, p, i) => Math.pow(r.block, 4) / 100000 * (i === dIdx ? 1.4 : 1) * PB.Abil.mult(p.id, 'block'));
         const pBlk = Rules.blockProb(type, SR, D.R[blkIdx]) * (D.strat.def === 'zone' && type === 'rim' ? 1.1 : 1);
-        const pFoul = Rules.foulProb(type, SR, DR) * (D.strat.def === 'press' ? 1.1 : 1) * (secondChance ? 1.2 : 1) * PB.Abil.mult(sp.id, 'foul');
+        const pFoul = Rules.foulProb(type, SR, DR) * (D.strat.def === 'press' ? 1.1 : 1) * (secondChance ? 1.2 : 1) * PB.Abil.mult(sp.id, 'foul') * PB.Abil.mult(D.court[dIdx].id, 'commit');
         const tUsed = this._tick(Math.max(0.5, dur));
         clockUsed += tUsed;
         sp.st.fga += 1; if (type === 'three') sp.st.tpa++;

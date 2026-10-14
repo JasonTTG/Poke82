@@ -21,6 +21,16 @@
     ironman: { n: 'Iron Will', d: 'Never wears down late in the game.', mult: { late: 1 } },
     homebody: { n: 'Home Court', d: 'Plays better at home (+2.5%).', shot: c => c.home ? 0.025 : 0 },
     underdog: { n: 'Underdog', d: 'Fights harder when trailing by 8 or more (+3.5%).', shot: c => c.diff <= -8 ? 0.035 : 0 },
+    // drawbacks: some abilities cost their owner something (bad: true), like Slow Start and Truant
+    slowstart: { n: 'Slow Start', bad: true, d: 'Sluggish in the first quarter: shoots worse (-5%) and gives up easier looks (+3%) until warmed up.', shot: c => c.q === 1 ? -0.05 : 0, def: c => c.q === 1 ? 0.03 : 0 },
+    truant: { n: 'Truant', bad: true, d: 'Loafs every other half-minute: shots drop (-6%) and the defense lapses (+4%) while loafing.', shot: c => Math.floor(c.clock / 30) % 2 === 1 ? -0.06 : 0, def: c => Math.floor(c.clock / 30) % 2 === 1 ? 0.04 : 0 },
+    defeatist: { n: 'Defeatist', bad: true, d: 'Gives up when the game slips away: -4% shooting and softer defense when down 10 or more.', shot: c => c.diff <= -10 ? -0.04 : 0, def: c => c.diff >= 10 ? 0.03 : 0 },
+    klutz: { n: 'Butterfingers', bad: true, d: 'Turns the ball over 40% more and is stripped 40% more often.', mult: { lose: 1.4 } },
+    sluggish: { n: 'Sluggish', bad: true, d: 'Moves 6% slower and recovers late.', mult: { speed: 0.94 } },
+    fragile: { n: 'Wimp Out', bad: true, d: 'Tires 25% faster and fades when the game gets rough.', mult: { drain: 1.25 } },
+    rattled: { n: 'Rattled', bad: true, d: 'Tightly contested shots suffer (-3%).', shot: c => c.c > 0.5 ? -0.03 : 0 },
+    moody: { n: 'Moody', bad: true, d: 'Streaky from quarter to quarter: +3% in odd quarters, -3% in even ones.', shot: c => c.q % 2 ? 0.03 : -0.03 },
+    reckless: { n: 'Reckless', bad: true, d: 'Attacks the rim (+4%) but misses jumpers (-2%) and commits 25% more fouls.', shot: c => c.type === 'rim' ? 0.04 : (c.type === 'three' || c.type === 'mid') ? -0.02 : 0, mult: { commit: 1.25 } },
     freebie: { n: 'Foul Magnet', d: 'Draws fouls 25% more and makes free throws (+6%).', mult: { foul: 1.25, ft: 1.06 } },
   };
   A.EFFECTS = E;
@@ -28,8 +38,8 @@
 
   const LISTS = {
     sniper: 'compound-eyes no-guard keen-eye sniper tinted-lens super-luck victory-star stakeout quick-draw long-reach mega-launcher illuminate serene-grace wonder-skin dazzling supersweet-syrup',
-    finisher: 'sheer-force reckless tough-claws iron-fist strong-jaw adaptability technician skill-link normalize pixilate refrigerate galvanize steelworker transistor dragons-maw punk-rock sharpness rocky-payload gale-wings propeller-tail stance-change hadron-engine orichalcum-pulse gorilla-tactics moxie beast-boost protean libero merciless mycelium-might opportunist hustle',
-    clutch: 'defiant competitive berserk blaze torrent overgrow swarm guts rattled analytic anger-point anger-shell justified soul-heart download supreme-overlord flare-boost toxic-boost turboblaze teravolt intrepid-sword steadfast moody contrary',
+    finisher: 'sheer-force tough-claws iron-fist strong-jaw adaptability technician skill-link normalize pixilate refrigerate galvanize steelworker transistor dragons-maw punk-rock sharpness rocky-payload gale-wings propeller-tail stance-change hadron-engine orichalcum-pulse moxie beast-boost protean libero merciless mycelium-might opportunist',
+    clutch: 'defiant competitive berserk blaze torrent overgrow swarm guts analytic anger-point anger-shell justified soul-heart download supreme-overlord flare-boost toxic-boost turboblaze teravolt intrepid-sword steadfast contrary',
     heat: 'flame-body static poison-point flash-fire motor-drive volt-absorb lightning-rod storm-drain water-absorb dry-skin solar-power chlorophyll rain-dish sand-rush slush-rush swift-swim steam-engine surge-surfer wind-power wind-rider electromorphosis protosynthesis quark-drive forecast flower-gift leaf-guard sand-force ice-body sap-sipper drought drizzle sand-stream snow-warning electric-surge grassy-surge misty-surge psychic-surge thermal-exchange power-spot battery plus minus grass-pelt seed-sower water-bubble well-baked-body earth-eater',
     bully: 'huge-power pure-power rock-head solid-rock filter thick-fat fur-coat fluffy heavy-metal light-metal marvel-scale multiscale cotton-down guard-dog stalwart',
     rimguard: 'sturdy magma-armor battle-armor big-pecks clear-body white-smoke full-metal-body prism-armor shield-dust wonder-guard iron-barbs rough-skin bulletproof dauntless-shield mirror-armor shell-armor shadow-shield ice-face ice-scales disguise shields-down overcoat heatproof hyper-cutter magic-bounce aftermath innards-out gulp-missile liquid-ooze water-compaction armor-tail queenly-majesty',
@@ -41,16 +51,26 @@
     engine: 'regenerator poison-heal shed-skin hydration early-bird cud-chew run-away stamina',
     speedster: 'speed-boost quick-feet unburden',
     ironman: 'weak-armor emergency-exit',
-    underdog: 'wimp-out klutz slow-start truant defeatist stall',
+    underdog: 'berserk-mode comeback',
+    slowstart: 'slow-start',
+    truant: 'truant',
+    defeatist: 'defeatist',
+    klutz: 'klutz',
+    sluggish: 'stall',
+    fragile: 'wimp-out',
+    rattled: 'rattled',
+    moody: 'moody',
+    reckless: 'reckless hustle gorilla-tactics',
   };
   const BY = {};
   for (const k in LISTS) for (const n of LISTS[k].split(' ')) BY[n] = k;
-  const TIER = { 'huge-power': 1.3, 'pure-power': 1.3, 'wonder-guard': 1.3, protean: 1.25, libero: 1.25, 'speed-boost': 1.3, intimidate: 1.3, adaptability: 1.25, 'sheer-force': 1.25, moxie: 1.2, 'magic-bounce': 1.2, 'compound-eyes': 1.25, sniper: 1.25, 'thick-fat': 1.1, levitate: 1.1, truant: 0.5, 'slow-start': 0.5, defeatist: 0.6, klutz: 0.6, stall: 0.6, 'wimp-out': 0.6 };
+  const TIER = { 'huge-power': 1.3, 'pure-power': 1.3, 'wonder-guard': 1.3, protean: 1.25, libero: 1.25, 'speed-boost': 1.3, intimidate: 1.3, adaptability: 1.25, 'sheer-force': 1.25, moxie: 1.2, 'magic-bounce': 1.2, 'compound-eyes': 1.25, sniper: 1.25, 'thick-fat': 1.1, levitate: 1.1 };
 
   const hash = PB.hash2;
   const strHash = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return h; };
 
-  A.keyOf = name => BY[name] || KEYS[strHash(name) % KEYS.length];
+  const GOOD = KEYS.filter(k => !E[k].bad);      // abilities with no listed badge fall back to one of the helpful ones
+  A.keyOf = name => BY[name] || GOOD[strHash(name) % GOOD.length];
   A.fmt = name => name.split('-').map(PB.cap).join(' ');
   // a Pokemon's possible abilities (hidden one rolls less often)
   A.options = mon => (mon.ab || []).concat(mon.abh ? [mon.abh] : []);
@@ -78,7 +98,7 @@
     return f;
   };
   A.clearCache = () => cache.clear();
-  A.describe = id => { const f = A.fx(id); return { ability: A.fmt(f.name), badge: f.e.n, desc: f.e.d, key: f.key }; };
+  A.describe = id => { const f = A.fx(id); return { ability: A.fmt(f.name), badge: f.e.n, desc: f.e.d, key: f.key, bad: !!f.e.bad }; };
   A.evolveCarry = function (G, fromId, toId) {
     G.abil = G.abil || {};
     const old = A.name(fromId), to = PB.BYID[toId];
@@ -108,16 +128,16 @@
     if (defender) { const d = A.fx(defender.id); if (d.e.def) adj += d.e.def(c) * d.tier; }
     let aura = 0;
     for (const p of S.court) if (p.id !== shooter.id) { const a = A.fx(p.id); if (a.e.aura) aura += a.e.aura * a.tier; }
-    return adj + Math.min(aura, 0.024);
+    return adj + Math.min(aura, 0.024) + (game.edge ? game.edge[si] : 0);
   };
   // the badges that changed a shot, for on-screen pop-ups: [{ pl, key, name, v }] (v is the make-probability change; its sign is for the shooter)
   A.tags = function (game, si, shooter, defender, ctx) {
     const S = game.sides[si], out = [];
     const c = { type: ctx.type, c: ctx.c == null ? 0.45 : ctx.c, fast: !!ctx.fast, bigger: !!ctx.bigger, q: game.q, clock: game.clock, diff: game.score[si] - game.score[1 - si], home: !!S.home };
     const f = A.fx(shooter.id);
-    if (f.e.shot) { const v = f.e.shot(c) * f.tier; if (Math.abs(v) >= 0.004) out.push({ pl: shooter, key: f.key, name: f.e.n, v }); }
+    if (f.e.shot) { const v = f.e.shot(c) * f.tier; if (Math.abs(v) >= 0.004) out.push({ pl: shooter, key: f.key, name: f.e.n, v, bad: !!f.e.bad, ov: v }); }
     if (f.key === 'heat' && (shooter.hot || 0) > 0.55) out.push({ pl: shooter, key: 'heat', name: 'Heat Check', v: A.streakAdj(shooter) });
-    if (defender) { const d = A.fx(defender.id); if (d.e.def) { const v = d.e.def(c) * d.tier; if (Math.abs(v) >= 0.004) out.push({ pl: defender, key: d.key, name: d.e.n, v }); } }
+    if (defender) { const d = A.fx(defender.id); if (d.e.def) { const v = d.e.def(c) * d.tier; if (Math.abs(v) >= 0.004) out.push({ pl: defender, key: d.key, name: d.e.n, v, bad: !!d.e.bad, ov: -v }); } }
     for (const p of S.court) if (p.id !== shooter.id) { const a = A.fx(p.id); if (a.e.aura) { out.push({ pl: p, key: a.key, name: a.e.n, v: a.e.aura * a.tier }); break; } }
     return out;
   };
