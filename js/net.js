@@ -1,11 +1,11 @@
-// Online play: WebSocket client for the room relay (tools/serve.py). Hosts order operations, everyone applies them.
+// Online play: peer to peer over WebRTC (PeerJS broker for the handshake). The host's browser runs the room: the host orders operations, everyone applies them.
 (function (PB) {
   const N = PB.Net = {
-    ws: null, id: null, room: null, url: '', name: '', connected: false, mode: 'p2p', link: null, peers: [], relay: null,
+    id: null, room: null, name: '', connected: false, mode: 'p2p', link: null, peers: [], relay: null,
     session: null,                  // { league: bool, mode, teams: {pid: teamId}, host: bool }
     listeners: {}, pending: {}, cid: 0, seq: 0, lastSeq: 0, spectator: false,
   };
-  try { N.name = localStorage.getItem('poke82_name') || ''; } catch (e) { }
+  try { N.name = localStorage.getItem('poke82_name') || ''; } catch (e) { PB.warn('net', e); }
   N.active = () => !!(N.connected && N.room);
   N.onlineLeague = () => !!(N.connected && N.session && N.session.league);
   N.isHost = () => !!(N.room && N.room.host === N.id);
@@ -14,9 +14,9 @@
   const fire = (k, ...a) => { for (const f of (N.listeners[k] || []).slice()) { try { f(...a); } catch (e) { console.error(e); } } };
 
   N.disconnect = function () {
-    for (const p of N.peers) { try { p.destroy(); } catch (e) { } }
+    for (const p of N.peers) { try { p.destroy(); } catch (e) { PB.warn('net', e); } }
     N.peers = []; N.relay = null; N.link = null;
-    N.ws = null; N.connected = false; N.room = null; N.session = null; N.pending = {}; N.spectator = false;
+    N.connected = false; N.room = null; N.session = null; N.pending = {}; N.spectator = false;
   };
   N.send = obj => {
     if (N.link) N.link(obj);
@@ -24,14 +24,10 @@
   N.create = (mode, max, title) => N.p2pHost(mode, max, title);
   N.join = code => N.p2pJoin(String(code).toUpperCase().trim());
   N.leave = () => {
-    if (N.mode === 'p2p') {
-      if (N.relay) N.relay.close(); else if (N.conn) { try { N.conn.close(); } catch (e) { } }
-      for (const p of N.peers) { try { p.destroy(); } catch (e) { } }
-      N.peers = []; N.relay = null; N.link = null; N.conn = null; N.room = null; N.session = null; N.spectator = false; return;
-    }
-    N.send({ t: 'leave' }); N.room = null; N.session = null;
+    if (N.relay) N.relay.close(); else if (N.conn) { try { N.conn.close(); } catch (e) { PB.warn('net', e); } }
+    for (const p of N.peers) { try { p.destroy(); } catch (e) { PB.warn('net', e); } }
+    N.peers = []; N.relay = null; N.link = null; N.conn = null; N.room = null; N.session = null; N.spectator = false;
   };
-  N.list = () => fire('rooms', []);
 
   // ---------- serverless play: WebRTC through the free PeerJS broker; the host's browser is the relay ----------
   N.loadPeer = () => window.Peer ? Promise.resolve() : new Promise((res, rej) => {
@@ -42,9 +38,21 @@
   N.connectP2P = async function (name) {
     N.disconnect();
     N.name = (name || N.name || 'Player').slice(0, 20);
-    try { localStorage.setItem('poke82_name', N.name); } catch (e) { }
+    try { localStorage.setItem('poke82_name', N.name); } catch (e) { PB.warn('net', e); }
     await N.loadPeer();
     N.mode = 'p2p'; N.connected = true; N.id = null;
+  };
+  // latency: guests ping the host's relay every few seconds; no answer for 12 s means the connection is lost
+  let pingT = null;
+  const netPill = () => { for (const el of document.querySelectorAll('.netpill')) { el.textContent = N.lost ? 'connection lost' : N.isHost() ? 'host' : N.rtt != null ? N.rtt + ' ms' : '…'; el.className = 'tag netpill ' + (N.lost || (N.rtt || 0) > 400 ? 'bad' : (N.rtt || 0) > 160 ? 'warn' : 'good'); } };
+  N.pingStart = () => {
+    clearInterval(pingT); N.lastPong = Date.now(); N.lost = false; N.rtt = null;
+    pingT = setInterval(() => {
+      if (!N.room || !N.link) { clearInterval(pingT); return; }
+      if (N.isHost()) { N.rtt = 0; netPill(); return; }
+      N.send({ t: 'ping', ts: Date.now() });
+      if (!N.lost && Date.now() - N.lastPong > 12000) { N.lost = true; if (PB.Diag) PB.Diag.log('conn', 'no answer from the host for 12 s'); fire('conn', 'lost'); netPill(); }
+    }, 4000);
   };
   const J = m => typeof m === 'string' ? JSON.parse(m) : m;        // everything travels as JSON text
   // STUN finds a direct route; the TURN relay is the fallback when two players' networks block direct connections (the usual reason a code "does not work")
@@ -55,7 +63,7 @@
   const openPeerOnce = id => new Promise((res, rej) => {
     const opts = { config: ICE, debug: 0 };
     const p = id ? new window.Peer(id, opts) : new window.Peer(opts);
-    const t = setTimeout(() => { try { p.destroy(); } catch (e) { } rej(new Error('Could not reach the matchmaking service')); }, 9000);
+    const t = setTimeout(() => { try { p.destroy(); } catch (e) { PB.warn('net', e); } rej(new Error('Could not reach the matchmaking service')); }, 9000);
     p.on('open', () => { clearTimeout(t); res(p); });
     p.on('error', e => { clearTimeout(t); try { p.destroy(); } catch (x) { } rej(e); });
   });
@@ -95,9 +103,9 @@
       this.bcast({ t: 'room', room: this.info() }); if (!c.spec) this.bcast({ t: 'peerLeft', id: c.id });
     },
     close() {
-      for (const m of this.members.slice()) if (m.id !== 1) { m.send({ t: 'closed', why: 'The host left.' }); try { m.conn.close(); } catch (e) { } }
+      for (const m of this.members.slice()) if (m.id !== 1) { m.send({ t: 'closed', why: 'The host left.' }); try { m.conn.close(); } catch (e) { PB.warn('net', e); } }
       this.members = [];
-      try { this.peer.destroy(); } catch (e) { }
+      try { this.peer.destroy(); } catch (e) { PB.warn('net', e); }
     },
     handle(c, msg) {
       if (!msg) return;
@@ -126,8 +134,7 @@
           break;
         }
         case 'leave': this.drop(c); break;
-        case 'list': c.send({ t: 'rooms', rooms: [] }); break;
-        case 'ping': c.send({ t: 'pong' }); break;
+        case 'ping': c.send({ t: 'pong', ts: msg.ts }); break;
         case 'msg': {
           if (!this.members.includes(c)) return;
           const d = msg.d;
@@ -159,15 +166,15 @@
       N.id = 1; N.link = o => setTimeout(() => relay.handle(local, o), 0);
       peer.on('connection', conn => {
         let c = null;
-        conn.on('open', () => { c = { id: relay.nextId++, name: 'Player', conn, send: o => { try { conn.send(JSON.stringify(o)); } catch (e) { } } }; c.send({ t: 'welcome', id: c.id }); });
+        conn.on('open', () => { c = { id: relay.nextId++, name: 'Player', conn, send: o => { try { conn.send(JSON.stringify(o)); } catch (e) { PB.warn('net', e); } } }; c.send({ t: 'welcome', id: c.id }); });
         conn.on('data', m => { if (c) { try { relay.handle(c, J(m)); } catch (e) { console.error(e); } } });
         conn.on('close', () => { if (c) relay.drop(c); });
       });
       // if the broker connection drops, new players can no longer find the room: keep reconnecting
-      const keep = () => { if (peer.destroyed) return; try { peer.reconnect(); } catch (e) { } setTimeout(() => { if (!peer.destroyed && peer.disconnected) keep(); }, 3000); };
+      const keep = () => { if (peer.destroyed) return; try { peer.reconnect(); } catch (e) { PB.warn('net', e); } setTimeout(() => { if (!peer.destroyed && peer.disconnected) keep(); }, 3000); };
       peer.on('disconnected', keep);
       peer.on('error', e => { console.warn('room peer', e && e.type); if (e && e.type === 'network') keep(); });
-      N.room = relay.info(); fire('room', N.room);
+      N.room = relay.info(); N.pingStart(); fire('room', N.room);
     } catch (e) { fire('error', e.message || 'Could not host (is the internet reachable?)'); }
   };
   // the host hands a returning player their team and the current league
@@ -184,23 +191,25 @@
     let done = false, peer = null, timer = null;
     const fin = r => {
       if (done) return; done = true; clearTimeout(timer);
-      if (!r.ok) { try { peer && peer.destroy(); } catch (e) { } N.peers = N.peers.filter(x => x !== peer); }
+      if (PB.Diag) PB.Diag.log('join', r.ok ? 'joined' : (r.fatal ? 'refused: ' + r.fatal : 'no answer: ' + r.retry));
+      if (!r.ok) { try { peer && peer.destroy(); } catch (e) { PB.warn('net', e); } N.peers = N.peers.filter(x => x !== peer); }
       resolve(r);
     };
+    if (PB.Diag) PB.Diag.log('join', 'attempt for ' + code);
     timer = setTimeout(() => fin({ retry: 'No room with code ' + code + ' (or it could not be reached)' }), 12000);
     try { peer = await openPeer(null); } catch (e) { return fin({ retry: 'Could not reach the matchmaking service' }); }
-    if (done) { try { peer.destroy(); } catch (e) { } return; }
+    if (done) { try { peer.destroy(); } catch (e) { PB.warn('net', e); } return; }
     N.peers.push(peer);
     peer.on('error', e => { if (e && e.type === 'peer-unavailable') fin({ fatal: 'No room with code ' + code }); else if (!done) fin({ retry: 'Connection problem: ' + (e && e.type) }); });
     const conn = peer.connect('pokehoops-' + code, { reliable: true });
     conn.on('open', () => {
-      const direct = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } };
+      const direct = o => { try { conn.send(JSON.stringify(o)); } catch (e) { PB.warn('net', e); } };
       direct({ t: 'hello', name: N.name }); direct({ t: 'join', code, name: N.name, rejoin: !!rejoin, spectate: !!spectate });
     });
     conn.on('data', raw => {
       const m = J(raw);
       if (m && m.t === 'error' && !done) { fin({ fatal: m.err }); return; }          // the host refused us (full, already started, wrong code)
-      if (m && m.t === 'joined') { N.conn = conn; N.link = o => { try { conn.send(JSON.stringify(o)); } catch (e) { } }; N._recv(m); fin({ ok: true }); return; }
+      if (m && m.t === 'joined') { N.conn = conn; N.link = o => { try { conn.send(JSON.stringify(o)); } catch (e) { PB.warn('net', e); } }; N._recv(m); fin({ ok: true }); return; }
       N._recv(m);
     });
     conn.on('close', () => {
@@ -213,7 +222,7 @@
     try {
       code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (code.length !== 4) { fire('error', 'Room codes are 4 letters'); return; }
-      if (rejoin) { for (const p of N.peers) { try { p.destroy(); } catch (e) { } } N.peers = []; }
+      if (rejoin) { for (const p of N.peers) { try { p.destroy(); } catch (e) { PB.warn('net', e); } } N.peers = []; }
       N.lastCode = code;
       let msg = 'Could not connect';
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -242,11 +251,12 @@
   N.nameOf = id => { const p = N.room && N.room.players.find(x => x.id === id); return p ? p.name : 'Player'; };
 
   N._recv = function (m) {
+    if (PB.Diag && m.t !== 'msg' && m.t !== 'pong') PB.Diag.log('recv', m.t + (m.err ? ' ' + m.err : ''));
     switch (m.t) {
+      case 'pong': N.rtt = Date.now() - (m.ts || Date.now()); N.lastPong = Date.now(); if (N.lost) { N.lost = false; fire('conn', 'ok'); } netPill(); break;
       case 'welcome': N.id = m.id; break;
       case 'room': N.room = m.room; fire('room', m.room); break;
-      case 'joined': N.spectator = !!m.spectator; fire('joined', m); break;
-      case 'rooms': fire('rooms', m.rooms); break;
+      case 'joined': N.spectator = !!m.spectator; N.pingStart(); fire('joined', m); break;
       case 'error': fire('error', m.err); break;
       case 'closed': N.room = null; N.session = null; fire('closed', m.why); break;
       case 'peerLeft': fire('peerLeft', m.id); break;
@@ -313,7 +323,7 @@
     const G = PB.Save.deserialize(d.data); PB.Save.relink(G);
     G.userTeam = keep; G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}); G.settings.difficulty = 'normal';
     PB.G = G; N.lastSeq = d.seq;
-    PB.toast('Resynchronized with the host');
+    if (PB.Diag) PB.Diag.log('sync', 'resynchronized with the host');
     fire('applied', { name: 'snapshot' });
   };
 })(window.PB);

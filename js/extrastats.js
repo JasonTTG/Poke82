@@ -14,11 +14,10 @@
   const splits = G => (G.league.sp = G.league.sp || {});
   const blankSp = () => ({ cw: 0, cl: 0, bw: 0, bl: 0, ow: 0, ol: 0, qw: 0, ql: 0 });      // close, blowout, overtime, vs. winning teams
 
-  const origRecord = L.record;
-  L.record = function (G, game, result, playoff) {
-    const lg = G.league;
-    const oppWinning = [lg.rec[game.a].w > lg.rec[game.a].l, lg.rec[game.h].w > lg.rec[game.h].l];      // read before this game changes the records: [home's opponent, away's opponent]
-    origRecord(G, game, result, playoff);
+  // read before this game changes the records: [home's opponent, away's opponent]
+  L.hooks.beforeRecord.push((G, game, result, playoff, ctx) => { const lg = G.league; ctx.oppWinning = [lg.rec[game.a].w > lg.rec[game.a].l, lg.rec[game.h].w > lg.rec[game.h].l]; });
+  L.hooks.afterRecord.push(function (G, game, result, playoff, ctx) {
+    const oppWinning = ctx.oppWinning;
     const S = seasonMx(G), Cr = careerMx(G), sc = result.score, tid = [game.h, game.a];
     for (let s = 0; s < 2; s++) {
       const won = sc[s] > sc[1 - s], margin = Math.abs(sc[0] - sc[1]);
@@ -41,7 +40,7 @@
         if (playoff) { const o = Cr[id] || (Cr[id] = blank()); for (const k in hit) if (hit[k]) o[k]++; }
       }
     }
-  };
+  });
   // evolving keeps the career counters
   if (F && F.evolve) {
     const origEvolve = F.evolve;
@@ -54,7 +53,7 @@
 
   // ---------- Milestones tab ----------
   const view = { scope: 'season', team: 'all' };
-  const who = (G, id) => { const m = PB.BYID[id], t = G.teams[L.teamOf(G, id)]; return `<span data-act="${PB.Career ? 'career' : 'inspect'}" data-id="${id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 20)} ${esc(m.dispName)}</span> <span class="dim">${t ? esc(t.abbr) : ''}</span>`; };
+  const who = (G, id) => UI.monLink(G, id, L.teamOf(G, id));
   const page = function (G, lg) {
     const src = view.scope === 'career' ? careerMx(G) : seasonMx(G);
     const ids = Object.keys(src).map(Number).filter(id => view.team === 'all' || L.teamOf(G, id) === +view.team);
@@ -74,7 +73,7 @@
       <div class="panel" style="margin-top:10px"><h3>Team splits (regular season)</h3><div class="scroll"><table class="t"><thead><tr><th>Team</th><th class="n">Home</th><th class="n">Away</th><th class="n" title="Decided by 5 points or fewer">Close</th><th class="n" title="Decided by 15 or more">Blowouts</th><th class="n">Overtime</th><th class="n" title="Against teams over .500 at the time">vs. winning</th></tr></thead><tbody>${splitRows}</tbody></table></div></div>
       <div class="panel" style="margin-top:10px"><h3>${esc(G.teams[ut].name)}: record when each Pokémon plays</h3>${mine.length ? `<div class="scroll"><table class="t"><thead><tr><th>Pokémon</th><th class="n">Games</th><th class="n">Team W-L</th><th class="n">Win %</th><th class="n">Double-doubles</th><th class="n">20+ pts</th></tr></thead><tbody>${mine.map(x => `<tr><td>${who(G, x.id)}</td><td class="n">${x.o.w + x.o.l}</td><td class="n">${x.o.w}-${x.o.l}</td><td class="n">${((100 * x.o.w) / (x.o.w + x.o.l)).toFixed(0)}%</td><td class="n">${x.o.dd}</td><td class="n">${x.o.p20}</td></tr>`).join('')}</tbody></table></div>` : '<div class="dim">Appears once games are played.</div>'}</div>`;
   };
-  UI.addHubTab('milestones', 'Milestones', 'adv', page, G => !!G.league);
+  UI.statViews.push({ key: 'milestones', label: 'Milestones', fn: page });
   UI.actions.xsScope = el => { view.scope = el.value; UI.refresh(); };
   UI.actions.xsTeam = el => { view.team = el.value; UI.refresh(); };
 
@@ -126,9 +125,9 @@
   UI.actions.awTeam = el => { av.team = el.value; UI.refresh(); };
   // ---------- every player in the league: sort, filter, search ----------
   const pv = { sort: 'ovr', desc: true, team: 'all', pos: 'all', q: '', lim: 60 };
-  const players = function (G, lg) {
+  const players = function (G, lg, po) {
     const vis = UI.vis(), fa = G.fr && G.fr.pool ? Object.keys(G.fr.pool).map(Number) : [];
-    const stat = id => lg.pstats && lg.pstats[id], per = (a, g) => g ? a / g : 0;
+    const stat = id => { const m = po ? lg.pstatsPO : lg.pstats; return m && m[id]; }, per = (a, g) => g ? a / g : 0;
     let rows = G.teams.flatMap(t => t.roster.map(id => ({ id, tid: t.id }))).concat(fa.map(id => ({ id, tid: -1 })));
     rows = rows.filter(r => (pv.team === 'all' || String(r.tid) === pv.team) && (pv.pos === 'all' || PB.BYID[r.id].r.pos1 === +pv.pos) && (!pv.q || PB.BYID[r.id].dispName.toLowerCase().includes(pv.q.toLowerCase())));
     const val = r => { const m = PB.BYID[r.id], s = stat(r.id) || {}, g = s.gp || 0; switch (pv.sort) {
@@ -148,7 +147,7 @@
         return `<tr class="${r.tid === G.userTeam ? 'me' : ''}"><td class="dim">${i + 1}</td><td data-act="${PB.Career ? 'career' : 'inspect'}" data-id="${r.id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 22)} ${esc(m.dispName)}</td><td class="dim">${t ? esc(t.abbr) : 'FA'}</td>${vis.P ? `<td>${UI.posBadges ? UI.posBadges(m) : esc(m.pos[0])}</td>` : ''}${vis.O ? `<td class="n"><b>${m.ovr}</b></td>` : ''}<td class="n">${g || '-'}</td><td class="n">${g ? f1(per(s.pts, g)) : '-'}</td><td class="n">${g ? f1(per(s.oreb + s.dreb, g)) : '-'}</td><td class="n">${g ? f1(per(s.ast, g)) : '-'}</td><td class="n">${g ? f1(per(s.stl, g)) : '-'}</td><td class="n">${g ? f1(per(s.blk, g)) : '-'}</td><td class="n">${g ? pct(s.fgm, s.fga) : '-'}</td><td class="n">${g ? pct(s.tpm, s.tpa) : '-'}</td></tr>`; }).join('')}</tbody></table></div>
       ${rows.length > pv.lim ? `<div class="row" style="margin-top:8px;justify-content:center"><button data-act="plMore">Show 60 more</button></div>` : ''}</div>`;
   };
-  UI.addHubTab('players', 'Players', 'standings', players, G => !!G.league);
+  UI.playersView = players;
   UI.actions.plSort = (el, d) => { if (pv.sort === d.k) pv.desc = !pv.desc; else { pv.sort = d.k; pv.desc = d.k !== 'name' && d.k !== 'team'; } UI.refresh(); };
   UI.actions.plTeam = el => { pv.team = el.value; pv.lim = 60; UI.refresh(); };
   UI.actions.plPos = el => { pv.pos = el.value; pv.lim = 60; UI.refresh(); };

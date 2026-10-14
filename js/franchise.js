@@ -23,13 +23,11 @@
   // ---------- evolution graph ----------
   let KIDS = null;
   F.kids = id => { if (!KIDS) { KIDS = {}; for (const m of PB.MONS) if (m.from_) (KIDS[m.from_] = KIDS[m.from_] || []).push(m.id); } return KIDS[id] || []; };
-  F.stageOf = m => { let s = 0; while (m.from_) { m = PB.BYID[m.from_]; s++; } return s; };
   F.potential = m => {
     if (m._pot != null) return m._pot;
     let best = m.ovr; for (const k of F.kids(m.id)) best = Math.max(best, F.potential(PB.BYID[k]));
     return (m._pot = best);
   };
-  F.fullyEvolved = m => F.kids(m.id).length === 0;
   F.mval = m => 0.62 * m.ovr + 0.38 * F.potential(m);
   F.evoNeed = (a, b, cfg) => Math.round((30 + 0.55 * Math.max(10, b.bst - a.bst)) / ((cfg && cfg.evoSpeed) || 1));
   F.unevolvedOf = gens => PB.MONS.filter(m => m.from_ === 0 && gens.includes(m.gen));
@@ -130,7 +128,14 @@
       const box = result.box[s];
       // injured players sit out a game
       const healed = [];
-      for (const id of T.roster) { const i = fr.inj[id]; if (i && i.g > 0) { i.g--; if (i.g <= 0) healed.push(id); } }
+      for (const id of T.roster) {
+        const i = fr.inj[id];
+        if (i && i.g > 0) {
+          // recovery is not always smooth: a setback adds games to the layoff
+          if (i.g > 1 && i.n - i.g >= 1 && rng.next() < 0.012 * (cfg.injRate || 1)) { const add = rng.int(2, 6); i.g += add; i.n += add; i.sb = (i.sb || 0) + 1; if (isHuman(G, T.id)) F.news(G, PB.BYID[id].dispName + ' suffered a setback in recovery (out ' + i.g + ' more games).', true); }
+          i.g--; if (i.g <= 0) healed.push(id);
+        }
+      }
       for (const id of healed) { delete fr.inj[id]; if (isHuman(G, T.id)) F.news(G, PB.BYID[id].dispName + ' is healthy again.', true); }
       for (const id of T.roster) {
         const b = box[id]; const sec = b ? b.sec : 0;
@@ -206,7 +211,6 @@
     return left === 0 ? 'the Finals' : left === 1 ? 'the Semifinals' : left === 2 ? 'the Quarterfinals' : 'Round ' + r;
   };
   F.nextRegion = G => G.fr.mixed ? (G.fr.next ? 'mixed' : null) : G.fr.order[G.fr.nextIdx];
-  F.hasNext = G => F.nextRegion(G) != null;
   F.nextLabel = G => G.fr.mixed ? 'mixed-generation' : PB.REGIONS[F.nextRegion(G)];
   F.draftLabel = (G, D) => D && D.label ? D.label : PB.REGIONS[D.gen] + ' draft class';
   F.isOver = G => G.fr.stage === 'over';

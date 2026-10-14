@@ -47,7 +47,7 @@
   for (const k in LISTS) for (const n of LISTS[k].split(' ')) BY[n] = k;
   const TIER = { 'huge-power': 1.3, 'pure-power': 1.3, 'wonder-guard': 1.3, protean: 1.25, libero: 1.25, 'speed-boost': 1.3, intimidate: 1.3, adaptability: 1.25, 'sheer-force': 1.25, moxie: 1.2, 'magic-bounce': 1.2, 'compound-eyes': 1.25, sniper: 1.25, 'thick-fat': 1.1, levitate: 1.1, truant: 0.5, 'slow-start': 0.5, defeatist: 0.6, klutz: 0.6, stall: 0.6, 'wimp-out': 0.6 };
 
-  const hash = (a, b) => { let h = (a ^ 0x9e3779b9) >>> 0; h = Math.imul(h ^ b, 0x85ebca6b) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 0xc2b2ae35) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const hash = PB.hash2;
   const strHash = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return h; };
 
   A.keyOf = name => BY[name] || KEYS[strHash(name) % KEYS.length];

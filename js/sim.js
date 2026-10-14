@@ -30,7 +30,7 @@
     },
     blockProb(type, S, D) {
       const base = type === 'rim' ? 0.055 : type === 'post' ? 0.045 : type === 'mid' ? 0.022 : 0.008;
-      return clamp(base + (D.block - 55) * 0.0016 - (S.strength - 55) * 0.0004 - (S.iq - 55) * 0.0003, 0, 0.30);
+      return clamp((base + (D.block - 55) * 0.0016 - (S.strength - 55) * 0.0004 - (S.iq - 55) * 0.0003) * 1.3, 0, 0.34);
     },
     foulProb(type, S, D) { // shooting foul
       const base = type === 'rim' ? 0.165 : type === 'post' ? 0.145 : type === 'mid' ? 0.055 : 0.028;
@@ -247,9 +247,9 @@
           const bp = O.court[bi]; bp.st.tov++;
           const t = this._tick(Math.max(1, dur * rng.range(0.25, 0.8)));
           // steal?
-          const stealP = clamp(0.52 + (dcs.steal - 55) * 0.006, 0.25, 0.8);
+          const stealP = clamp(0.62 + (dcs.steal - 55) * 0.006, 0.3, 0.86);
           if (rng.chance(stealP)) {
-            const si = this._weightedPlayer(di, (r, p) => Math.pow(r.steal, 3) / 1000 * PB.Abil.mult(p.id, 'steal'));
+            const si = this._weightedPlayer(di, (r, p) => Math.pow(r.steal, 4) / 100000 * PB.Abil.mult(p.id, 'steal'));
             D.court[si].st.stl++;
             this._log('TOV+STL', oi, bp, D.court[si]);
           } else this._log('TOV', oi, bp);
@@ -306,7 +306,7 @@
                 const Tctx = { spacing: ocs.spacing, playm: ocs.playm, rimProtD: dcs.rimProtD };
         { const dpl = D.court[dIdx]; adj += PB.Abil.shotAdj(this, oi, sp, dpl, { type, c: 0.45, fast: O.strat.off === 'fast' || secondChance, bigger: sp.mon.r.sH > dpl.mon.r.sH + 0.1 }); }
         // blocks
-        const blkIdx = this._weightedPlayer(di, (r, p, i) => Math.pow(r.block, 3) / 1000 * (i === dIdx ? 1.4 : 1) * PB.Abil.mult(p.id, 'block'));
+        const blkIdx = this._weightedPlayer(di, (r, p, i) => Math.pow(r.block, 4) / 100000 * (i === dIdx ? 1.4 : 1) * PB.Abil.mult(p.id, 'block'));
         const pBlk = Rules.blockProb(type, SR, D.R[blkIdx]) * (D.strat.def === 'zone' && type === 'rim' ? 1.1 : 1);
         const pFoul = Rules.foulProb(type, SR, DR) * (D.strat.def === 'press' ? 1.1 : 1) * (secondChance ? 1.2 : 1) * PB.Abil.mult(sp.id, 'foul');
         const tUsed = this._tick(Math.max(0.5, dur));

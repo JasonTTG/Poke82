@@ -9,16 +9,14 @@
   // ---------- career highs from every box score ----------
   const HI = [['pts', 'Points', b => b.pts], ['reb', 'Rebounds', b => b.oreb + b.dreb], ['ast', 'Assists', b => b.ast], ['stl', 'Steals', b => b.stl], ['blk', 'Blocks', b => b.blk], ['tpm', 'Threes', b => b.tpm]];
   C.HI = HI;
-  const origRecord = L.record;
-  L.record = function (G, game, result, playoff) {
-    origRecord(G, game, result, playoff);
+  L.hooks.afterRecord.push(function (G, game, result, playoff) {
     const H = highs(G);
     for (let s = 0; s < 2; s++) for (const id in result.box[s]) {
       const b = result.box[s][id]; if (b.sec <= 0) continue;
       const h = H[id] || (H[id] = {});
       for (const [k, , f] of HI) { const v = f(b); if (v > (h[k] || 0)) h[k] = v; }
     }
-  };
+  });
 
   // rows are stored as flat arrays to keep saves small: [y, mon, team, champ, honors[], ...KEYS, po?KEYS]
   const pack = r => [r.y, r.m, r.t, r.champ ? 1 : 0, r.honors].concat(KEYS.map(k => r[k]), [r.po ? KEYS.map(k => r.po[k]) : 0]);
@@ -37,11 +35,9 @@
     if (lg.allStar && lg.allStar.squads) for (const c of Object.values(lg.allStar.squads)) if (c.starters.includes(id) || c.reserves.includes(id)) { o.push('All-Star'); break; }
     return o;
   };
-  const origFinish = L.finishSeason;
-  L.finishSeason = function (G) {
-    origFinish(G);
+  L.hooks.afterFinish.push(function (G) {
     C.record(G);
-  };
+  });
   C.record = function (G) {
     const lg = G.league, y = G.fr ? G.fr.year : (G.careerSeason = (G.careerSeason || 0) + 1);
     const LG = log(G);

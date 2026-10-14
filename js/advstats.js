@@ -31,7 +31,7 @@
         - vop * s.tov - vop * drbp * (fga - s.fgm) - vop * 0.44 * (0.44 + 0.56 * drbp) * (fta - s.ftm)
         + vop * (1 - drbp) * (reb - s.oreb) + vop * drbp * s.oreb + vop * s.stl + vop * drbp * s.blk
         - s.pf * (lgT.ftm / (lgT.pf || 1) - 0.44 * (lgT.fta / (lgT.pf || 1)) * vop));
-      const gsc = s.pts + 0.4 * s.fgm - 0.7 * fga - 0.4 * (fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov;
+      const gsc = PB.gameScore(s);
       out.push({
         id: +id, tid, gp: s.gp, mpg: min / s.gp, pts: s.pts / s.gp, reb: reb / s.gp, ast: s.ast / s.gp, stl: s.stl / s.gp, blk: s.blk / s.gp, tov: s.tov / s.gp,
         ts: s.pts / ((2 * tsa) || 1), efg: (s.fgm + 0.5 * s.tpm) / (fga || 1), tpr: s.tpa / (fga || 1), ftr: fta / (fga || 1),
@@ -61,24 +61,21 @@
   const view = { sort: 'per', desc: true, team: 'all', po: false, qual: 0.4, minMin: 0 };
   const fmt = (v, d) => v == null || !isFinite(v) ? '-' : d === 'pct' ? (v * 100).toFixed(1) : d === 3 ? v.toFixed(3).replace(/^0/, '') : v.toFixed(d);
 
-  UI.addHubTab('adv', 'Advanced', 'stats', function (G, lg) {
-    let rows = A.rows(G, view.po);
+  UI.statViews.push({ key: 'adv', label: 'Advanced', fn: function (G, lg) {
+    let rows = A.rows(G, UI.statsPO());
     const topGp = Math.max(1, ...Object.values(lg.tgp));
-    rows = rows.filter(r => r.gp >= (view.po ? 1 : Math.round(topGp * view.qual)) && (view.team === 'all' || r.tid === +view.team));
+    rows = rows.filter(r => r.gp >= (UI.statsPO() ? 1 : Math.round(topGp * view.qual)) && (view.team === 'all' || r.tid === +view.team));
     rows.sort((a, b) => ((b[view.sort] == null ? -1e9 : b[view.sort]) - (a[view.sort] == null ? -1e9 : a[view.sort])) * (view.desc ? 1 : -1));
-    const hasPO = lg.pstatsPO && Object.keys(lg.pstatsPO).length;
     const th = ([k, l]) => `<th class="n ${view.sort === k ? 'sorted' : ''}" data-act="advSort" data-k="${k}" style="cursor:pointer" title="Sort by ${l}">${l}${view.sort === k ? (view.desc ? ' ▼' : ' ▲') : ''}</th>`;
     return `<div class="panel"><div class="row between wrap"><h3 style="margin:0">Advanced stats</h3><div class="row wrap">
         <label>Team <select data-change="advTeam"><option value="all">All teams</option>${G.teams.map(t => `<option value="${t.id}" ${String(view.team) === String(t.id) ? 'selected' : ''}>${esc(t.abbr)}</option>`).join('')}</select></label>
-        <label>Qualify <select data-change="advQual">${[[0, 'Everyone'], [0.2, '20% of games'], [0.4, '40% of games'], [0.7, '70% of games']].map(([v, l]) => `<option value="${v}" ${view.qual === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-        ${hasPO ? `<label><input type="checkbox" data-change="advPO" ${view.po ? 'checked' : ''}> Playoffs</label>` : ''}</div></div>
+        <label>Qualify <select data-change="advQual">${[[0, 'Everyone'], [0.2, '20% of games'], [0.4, '40% of games'], [0.7, '70% of games']].map(([v, l]) => `<option value="${v}" ${view.qual === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div></div>
       <div class="dim" style="font-size:12px;margin:6px 0">PER is scaled so the league average is 15. WS is an estimate (production above a replacement player, scaled to the league's total wins). USG% is the share of team plays used while on the floor.</div>
       <div class="scroll" style="max-height:none"><table class="t"><thead><tr><th>#</th><th>Pokémon</th><th>Tm</th>${COLS.map(th).join('')}</tr></thead><tbody>${rows.slice(0, 80).map((r, i) => { const m = PB.BYID[r.id], t = G.teams[r.tid];
         return `<tr class="${t.id === G.userTeam ? 'me' : ''}"><td class="dim">${i + 1}</td><td data-act="inspect" data-id="${r.id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 22)} ${esc(m.dispName)}</td><td class="dim">${esc(t.abbr)}</td>${COLS.map(([k, , d]) => `<td class="n ${view.sort === k ? 'sorted' : ''}">${fmt(r[k], d)}</td>`).join('')}</tr>`; }).join('') || '<tr><td colspan="20" class="dim">Nobody qualifies yet.</td></tr>'}</tbody></table></div></div>`;
-  });
+  } });
   UI.actions.advSort = (el, d) => { if (view.sort === d.k) view.desc = !view.desc; else { view.sort = d.k; view.desc = d.k !== 'tovp'; } UI.refresh(); };
   UI.actions.advTeam = el => { view.team = el.value; UI.refresh(); };
   UI.actions.advQual = el => { view.qual = +el.value; UI.refresh(); };
-  UI.actions.advPO = el => { view.po = el.checked; UI.refresh(); };
   const css = document.createElement('style'); css.textContent = 'th.sorted,td.sorted{background:rgba(255,203,5,.08)}'; document.head.appendChild(css);
 })(window.PB);

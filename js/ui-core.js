@@ -7,7 +7,8 @@
   UI.esc = esc;
 
   // ---------- components ----------
-  const spr = (m, size) => `<img class="spr" src="${m.sprite}" onerror="this.onerror=null;this.src='${m.remote}'" width="${size || 96}" height="${size || 96}" alt="${esc(m.dispName)}" loading="lazy">`;
+  const spr = (m, size) => { const c = PB.Atlas && PB.Atlas.css(m, size || 96); return c ? `<span class="spr sp-a" role="img" aria-label="${esc(m.dispName)}" style="${c}"></span>` : sprImg(m, size); };
+  const sprImg = (m, size) => `<img class="spr" src="${m.sprite}" onerror="this.onerror=null;this.src='${m.remote}'" width="${size || 96}" height="${size || 96}" alt="${esc(m.dispName)}" loading="lazy">`;
   const tier = n => n >= 90 ? 't5' : n >= 80 ? 't4' : n >= 70 ? 't3' : n >= 60 ? 't2' : 't1';
   const ovrBadge = n => `<div class="ovr ${tier(n)}">${n}</div>`;
   const typePills = m => m.types.map(t => `<span class="pill" style="background:${PB.TYPE_COLORS[t]}">${t}</span>`).join(' ');
@@ -89,6 +90,19 @@
     const cb = UI._modalBack; UI._modalBack = null; cb && cb();
     const a = $('#app'); const f = a && a.querySelector('.mcard, button, [data-act]'); if (f && document.activeElement === document.body) f.focus();
   };
+  // in-app replacements for the browser's confirm() and prompt() (they work with a controller and match the look of the game)
+  UI.confirm = function (msg, yes, o) {
+    o = o || {}; UI._cf = { yes, no: o.onNo };
+    UI.modal(`<div class="center"><h2>${esc(o.title || 'Are you sure?')}</h2><div>${esc(msg)}</div><div class="row center" style="margin-top:14px"><button class="gold" data-act="cfYes">${esc(o.yesLabel || 'Yes')}</button><button data-act="cfNo" autofocus>${esc(o.noLabel || 'Cancel')}</button></div></div>`, { onClose: () => { const c = UI._cf; UI._cf = null; if (c && c.no) c.no(); } });
+  };
+  UI.actions.cfYes = () => { const c = UI._cf; UI._cf = null; UI.closeModal(); if (c && c.yes) c.yes(); };
+  UI.actions.cfNo = () => UI.closeModal();
+  UI.prompt = function (msg, def, cb) {
+    UI._pp = cb;
+    UI.modal(`<div class="center"><h2>${esc(msg)}</h2><input type="text" id="pp-in" maxlength="24" value="${esc(def || '')}" style="width:80%"><div class="row center" style="margin-top:14px"><button class="primary" data-act="ppOk">OK</button><button data-act="closeModal">Cancel</button></div></div>`, { onClose: () => { UI._pp = null; } });
+    setTimeout(() => { const i = document.getElementById('pp-in'); if (i) { i.focus(); i.select(); } }, 0);
+  };
+  UI.actions.ppOk = () => { const i = document.getElementById('pp-in'), cb = UI._pp, v = i ? i.value.trim() : ''; UI._pp = null; UI.closeModal(); if (cb && v) cb(v); };
   UI.modalOpen = () => $('#modal').classList.contains('open');
   PB.toast = function (msg, ms) {
     const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t);
@@ -100,7 +114,9 @@
   };
 
   // ---------- router ----------
+  const NEEDS_GAME = ['draft', 'lineup', 'fantasy', 'hub'];
   UI.go = function (name, params, noStack) {
+    if (NEEDS_GAME.includes(name) && !PB.G) { name = 'menu'; params = {}; noStack = true; }      // no game loaded: nothing to show
     if (UI.cur && !noStack) UI.stack.push([UI.cur, UI.params]);
     UI.cur = name; UI.params = params || {};
     UI.render();
@@ -109,10 +125,17 @@
     const sc = UI.screens[UI.cur];
     if (!sc) { $('#screen').innerHTML = '<div class="screen">Unknown screen ' + UI.cur + '</div>'; return; }
     PB.Input.mode = sc.game ? 'game' : 'menu';
-    const html = sc.render(UI.params);
-    $('#top').innerHTML = sc.top ? sc.top(UI.params) : UI.defaultTop();
+    let html, top;
+    try { html = sc.render(UI.params); top = sc.top ? sc.top(UI.params) : UI.defaultTop(); }
+    catch (e) {
+      console.error(e); if (PB.Diag) PB.Diag.err('screen ' + UI.cur + ': ' + e.message, 'render');
+      html = `<div class="panel center" style="max-width:520px;margin:30px auto"><h2>This screen could not open</h2><div class="dim">${esc(e.message)}</div><div class="row center" style="margin-top:12px"><button class="primary" data-act="goMenu" autofocus>Back to menu</button><button data-act="diagCopy">Copy problem report</button></div></div>`; top = UI.defaultTop();
+    }
+    $('#top').innerHTML = top;
     $('#screen').innerHTML = `<div class="screen" id="scr">${html}</div>`;
-    if (sc.mount) sc.mount(UI.params);
+    if (PB.Audio) PB.Audio.setScene(UI.cur === 'game' ? 'game' : 'menu');      // music on menus, crowd noise in games
+    document.querySelectorAll('.tabs button.on, .subtabs button.on').forEach(b => { try { b.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch (e) { } });      // keep the current tab in view on a narrow screen
+    if (sc.mount) { try { sc.mount(UI.params); } catch (e) { console.error(e); if (PB.Diag) PB.Diag.err('mount ' + UI.cur + ': ' + e.message, 'mount'); } }
     const f = $('#scr').querySelector('[autofocus]') || $('#scr').querySelector('.mcard, button:not([disabled]), [data-act]');
     if (f && !sc.game && !sc.noFocus && document.body.classList.contains('padnav')) f.focus({ preventScroll: true });      // only when a keyboard / controller is in use
   };
@@ -154,8 +177,11 @@
     return new Promise(res => setTimeout(() => { try { res(fn()); } finally { UI.closeModal(); } }, 30));
   };
   UI.pct = (a, b) => b ? (a / b * 100).toFixed(1) : '0.0';
-  UI.fmt1 = v => (Math.round(v * 10) / 10).toFixed(1);
   // league news about a human team is gold only when it is about *your* team (several humans can share a league online)
   UI.newsMine = (G, n) => { if (!n.user) return false; if (G.teams.filter(t => t.user).length < 2) return true; const T = G.teams[G.userTeam]; return n.txt.includes(T.abbr) || n.txt.includes(T.name) || T.roster.some(id => n.txt.includes(PB.BYID[id].dispName)); };
+  // one autosave for every mode: slot 1, unless the player turned it off or the league is online (the host saves those)
+  UI.autosave = () => { const G = PB.G; if (G && G.settings && G.settings.autosave !== false && !(PB.Net && PB.Net.active && PB.Net.active())) { const r = PB.Save.save(G, 1); if (r && !r.ok) PB.toast('Autosave failed: the browser storage may be full. Export the game from Manage saves.', 5000); } };
+  // a Pokémon's name and sprite as a link to its career page (or card), with its team beside it
+  UI.monLink = (G, id, tid, size) => { const m = PB.BYID[id], t = G.teams[tid]; return `<span data-act="${PB.Career ? 'career' : 'inspect'}" data-id="${id}" tabindex="0" style="cursor:pointer">${UI.spr(m, size || 20)} ${esc(m.dispName)}</span> <span class="dim">${t ? esc(t.abbr) : ''}</span>`; };
   UI.teamLabel = (G, id) => { const t = G.teams[id]; return `<span style="${id === G.userTeam ? 'color:var(--gold);font-weight:700' : ''}">${UI.logo ? UI.logo(t, 16) + ' ' : ''}${esc(t.name)}</span>`; };
 })(window.PB);

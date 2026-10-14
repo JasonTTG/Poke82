@@ -5,7 +5,7 @@
   const B = { q: '', type: 'ALL', gen: 'ALL', leg: 'ALL', sort: 'ovr', pos: 'ALL' };
   const TEAMS_KEY = 'poke82_teams';
   const loadTeams = () => { try { return JSON.parse(localStorage.getItem(TEAMS_KEY) || '[]'); } catch (e) { return []; } };
-  const saveTeams = a => { try { localStorage.setItem(TEAMS_KEY, JSON.stringify(a)); } catch (e) { } };
+  const saveTeams = a => { try { localStorage.setItem(TEAMS_KEY, JSON.stringify(a)); } catch (e) { PB.warn('ui-modes', e); } };
   const need = () => Q.mode === 'practice' ? (Q.practice === 'range' ? 1 : 3) : Q.mode === '3v3' ? 5 : 12;
   const isLeg = m => m.leg || m.myth;
   const rnd = () => (Math.random() * 4294967296) >>> 0;
@@ -77,7 +77,7 @@
           <input type="text" id="bq" placeholder="search…" value="${esc(B.q)}" oninput="PB.UI.bSearch(this.value)"></div>
         <div class="scroll"><table class="t"><thead><tr><th>Pokémon</th><th>Pos</th><th class="n">OVR</th><th class="n">3PT</th><th class="n">DNK</th><th class="n">PAS</th><th class="n">HDL</th><th class="n">SPD</th><th class="n">INT</th><th class="n">PER</th><th>Badge</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>
         <div class="panel"><h3>Your team</h3><div class="slots">${Array.from({ length: n }, (_, i) => { const id = ids[i], m = id != null ? PB.BYID[id] : null; return m ? `<div class="slot fill"><span class="dim" style="width:20px;font-size:11px">${i < (n === 12 ? 5 : n === 5 ? 3 : n) ? 'S' : 'B'}</span>${UI.spr(m, 34)}<div class="grow"><b>${esc(m.dispName)}</b><div class="dim" style="font-size:10px">${m.pos[0]} · ${m.ovr}</div></div><button class="small ghost" data-act="bRemove" data-id="${id}">✕</button></div>` : `<div class="slot"><span class="dim">empty</span></div>`; }).join('')}</div>
-          <div class="dim" style="font-size:11px;margin-top:6px">Starters are chosen automatically from your best fit.</div></div></div>`;
+          </div></div>`;
     },
   };
   UI.bSearch = q => { B.q = q; UI.refresh(); const el = document.getElementById('bq'); if (el) { el.focus(); el.setSelectionRange(q.length, q.length); } };
@@ -94,7 +94,7 @@
   }
   A.bRandom = () => fill(false);
   A.bBest = () => fill(true);
-  A.bSave = () => { const nm = prompt('Name this team', 'My team'); if (!nm) return; const t = loadTeams(); t.push({ name: nm.slice(0, 20), ids: B.ids.slice() }); saveTeams(t); PB.toast('Team saved'); };
+  A.bSave = () => UI.prompt('Name this team', 'My team', nm => { const t = loadTeams(); t.push({ name: nm.slice(0, 20), ids: B.ids.slice() }); saveTeams(t); PB.toast('Team saved'); });
   A.bDone = () => { Q.team = B.ids.slice(); UI.go('quick', {}, true); };
 
   // ---------- building the match ----------
@@ -239,7 +239,7 @@
     if (G.daily.endless) {
       const lg = G.league, r = lg.rec[G.userTeam], res = runResult(G);
       const h = loadEndless(); const T0 = G.teams[G.userTeam]; h.unshift({ t: Date.now(), w: r.w, l: r.l, res, snap: { s: T0.starters.slice(0, 5), b: T0.bench.slice(0, 7) }, mod: G.daily.mod || null, chal: !!G.daily.chal, seed: G.daily.seed }); h.length = Math.min(h.length, 30);
-      try { localStorage.setItem(EKEY, JSON.stringify(h)); } catch (e) { }
+      try { localStorage.setItem(EKEY, JSON.stringify(h)); } catch (e) { PB.warn('ui-modes', e); }
       return;
     }
     const lg = G.league, r = lg.rec[G.userTeam], hist = loadDaily();
@@ -247,7 +247,7 @@
     const cur = hist[G.daily.date];
     const T0 = G.teams[G.userTeam];
     if (!cur) hist[G.daily.date] = { w: r.w, l: r.l, res, snap: { s: T0.starters.slice(0, 5), b: T0.bench.slice(0, 7) }, mod: G.daily.mod || null, chal: !!G.daily.chal, team: G.teams[G.userTeam].starters.slice(0, 3).map(id => PB.BYID[id].dispName).join('/') };
-    try { localStorage.setItem(DKEY, JSON.stringify(hist)); } catch (e) { }
+    try { localStorage.setItem(DKEY, JSON.stringify(hist)); } catch (e) { PB.warn('ui-modes', e); }
   };
   // ---------- daily challenge: the season plays out on screen ----------
   const D = { G: null, pts: [], stage: '', iv: null };
@@ -260,11 +260,7 @@
     const last = pts[pts.length - 1];
     return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:700px;background:var(--bg2);border-radius:8px"><line x1="10" x2="${W - 10}" y1="${H / 2}" y2="${H / 2}" stroke="#667" stroke-dasharray="4 4"/><text x="14" y="14" fill="#8a93a8" font-size="11">above .500</text><text x="14" y="${H - 6}" fill="#8a93a8" font-size="11">below .500</text><path d="${d}" fill="none" stroke="${last >= 0 ? '#2fd47a' : '#ff5a5f'}" stroke-width="2.5"/><circle cx="${X(pts.length - 1)}" cy="${Y(last)}" r="4" fill="#ffcb05"/></svg>`;
   };
-  const bracketHtml = () => {
-    const G = D.G, po = G.league.po; if (!po) return '';
-    const ab = id => id == null ? '?' : `<span style="${id === G.userTeam ? 'color:var(--gold);font-weight:800' : ''}">${esc(G.teams[id].abbr)}</span>`;
-    return `<div class="bracket" style="grid-template-columns:repeat(${po.rounds.length},1fr);margin-top:10px">${po.rounds.map((r, i) => `<div><h3>${['Round 1', 'Semifinals', 'Conf. Finals', 'Finals'][i] || 'Round ' + (i + 1)}</h3>${r.map(s => `<div class="series"><div class="row between ${s.w[0] === (s.need || 4) ? 'w' : ''}"><span>(${s.hiSeed}) ${ab(s.hi)}</span><b>${s.w[0]}</b></div><div class="row between ${s.w[1] === (s.need || 4) ? 'w' : ''}"><span>(${s.loSeed}) ${ab(s.lo)}</span><b>${s.w[1]}</b></div></div>`).join('') || '<div class="dim">TBD</div>'}</div>`).join('')}</div>`;
-  };
+  const bracketHtml = () => D.G.league.po ? UI.bracket(D.G, D.G.league.po, { compact: true }) : '';
   const runRes = (G, r, res) => ({ w: r.w, l: r.l, res, mod: G.daily.mod || null, chal: !!G.daily.chal, endless: !!G.daily.endless, seed: G.daily.seed });
   function dailyDraw() {
     const G = D.G, lg = G.league, r = lg.rec[G.userTeam], el = document.getElementById('dl-body'); if (!el) return;
@@ -319,7 +315,7 @@
   const EKEY = 'poke82_endless';
   const loadEndless = () => { try { return JSON.parse(localStorage.getItem(EKEY) || '[]'); } catch (e) { return []; } };
   const E = { mod: null };
-  try { E.mod = (PB.settings && PB.settings.endlessMod) || null; } catch (e) { }
+  try { E.mod = (PB.settings && PB.settings.endlessMod) || null; } catch (e) { PB.warn('ui-modes', e); }
   S.endless = {
     back() { UI.go('menu', {}, true); },
     render() {

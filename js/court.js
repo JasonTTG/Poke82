@@ -63,7 +63,7 @@
       this.poss = this.rng.int(0, 1); this.firstPoss = this.poss;
       this.qScore = [[], []]; this.qStart = [0, 0];
       this.teamFouls = [0, 0];
-      this.events = []; this.cnt = {}; this.sstat = {}; this.sfx = []; this.flash = null; this.flashT = 0;
+      this.events = []; this.cnt = {}; this.sstat = {}; this.sfx = [];
       this.meter = null;                        // {body, v, locked}
       this.ft = null;
       this.lastPass = null; this.lastTouch = null;
@@ -128,7 +128,9 @@
     bodyOfPl(pl) { for (const b of this.allBodies()) if (b.pl === pl) return b; return null; }
     holder() { return this.ball.holder; }
 
-    say(txt, big) { const k = txt.split(' ')[0] + (txt.indexOf('intercepted') > 0 ? '-icpt' : ''); this.cnt[k] = (this.cnt[k] || 0) + 1; this.events.push({ t: this.t, txt }); if (this.events.length > 8) this.events.shift(); if (big) { this.flash = txt; this.flashT = 1.4; } }
+    // a made shot is counted but not announced: the scoreboard already shows it
+    sayQuiet(txt) { this.say(txt); this.events[this.events.length - 1].q = true; }
+    say(txt) { const k = txt.split(' ')[0] + (txt.indexOf('intercepted') > 0 ? '-icpt' : ''); this.cnt[k] = (this.cnt[k] || 0) + 1; this.events.push({ t: this.t, txt }); if (this.events.length > 8) this.events.shift(); }
 
     // ---------------------------------------------------------------- periods
     startQuarter(q) {
@@ -348,7 +350,6 @@
       if (this.over) return;
       const dt = Math.min(dt0, 1 / 30) * this.speed;
       this.t += dt;
-      if (this.flashT > 0) this.flashT -= dt;
       for (const u of this.U) if (u.ctrlLock > 0) u.ctrlLock -= dt;
       if (this.checkPending) this.resolveCheck();
       if (this.phase === 'dead') { this.deadT -= dt; if (this.deadT <= 0) { const f = this.afterDead; this.afterDead = null; f && f(); } return; }
@@ -427,40 +428,6 @@
         const run = this.runPts[1 - s] >= 10, late = this.q >= 4 && this.clock < 150 && behind > 0 && behind <= 9 && this.poss === s;
         if ((run || late) && this.callTimeout(s)) { this.runPts[1 - s] = 0; return; }
       }
-    }
-    // ---------------------------------------------------------------- foul management
-    // How deep in foul trouble a player is right now (0 = fine), judged by the quarter, the clock and the score.
-    foulTrouble(b) {
-      const g = this.g, si = this.gi[b.s];
-      return Rules.trouble(b.pl.st.pf, this.q, this.clock, g.score[si] - g.score[1 - si]);
-    }
-    // A player in foul trouble plays it safe: fewer fouls, but softer defense. Strategy 'foul': auto (when in trouble) / safe (from 3 fouls) / ride (never).
-    playsSafe(b) {
-      const mode = this.gs(b.s).strat.foul || 'auto';
-      if (mode === 'ride') return false;
-      return mode === 'safe' ? b.pl.st.pf >= 3 : this.foulTrouble(b) > 0;
-    }
-    // Trailing late, a human-coached defense can be told to stop the clock by fouling the ball handler. strategy 'hack': on / off (CPU teams decide for themselves in court-ai.js).
-    intentionalFoul(dt) {
-      if (this.phase !== 'live' || this.q < 4 || this.clock > 45 || this.clock < 1.5 || !this.ball.holder) return;
-      this._hackCd = (this._hackCd || 0) - dt; if (this._hackCd > 0) return;
-      const h = this.ball.holder, ds = 1 - h.s, trail = this.sc(h.s) - this.sc(ds);
-      if (trail <= 0 || trail > 10) return;                               // the defense must be the team that is behind
-      if ((this.gs(ds).strat.hack || 'auto') !== 'on') return;                 // CPU teams use their own late-game fouling in court-ai.js
-      if (this.t - (this.possT || 0) < 1.3) return;
-      const cand = this.bodies[ds].filter(x => x.pl.st.pf < 5 && Math.hypot(x.x - h.x, x.y - h.y) < 6).sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y))[0];
-      if (!cand) return;
-      this._hackCd = 5;
-      this.nonShootingFoul(cand, h, 'Intentional foul');
-    }
-    // floating badge pop-ups above a player (drawn by the renderer)
-    badgePop(body, name, text) {
-      if (!body || PB.settings.showBadges === false) return;
-      this._popCd = this._popCd || {};
-      const k = body.mon.id + name; if (this.t - (this._popCd[k] || -9) < 3) return;
-      this._popCd[k] = this.t;
-      (this.pops = this.pops || []).push({ b: body, txt: name + (text || ''), t0: this.t });
-      if (this.pops.length > 8) this.pops.shift();
     }
     // euro steps / drop steps finish at the rim; shot flags expire
     afterMoves(dt) {
@@ -704,7 +671,6 @@
       const h = this.ball.holder || c;
       const dfd = this.nearestDef(h, 20);
       best.ai.screenFor = h; best.ai.screenT = this.t + 3.0; best.screenDef = dfd;
-      this.say('Screen!');
     }
     switchDefender() {
       // A on defense: switch to the defender nearest the ball
@@ -917,7 +883,7 @@
       if (PB.Abil.fx(shooter.mon.id).key === 'freebie') this.badgePop(shooter, 'Foul Magnet', '');
       def.pl.st.pf++; this.teamFouls[def.s]++; this.g.teamFouls[this.gi[def.s]] = this.teamFouls[def.s]; this.sfx.push('whistle');
       if (def.pl.st.pf >= 6) def.pl.dq = true;
-      this.say('Shooting foul on ' + def.mon.dispName + this.foulNote(def), true);
+      this.say('Shooting foul on ' + def.mon.dispName + this.foulNote(def), true); this.foulAlert(def);
     }
 
     // ---------------------------------------------------------------- defensive actions
@@ -962,18 +928,11 @@
       c.jump = 1; c.jumpKind = 'reb'; c.vz = 9 + this.jumpH(c); c.rebJump = this.t;
     }
 
-    tiredNote() {
-      if (this.phase !== 'live') return;
-      for (const b of this.bodies[this.me]) {
-        if (b.pl.en < 28 && !b._tired) { b._tired = true; if (this.isMine(b) || !this.online) this.say(b.mon.dispName + ' is gassed. Rest him!'); }
-        else if (b.pl.en > 45) b._tired = false;
-      }
-    }
     foulNote(b) { const pf = b.pl.st.pf; return pf >= 6 ? ' · FOULED OUT' : pf === 5 ? ' · foul trouble (5)' : pf === 4 ? ' · 4 fouls' : ''; }
     nonShootingFoul(def, off, text) {
       def.pl.st.pf++; this.teamFouls[def.s]++; this.g.teamFouls[this.gi[def.s]] = this.teamFouls[def.s]; this.sfx.push('whistle');
       if (def.pl.st.pf >= 6) def.pl.dq = true;
-      this.say((text || 'Foul') + ' on ' + def.mon.dispName + this.foulNote(def), true);
+      this.say((text || 'Foul') + ' on ' + def.mon.dispName + this.foulNote(def), true); this.foulAlert(def);
       this.stopForFoul(def, off);
     }
     stopForFoul(def, off) {
@@ -986,7 +945,7 @@
     offensiveFoul(off, def) {
       this.sfx.push('whistle'); off.pl.st.pf++; off.pl.st.tov++; this.teamFouls[off.s]++; this.g.teamFouls[this.gi[off.s]] = this.teamFouls[off.s];
       if (off.pl.st.pf >= 6) off.pl.dq = true;
-      this.say('OFFENSIVE FOUL on ' + off.mon.dispName + this.foulNote(off), true);
+      this.say('OFFENSIVE FOUL on ' + off.mon.dispName + this.foulNote(off), true); this.foulAlert(off);
       this.shot = null;
       this.changePoss(1 - off.s, false);
       this.setInbound(1 - off.s, off.x, off.y < 25 ? 0 : 50, 'foul');
@@ -1125,7 +1084,7 @@
       if (type === 'three' || (type === 'rim' && b.rimKind === 'dunk')) this.sfx.push({ kind: type === 'three' ? 'three' : 'dunk', side: b.s });
       const oop = b.alleyDunk && this.t - b.alleyDunk < 3;
       if (this.mode === '3v3' && this.g.score[this.gi[b.s]] >= this.target) { this.g.qScores = [[this.g.score[0]], [this.g.score[1]]]; this.finish(); }
-      this.say((oop ? 'ALLEY-OOP! ' : type === 'three' ? '3PT! ' : type === 'rim' && b.rimKind === 'dunk' ? 'DUNK! ' : '') + b.mon.dispName + ' scores (' + this.sc(b.s) + '-' + this.sc(1 - b.s) + ')', type === 'three' || oop || (b.rimKind === 'dunk' && type === 'rim'));
+      this.sayQuiet((oop ? 'ALLEY-OOP! ' : type === 'three' ? '3PT! ' : type === 'rim' && b.rimKind === 'dunk' ? 'DUNK! ' : '') + b.mon.dispName + ' scores (' + this.sc(b.s) + '-' + this.sc(1 - b.s) + ')');
     }
     violation(kind) {
       const s = this.poss;
@@ -1459,6 +1418,8 @@
         if (cands.length) {
           const win = cands[this.rng.weighted(cands.map(c => c[1]))][0];
           if (PB.Abil.fx(win.mon.id).key === 'glass') this.badgePop(win, 'Glass Cleaner', '');
+          if (win.boxOut) this.eventPop(win, 'Box out');
+          else if (this.allBodies().some(x => x.boxOut && x.s !== win.s && Math.hypot(x.x - win.x, x.y - win.y) < 4.5)) this.eventPop(win, 'Fought through the box out');
           this.rebTarget = win; this.rebT0 = this.t;
           const T = 0.35; ball.vx = (win.x - ball.x) / T; ball.vy = (win.y - ball.y) / T; ball.vz = Math.max(ball.vz, -6);
         }

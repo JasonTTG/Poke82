@@ -8,7 +8,7 @@ Playable 5-on-5 basketball (Xbox controller or keyboard) shares its ratings and 
 No build step, no npm. Needs only a browser (Chrome/Edge recommended for Gamepad API) and Python 3 for a static server:
 
 ```
-python tools/serve.py        # http://localhost:8082
+python tools/serve.py        # a local static server (no-cache) at http://localhost:8082; online play does not need it
 ```
 
 `index.html` can also be opened from a local web server of your choice (ES modules are not used, plain scripts).
@@ -67,6 +67,15 @@ To put the game online for free, upload this folder to any static host (GitHub P
 - **Performance settings**: graphics detail (high / medium / low), resolution scale and a frame-rate limit, with presets, plus a quick Graphics button in the pause menu.
 - Daily and Endless runs keep their lineup, so a team card can be made any time from the run history. Draft re-rolls no longer change what the next roll is for a given seed.
 
+## Reliability, accessibility and housekeeping
+- **Online**: connections retry and use a TURN relay fallback; guests see a latency pill and a "connection lost" banner; if the host disappears any player can host the league from their own copy or save it to a file; Settings and the online screen have **Copy problem report** (recent connection events and errors).
+- **Offers and injuries**: AI teams send trade offers during the season; a rejected trade suggests what to add or drop; injuries show recovery progress, an expected return date and can suffer setbacks.
+- **Games**: foul-trouble banner for your players, box-out callouts on rebounds, more blocks and steals; **Auto strategy** shows every offense and defense tried with its margin of error.
+- **Accessibility**: colorblind palette, text size, reduced-motion support, button roles and labels.
+- **Hosting**: sprites are packed into a few sheets (`python tools/fetch_data.py` downloads the single sprite files, then `python tools/build_atlas.py` rebuilds `sprites/atlas/` and `data/atlas.js`; the single files are not kept in the repo); a service worker (`sw.js`) and web manifest let the game be installed and run offline; `vercel.json` sets long cache lifetimes for sprites.
+- **Stats**: one Stats tab with a row of views (Leaders, Players, Team stats, Advanced, Milestones) and a Playoffs toggle that applies to all of them; Shot Charts stays its own tab.
+- **Code**: league hooks (`PB.League.hooks.beforeRecord / afterRecord / afterFinish`) replace function wrapping; one `PB.gameScore`; graphics split out of `ui-game.js` into `game-gfx.js`, extra match rules into `court-rules.js`; errors are logged by `PB.warn` / `PB.Diag` instead of being swallowed.
+
 ## Data
 `tools/fetch_data.py` (and `fetch_extras.py` for abilities and regional forms) pull all species from PokéAPI (stats, types, height, weight, generation, legendary/mythical,
 evolution info, sprite) into `data/pokemon.js` and `sprites/*.png` and caches raw responses in `tools/cache/`.
@@ -85,7 +94,7 @@ guarantees species uniqueness. Re-run the script to refresh.
 | `js/franchise.js` | franchise mode: growth, draft, evolution, injuries, free agency, trades |
 | `js/ops.js`, `js/net.js` | shared-state operations and the online (peer-to-peer) client, spectators |
 | `js/hub2.js`, `grades.js`, `advstats.js`, `career.js`, `shotzones.js`, `recordbook.js`, `seasonreport.js`, `natures.js` | league hub extras (power rankings, grades, advanced stats, careers, shot charts, records, season report, natures) |
-| `js/teamcard.js`, `teamlook.js`, `saveslots.js`, `audioscene.js`, `audio.js`, `touch.js` | team card / customization, save slots, sound, on-screen controls |
+| `js/teamcard.js`, `teamlook.js`, `saveslots.js`, `audio.js`, `touch.js` | team card / customization, save slots, sound, on-screen controls |
 | `js/court.js`, `js/court-ai.js` | playable engine (physics, rules, AI) |
 | `js/ui-*.js` (franchise: `ui-franchise*.js`, the lottery and scouting are in `ui-franchise3.js`), `css/` | menus, draft, hub, game screen/HUD |
 | `js/input.js` | keyboard + Gamepad API, menu focus navigation, remapping |
@@ -102,6 +111,5 @@ Only official Pokémon stats are shown by default. Settings → Show toggles bas
 Camera: "2K" (behind the play, default) or "Broadcast" (sideline).
 
 ## Tests
-`tests/p0.html` ratings sanity, `p1.html` draft, `p2.html` sim consistency, `p3.html` season/playoffs/save,
-`p5.html` playable engine (`stress()`, `botGame()`, `bench()`), `p6.html` uniqueness/determinism/save-load regression,
+`tests/p5.html` playable engine (`stress()`, `botGame()`, `bench()`), `p6.html` uniqueness/determinism/save-load regression,
 `p9.html` abilities / modes, `p12.html` franchise defaults (mixed pool, conferences, classes, protected picks, scouting, how many seasons a league runs), `p10.html` positions, daily modifiers, fouls, grades, natures, advanced stats, career, shot zones, record book, team looks, `p11.html` three clients (host, guest, spectator) for spectator mode, `p13.html` grades (stints, picks, trades, season grade), `p14.html` live engine (inbounder, badge pop-ups, foul rules, late fouls), `mvp.html` MVP spread over many simulated seasons, `p7.html` franchise (whole multi-season runs, trades, injuries, evolution, determinism), `p8.html` two real clients side by side for online testing (`T.connect`, `T.key`).

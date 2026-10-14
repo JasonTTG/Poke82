@@ -59,8 +59,8 @@
   UI.actions.tlShape = (el, d) => { E.shape = d.s || null; document.querySelectorAll('#tl-shapes button').forEach(b => b.classList.toggle('primary', (b.dataset.s || null) === E.shape)); preview(); };
   UI.actions.tlSym = (el, d) => { E.symbol = d.s; setInputs(); preview(); };
   UI.actions.tlPreset = (el, d) => { const p = PRESETS[+d.i]; E.c1 = p[0]; E.c2 = p[1]; E.c3 = p[0]; setInputs(); preview(); };
-  UI.actions.tlSave = () => PB.Ops.run('teamLook', { tid: E.tid, look: { c1: E.c1, c2: E.c2, c3: E.c3, shape: E.shape, symbol: E.symbol } }, err => { if (err) PB.toast(err, 3000); else { UI.closeModal(); UI.refresh(); PB.toast('Team look saved'); } });
-  UI.actions.tlReset = () => PB.Ops.run('teamLook', { tid: E.tid, look: null }, err => { if (err) PB.toast(err, 3000); else { UI.closeModal(); UI.refresh(); PB.toast('Back to the default look'); } });
+  UI.actions.tlSave = () => PB.Ops.run('teamLook', { tid: E.tid, look: { c1: E.c1, c2: E.c2, c3: E.c3, shape: E.shape, symbol: E.symbol } }, err => { if (err) PB.toast(err, 3000); else { UI.closeModal(); UI.refresh(); } });
+  UI.actions.tlReset = () => PB.Ops.run('teamLook', { tid: E.tid, look: null }, err => { if (err) PB.toast(err, 3000); else { UI.closeModal(); UI.refresh(); } });
   UI.actions.teamLook = (el, d) => UI.teamLook(+d.tid);
   UI.teamLookButton = tid => `<button data-act="teamLook" data-tid="${tid}">🎨 Customize</button>`;
 })(window.PB);

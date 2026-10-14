@@ -45,9 +45,7 @@
     return out;
   }
 
-  const origRecord = L.record;
-  L.record = function (G, game, result, playoff) {
-    origRecord(G, game, result, playoff);
+  L.hooks.afterRecord.push(function (G, game, result, playoff) {
     const lg = G.league; lg.zones = lg.zones || { reg: { p: {}, t: {}, d: {} }, po: { p: {}, t: {}, d: {} } };
     const Zs = lg.zones[playoff ? 'po' : 'reg'], tid = [game.h, game.a];
     const rng = new PB.RNG((((game.day + 3) * 2654435761) ^ (game.h * 131 + game.a * 7919)) >>> 0);
@@ -57,7 +55,7 @@
       else shots = estimate(result.box[s], rng);
       for (const [pid, z, made] of shots) { add(Zs.p, pid, z, made); add(Zs.t, tid[s], z, made); add(Zs.d, tid[1 - s], z, made); }
     }
-  };
+  });
 
   // ---------- chart ----------
   let grid = null;

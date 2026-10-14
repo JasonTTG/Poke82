@@ -6,6 +6,11 @@ window.PB = window.PB || {};
   PB.norm = (v, lo, hi) => PB.clamp((v - lo) / (hi - lo), 0, 1);
   PB.avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
   PB.sum = a => a.reduce((s, x) => s + x, 0);
+  // Hollinger game score from box totals (one game, or a season total: divide by gp). The single definition used by awards, grades, reports and stat pages.
+  PB.gameScore = s => s.pts + 0.4 * s.fgm - 0.7 * s.fga - 0.4 * (s.fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov;
+  // a stable 0..1 value from two integers (the same everywhere, so every client agrees); `salt` keeps different uses independent
+  PB.hash2 = (a, b, salt) => { let h = (a ^ (salt == null ? 0x9e3779b9 : salt)) >>> 0; h = Math.imul(h ^ b, 0x85ebca6b) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 0xc2b2ae35) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  PB.gameScorePG = s => PB.gameScore(s) / Math.max(1, s.gp);
 
   // mulberry32 seeded RNG; state is serialisable so saves resume deterministically
   class RNG {

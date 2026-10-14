@@ -56,7 +56,7 @@
   function crowdStop() {
     if (!Cr.on) return; Cr.on = false;
     const t = ctx.currentTime; crowdBus.gain.setTargetAtTime(0, t, 0.25);
-    const s = Cr.src, l = Cr.lfo; setTimeout(() => { try { s.stop(); l.stop(); } catch (e) { } }, 1200);
+    const s = Cr.src, l = Cr.lfo; setTimeout(() => { try { s.stop(); l.stop(); } catch (e) { PB.warn('audio', e); } }, 1200);
   }
   function swell(level) {
     if (!ctx || !Cr.on || S().crowd === false) return;
@@ -95,7 +95,7 @@
   }
 
   PB.Audio = {
-    unlock() { try { ensure(); if (PB.Audio.scene) PB.Audio.setScene(PB.Audio.scene); } catch (e) { } },
+    unlock() { try { ensure(); if (PB.Audio.scene) PB.Audio.setScene(PB.Audio.scene); } catch (e) { PB.warn('audio', e); } },
     apply,
     state: () => ({ ctx: ctx && ctx.state, music: Mu.on, crowd: Cr.on, steps: Mu.bar * 16 + Mu.step, t: ctx && ctx.currentTime }),
     scene: null,
@@ -103,7 +103,7 @@
     setScene(name) {
       PB.Audio.scene = name;
       if (!ctx) return;                                     // starts on the first user gesture (unlock)
-      try { if (name === 'menu') { crowdStop(); musicStart(); } else if (name === 'game') { musicStop(); crowdStart(); } else { musicStop(); crowdStop(); } apply(); } catch (e) { }
+      try { if (name === 'menu') { crowdStop(); musicStart(); } else if (name === 'game') { musicStop(); crowdStart(); } else { musicStop(); crowdStop(); } apply(); } catch (e) { PB.warn('audio', e); }
     },
     play(name) {
       if (mute()) return;
@@ -124,7 +124,7 @@
           case 'sub': tone('sine', 520, 700, 0.1, 0.2 * g); break;
           case 'three': tone('sine', 880, 1320, 0.18, 0.3 * g); tone('sine', 1320, 1760, 0.2, 0.25 * g, 0.12); swell(0.7); break;
         }
-      } catch (e) { }
+      } catch (e) { PB.warn('audio', e); }
     },
   };
   ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => PB.Audio.unlock(), { once: true }));

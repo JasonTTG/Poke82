@@ -16,7 +16,7 @@
         const h = JSON.parse(localStorage.getItem('poke82_daily') || '{}'), d = new Date(), k = PB.localDay(d);
         let st = 0; for (;;) { const kk = PB.localDay(d); if (h[kk]) { st++; d.setDate(d.getDate() - 1); } else break; }
         const MD = PB.dailyMod && PB.dailyMod(k); dailyStatus = (h[k] ? 'Today: ' + h[k].w + '-' + h[k].l + ' · ' + h[k].res : 'Not played yet' + (MD ? ' · Modifier: ' + PB.MODS[MD].name : '')) + (st ? ' · ' + st + '-day streak' : '');
-      } catch (e) { }
+      } catch (e) { PB.warn('ui-menu', e); }
       return `<div class="hero">
         <h1>POKÉ<span>HOOPS</span> 82</h1>
         <div class="sprite-row">${showcase.map(m => UI.spr(m, 68)).join('')}</div>
@@ -49,10 +49,8 @@
       else if (G.fdraft && G.fdraft.pick < G.fdraft.total) UI.go('fantasy', {}, true);
       else if (G.draft && G.draft.phase !== 'done') UI.go('draft', {}, true);
       else UI.go('lineup', { ctx: 'postDraft' }, true);
-      PB.toast('Save loaded');
     } catch (e) { console.error(e); PB.toast('Load failed: ' + e.message, 4000); }
   };
-  A.newMain = () => UI.go('new', { mode: 'main' });
   A.newFranchise = () => UI.go('frnew');
   A.goOnline = (el, d) => { if (d && d.modes) UI.setOnlineModes(d.modes.split(',')); UI.go('online'); };
   A.goQuick = () => UI.go('quick');
@@ -137,6 +135,11 @@
           <label>Touch controls <select data-change="setOpt" data-k="touchControls">${[['auto', 'Automatic (touch devices)'], ['on', 'Always on'], ['off', 'Off']].map(([v, l]) => `<option value="${v}" ${(s.touchControls || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label><input type="checkbox" ${s.autoReplay !== false ? 'checked' : ''} data-change="setOptBool" data-k="autoReplay"> Offer instant replays after big plays</label>
           <label><input type="checkbox" ${s.showBadges !== false ? 'checked' : ''} data-change="setOptBool" data-k="showBadges"> Ability pop-ups during games</label>
+          <h3 style="margin-top:8px">Accessibility</h3>
+          <label><input type="checkbox" ${s.colorblind ? 'checked' : ''} data-change="setA11y" data-k="colorblind"> Colorblind-friendly colors (blue and orange instead of green and red)</label>
+          <label>Text size <select data-change="setA11y" data-k="textScale">${[['100', 'Normal'], ['115', 'Large'], ['130', 'Larger']].map(([v, l]) => `<option value="${v}" ${String(s.textScale || 100) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <h3 style="margin-top:8px">Problems</h3>
+          <div class="row wrap"><button data-act="diagCopy">Copy problem report</button><button data-act="diagClear">Clear log</button></div>
           <h3 style="margin-top:8px">Performance (playable games)</h3>
           
           <label>Preset <select data-change="perfPreset"><option value="">Choose…</option><option value="high">High quality</option><option value="balanced">Balanced</option><option value="low">Low-end device</option></select></label>

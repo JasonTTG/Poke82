@@ -97,7 +97,6 @@
     if (PB.logPick) PB.logPick(G, 'main', 'main', G.daily ? 'Daily draft' : 'Random draft', { n: D.pick, t: G.userTeam, id, alts: D.cands.filter(x => x !== id) });
     PB.Registry.claim(G, id, G.userTeam);
     D.roll = null; D.cands = null; D.pick++;
-    PB.toast('Drafted ' + PB.BYID[id].dispName + '!');
     const T = G.teams[G.userTeam];
     if (D.pick === 5) { PB.autoLineup(T); UI.go('lineup', { ctx: 'postStarters' }); return; }
     if (D.pick > 5) { T.bench = T.roster.filter(x => !T.starters.includes(x)).sort((x, y) => PB.BYID[y].ovr - PB.BYID[x].ovr); }

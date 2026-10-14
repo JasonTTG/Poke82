@@ -3,7 +3,6 @@
   const F = PB.Fantasy = {};
   const ROUNDS = 12;
 
-  F.maxTeams = () => Math.floor(PB.MONS.length / ROUNDS);
 
   F.start = function (G, userPos) {
     // userPos: 0-based draft slot for the user, or null to randomize
@@ -77,10 +76,6 @@
   F.runToHuman = function (G, max) {
     let n = 0;
     while (!F.done(G) && !G.teams[F.current(G)].user && n++ < (max || 1e6)) F.aiStep(G);
-  };
-  F.autoUser = function (G) {   // best-fit auto pick for the user's team
-    const t = G.userTeam;
-    F.make(G, t, F.aiChoice(G, t));
   };
   // how many picks until the user is next on the clock
   F.picksUntilUser = function (G) {

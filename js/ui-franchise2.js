@@ -1,4 +1,4 @@
-// Franchise UI extras: records, league rules, awards ceremony, in-season evolution prompts.
+// Franchise UI extras: league rules, awards ceremony, in-season evolution prompts.
 (function (PB) {
   const UI = PB.UI, esc = UI.esc, A = UI.actions, L = PB.League, F = PB.Franchise, TAB = UI.hubTabs, O = PB.Ops;
   const run = (name, args, after) => O.run(name, args, (err, res) => { if (err) { PB.toast(err, 3500); return; } if (after) after(res); UI.refresh(); });
@@ -35,25 +35,6 @@
   };
   A.frRule = (el, d) => run('rules', { rules: { [d.k]: +el.value } });
 
-  // ---------- records ----------
-  TAB.records = function (G) {
-    const fr = G.fr, R = fr.records || { game: {}, team: {}, season: {} }, v = UI.vis();
-    const mon = id => { const m = PB.BYID[id]; return `<span data-act="inspect" data-id="${id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 24)} ${esc(m.dispName)}</span>`; };
-    const tm = t => UI.teamLabel(G, t);
-    const gameRows = F.GAME_KEYS.map(([k, label]) => { const r = (R.game || {})[k]; return r ? `<tr><td>${label}</td><td class="n"><b>${r.v}</b></td><td>${mon(r.id)}</td><td>${tm(r.t)}</td><td class="dim">S${r.y}</td></tr>` : ''; }).join('');
-    const T = R.team || {}, S = R.season || {};
-    const teamRows = [['Best record', T.record && `${T.record.w}-${T.record.l}`, T.record && T.record.t, T.record && T.record.y], ['Most points in a game', T.pts && T.pts.v, T.pts && T.pts.t, T.pts && T.pts.y], ['Biggest win', T.margin && '+' + T.margin.v, T.margin && T.margin.t, T.margin && T.margin.y], ['Longest win streak', T.streak && T.streak.v, T.streak && T.streak.t, T.streak && T.streak.y]]
-      .filter(r => r[1]).map(r => `<tr><td>${r[0]}</td><td class="n"><b>${r[1]}</b></td><td>${tm(r[2])}</td><td class="dim">S${r[3]}</td></tr>`).join('');
-    const seasonRows = [['ppg', 'Points per game'], ['rpg', 'Rebounds per game'], ['apg', 'Assists per game']].map(([k, l]) => S[k] ? `<tr><td>${l}</td><td class="n"><b>${S[k].v.toFixed(1)}</b></td><td>${mon(S[k].id)}</td><td class="dim">S${S[k].y}</td></tr>` : '').join('');
-    const career = fr.career || {};
-    const top = (key, f) => Object.keys(career).map(id => ({ id: +id, v: f(career[id]) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v).slice(0, 6);
-    const lead = [['Career points', c => c.pts], ['Career rebounds', c => c.reb], ['Career assists', c => c.ast], ['Career steals', c => c.stl], ['Career blocks', c => c.blk], ['Titles', c => c.titles], ['MVP awards', c => c.mvp]].map(([l, f]) => `<div class="panel"><h3>${l}</h3>${top(l, f).map((x, i) => `<div class="row between"><span>${i + 1}. ${mon(x.id)}</span><b>${x.v}</b></div>`).join('') || '<div class="dim">—</div>'}</div>`).join('');
-    const hall = fr.hall.filter(h => h.k === 'MVP').map(h => `<div class="row between"><span class="dim">Season ${h.y}</span><span>${mon(h.id)}</span></div>`).join('');
-    return `<div class="col"><div class="layout2" style="--side:1fr"><div class="panel"><h3>Single-game records</h3>${gameRows ? `<table class="t"><tbody>${gameRows}</tbody></table>` : '<div class="dim">Play some games first.</div>'}</div>
-      <div class="panel"><h3>Team records</h3>${teamRows ? `<table class="t"><tbody>${teamRows}</tbody></table>` : '<div class="dim">—</div>'}<h3 style="margin-top:12px">Season records</h3>${seasonRows ? `<table class="t"><tbody>${seasonRows}</tbody></table>` : '<div class="dim">After the first season.</div>'}</div></div>
-      <div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))">${lead}</div>
-      ${hall ? `<div class="panel"><h3>MVP history</h3>${hall}</div>` : ''}</div>`;
-  };
 
   // ---------- awards ceremony ----------
   A.ceremony = () => UI.ceremony(PB.G);

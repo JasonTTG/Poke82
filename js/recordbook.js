@@ -19,9 +19,7 @@
   };
   const userSide = (G, ...tids) => tids.some(t => G.teams[t] && G.teams[t].user);
 
-  const origRecord = L.record;
-  L.record = function (G, game, result, playoff) {
-    origRecord(G, game, result, playoff);
+  L.hooks.afterRecord.push(function (G, game, result, playoff) {
     const B = rb(G), y = yearOf(G), tid = [game.h, game.a];
     for (let s = 0; s < 2; s++) {
       for (const id in result.box[s]) {
@@ -38,11 +36,9 @@
       if (margin > 0) put(B.team.margin = B.team.margin || [], { v: margin, t: tid[s], y, d: game.day, opp: tid[1 - s] });
       if (!playoff) { const st = G.league.rec[tid[s]].strk; if (st > 0) { const list = B.team.streak = B.team.streak || [], mine = list.find(e => e.t === tid[s] && e.y === y); if (mine) { if (st > mine.v) { mine.v = st; list.sort((a, b) => b.v - a.v); } } else put(list, { v: st, t: tid[s], y }); } }
     }
-  };
+  });
 
-  const origFinish = L.finishSeason;
-  L.finishSeason = function (G) {
-    origFinish(G);
+  L.hooks.afterFinish.push(function (G) {
     const lg = G.league, B = rb(G), y = yearOf(G);
     const need = Math.max(1, Math.round(lg.games * 0.5));
     for (const id in lg.pstats) {
@@ -54,12 +50,12 @@
       put(B.team.wins = B.team.wins || [], { v: r.w, w: r.w, l: r.l, t: t.id, y });
       put(B.team.losses = B.team.losses || [], { v: r.l, w: r.w, l: r.l, t: t.id, y });
     }
-  };
+  });
 
   // ---------- page ----------
   const TEAM = [['pts', 'Most points in a game'], ['margin', 'Biggest margin of victory'], ['streak', 'Longest win streak'], ['wins', 'Most wins in a season'], ['losses', 'Most losses in a season']];
   const view = { open: {} };
-  const who = (G, e) => { const m = PB.BYID[e.id], t = G.teams[e.t]; return `<span data-act="${C ? 'career' : 'inspect'}" data-id="${e.id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 20)} ${esc(m.dispName)}</span> <span class="dim">${t ? esc(t.abbr) : ''}</span>`; };
+  const who = (G, e) => UI.monLink(G, e.id, e.t);
   const tm = (G, e) => `${UI.logo ? UI.logo(G.teams[e.t], 16) + ' ' : ''}${esc(G.teams[e.t].name)}`;
   const when = (G, e) => (G.fr && e.y ? 'S' + e.y : '') + (e.d ? (G.fr && e.y ? ' · ' : '') + L.dateStr(e.d) : '') + (e.po ? ' · playoffs' : '');
   const card = (G, key, title, list, row, fmtV) => {
@@ -79,7 +75,6 @@
     return `<div class="panel"><h2 style="margin:0">Record book</h2></div>
       <h3 style="margin:14px 0 6px">Single game</h3>${game}<h3 style="margin:14px 0 6px">Season</h3>${season}<h3 style="margin:14px 0 6px">Teams</h3>${team}${career}`;
   };
-  UI.addHubTab('records', 'Record Book', 'awards', page, G => G.mode !== 'franchise');
-  UI.hubTabs.records = page;                 // franchise leagues already have a Records tab: swap in the full record book
+  UI.hubTabs.records = page;
   UI.actions.rbMore = (el, d) => { view.open[d.k] = !view.open[d.k]; UI.refresh(); };
 })(window.PB);

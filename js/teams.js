@@ -165,7 +165,6 @@
     // candidate pool: top 9 by ovr to keep combos small
     const pool = mons.slice().sort((a, b) => b.ovr - a.ovr).slice(0, 9);
     let best = null, bs = -1e9;
-    const idx = [0, 1, 2, 3, 4];
     (function comb(start, pick) {
       if (pick.length === 5) {
         const five = pick.map(i => pool[i]);

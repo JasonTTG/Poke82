@@ -23,9 +23,9 @@
     pressed(b) { return !!I._pressed[b]; },
     released(b) { return !I._held[b] && !!I._prev[b]; },
     loadConfig() {
-      try { const c = JSON.parse(localStorage.getItem('poke82_input_v2') || 'null'); if (c) { I.padMap = Object.assign({}, DEFAULT_PAD, c.padMap); I.keyMap = Object.assign(JSON.parse(JSON.stringify(DEFAULT_KEYS)), c.keyMap); I.deadzone = c.deadzone || 0.18; I.sens = c.sens || 1; } } catch (e) { }
+      try { const c = JSON.parse(localStorage.getItem('poke82_input_v2') || 'null'); if (c) { I.padMap = Object.assign({}, DEFAULT_PAD, c.padMap); I.keyMap = Object.assign(JSON.parse(JSON.stringify(DEFAULT_KEYS)), c.keyMap); I.deadzone = c.deadzone || 0.18; I.sens = c.sens || 1; } } catch (e) { PB.warn('input', e); }
     },
-    saveConfig() { try { localStorage.setItem('poke82_input_v2', JSON.stringify({ padMap: I.padMap, keyMap: I.keyMap, deadzone: I.deadzone, sens: I.sens })); } catch (e) { } },
+    saveConfig() { try { localStorage.setItem('poke82_input_v2', JSON.stringify({ padMap: I.padMap, keyMap: I.keyMap, deadzone: I.deadzone, sens: I.sens })); } catch (e) { PB.warn('input', e); } },
     resetConfig() { I.padMap = Object.assign({}, DEFAULT_PAD); I.keyMap = JSON.parse(JSON.stringify(DEFAULT_KEYS)); I.deadzone = 0.18; I.sens = 1; I.saveConfig(); },
     keyLabel(code) { return code.replace('Key', '').replace('Arrow', '').replace('Space', 'Space').replace('ShiftLeft', 'Shift').replace('ShiftRight', 'R-Shift').replace('ControlLeft', 'Ctrl').replace('Escape', 'Esc'); },
   };

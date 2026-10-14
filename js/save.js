@@ -37,7 +37,7 @@
       if (err) throw new Error('Corrupt save: ' + err);
       return G;
     },
-    settingsSave(S) { try { localStorage.setItem('poke82_settings', JSON.stringify(S)); } catch (e) { } },
+    settingsSave(S) { try { localStorage.setItem('poke82_settings', JSON.stringify(S)); } catch (e) { PB.warn('save', e); } },
     settingsLoad() { try { const o = JSON.parse(localStorage.getItem('poke82_settings') || '{}'); if (!o.showV2) { o.showRatings = o.showPositions = o.showArchetypes = o.showOverall = true; o.showV2 = true; } return Object.assign(PB.defaultSettings(), o); } catch (e) { return PB.defaultSettings(); } },
   };
 })(window.PB);

@@ -80,12 +80,12 @@
     ['home', 'Home', ['home']],
     ['offseason', 'Offseason', ['offseason']],
     ['team', 'Team', ['roster', 'scouting', 'fa', 'trades', 'grades']],
-    ['league', 'League', ['standings', 'players', 'power', 'schedule', 'playoffs', 'boxes', 'rules']],
-    ['stats', 'Stats', ['stats', 'adv', 'milestones', 'charts']],
+    ['league', 'League', ['standings', 'power', 'schedule', 'playoffs', 'boxes', 'rules']],
+    ['stats', 'Stats', ['stats', 'charts']],
     ['history', 'History', ['awards', 'awardcounts', 'records', 'history', 'report']],
     ['save', 'Save / Load', ['save']],
   ];
-  const SUB = { stats: 'Leaders', records: 'Record Book', power: 'Power Rankings' };
+  const SUB = { stats: 'Stats', records: 'Record Book', power: 'Power Rankings' };
   UI.tabGroups = function (G) {
     const all = UI.tabsFor(G), label = new Map(all), used = new Set();
     const gs = GROUPS.map(([id, name, keys]) => ({ id, label: name, tabs: keys.filter(k => label.has(k)).map(k => { used.add(k); return [k, SUB[k] || label.get(k)]; }) }));

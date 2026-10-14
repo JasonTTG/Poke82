@@ -110,7 +110,6 @@
     return lg;
   };
 
-  L.seasonDone = lg => lg.phase === 'done';
 
   // ----- recording results --------------------------------------------------
   function addP(map, id, box) {
@@ -119,7 +118,9 @@
     s.gp += box.gp; s.gs += box.gs;
   }
 
-  L.record = function (G, game, result, playoff) {
+  // other modules (grades, careers, records, shot zones, extra stats) attach here instead of wrapping L.record / L.finishSeason
+  L.hooks = { beforeRecord: [], afterRecord: [], afterFinish: [] };
+  const recordCore = function (G, game, result, playoff) {
     const lg = G.league;
     const h = G.teams[game.h], a = G.teams[game.a];
     game.done = true; game.sc = result.score.slice(); game.ot = result.ot;
@@ -149,6 +150,12 @@
       lg.userBoxes.push({ day: game.day, h: h.id, a: a.id, sc: result.score, q: result.q, ot: result.ot, po: !!playoff, box, shots: result.shots || null });
     }
     if (G.fr) PB.Franchise.afterGame(G, game, result);
+  };
+  L.record = function (G, game, result, playoff) {
+    const ctx = {};
+    for (const f of L.hooks.beforeRecord) f(G, game, result, playoff, ctx);
+    recordCore(G, game, result, playoff);
+    for (const f of L.hooks.afterRecord) f(G, game, result, playoff, ctx);
   };
   L.teamOf = (G, id) => { const t = G.claimed[id]; if (t != null) return t; const lt = G.league && G.league.lastTeam && G.league.lastTeam[id]; return lt != null ? lt : 0; };
 
@@ -214,16 +221,6 @@
     return null;
   };
 
-  // Sim until a user game would be played (returns true if reached a user game) or until done
-  L.simUntilUserGame = function (G, maxDays) {
-    let n = 0;
-    while (L.simPhaseOpen(G) && n++ < (maxDays || 9999)) {
-      const ug = L.userGameToday(G);
-      if (ug) return ug;
-      L.simDay(G, true);
-    }
-    return null;
-  };
   L.simPhaseOpen = G => G.league.phase !== 'done';
 
   // sim everything through a target day (user games included, simulated)
@@ -394,7 +391,7 @@
     lg.day += 2;     // rest days between rounds
   };
 
-  L.finishSeason = function (G) {
+  const finishCore = function (G) {
     const lg = G.league;
     lg.phase = 'done';
     const ut = G.userTeam, rec = lg.rec[ut];
@@ -414,9 +411,9 @@
     if (G.fr) PB.Franchise.onSeasonEnd(G);
     if (PB.onSeasonDone) PB.onSeasonDone(G);
   };
+  L.finishSeason = function (G) { finishCore(G); for (const f of L.hooks.afterFinish) f(G); };
 
   // ----- stats views --------------------------------------------------------
-  L.perGame = (s, k) => s.gp ? s[k] / s.gp : 0;
   L.leaders = function (G, key, n, playoff) {
     const map = playoff ? G.league.pstatsPO : G.league.pstats;
     const minGp = Math.max(1, Math.floor((G.league.tgp[0] || 0) * 0.35));
@@ -435,7 +432,7 @@
   };
   // ----- awards & honors -------------------------------------------------------
   // per-game "game score" (Hollinger-style) from box totals
-  const gscore = s => (s.pts + 0.4 * s.fgm - 0.7 * s.fga - 0.4 * (s.fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov) / Math.max(1, s.gp);
+  const gscore = PB.gameScorePG;
   const isG = id => PB.BYID[id].r.pos1 <= 1, isC = id => PB.BYID[id].r.pos1 === 4, isF = id => !isG(id) && !isC(id);
   L.honor = function (lg, id, label) { lg.honors = lg.honors || {}; (lg.honors[id] = lg.honors[id] || []).push(label); };
   function eligible(G, frac) {
@@ -461,6 +458,12 @@
       return Object.assign({}, r, { v });
     }).sort((a, b) => b.v - a.v);
   }
+  // the running MVP ballot (anyone with 30% of their team's games), for the Awards tab before the real vote
+  L.mvpRace = function (G, n) {
+    const rows = eligible(G, 0.3); if (rows.length < 5) return [];
+    const top = mvpRows(G, rows).slice(0, n || 5), tot = top.reduce((s, r) => s + r.v, 0) || 1;
+    return top.map(r => ({ id: r.id, share: Math.round(100 * r.v / tot) }));
+  };
   L.voteNoise = 0.10; L.mvpPow = 0.35; L.mvpWin = 1.4;   // tuned: ~14 different MVPs in 24 seasons, none above ~17%
   function defScore(G, r) {
     const lg = G.league, s = r.s, g = Math.max(1, s.gp);
@@ -557,5 +560,4 @@
   };
 
   // ----- player/team info ---------------------------------------------------
-  L.teamStr = (G, id) => PB.teamOvr(G.teams[id]);
 })(window.PB);

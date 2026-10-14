@@ -15,7 +15,7 @@
     const T = opts.snap ? { name: '', city: '', nick: '', id: 0 } : G.teams[tid], W = 1200, H = 630, c = document.createElement('canvas'); c.width = W; c.height = H;
     const g = c.getContext('2d'), spec = opts.snap ? { c1: '#3a4a8a', c2: '#ffffff' } : PB.Logo.spec(T), vis = opts.snap ? { P: true, O: true } : UI.vis();
     const starters = (opts.snap ? opts.snap.s : T.starters).slice(0, 5).map(id => PB.BYID[id]), bench = (opts.snap ? opts.snap.b : T.bench).slice(0, 7).map(id => PB.BYID[id]);
-    const imgs = await Promise.all(starters.concat(bench).map(m => load(m.sprite)));
+    const imgs = await Promise.all(starters.concat(bench).map(m => (PB.Atlas ? PB.Atlas.crop(m) : Promise.resolve(null)).then(c => c || load(m.sprite))));
     // background
     const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, shade(spec.c1, 0.55)); bg.addColorStop(0.55, '#0e1424'); bg.addColorStop(1, shade(spec.c2 === '#ffffff' ? spec.c1 : spec.c2, 0.35));
     g.fillStyle = bg; g.fillRect(0, 0, W, H);

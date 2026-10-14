@@ -13,13 +13,13 @@
   S.save = function (G, slot) {
     slot = slot || 1;
     const old = readMeta(slot), r = origSave.call(S, G, slot);
-    if (r.ok) { const m = readMeta(slot) || {}; if (old && old.name) m.name = old.name; try { putMeta(slot, m); } catch (e) { } }
+    if (r.ok) { const m = readMeta(slot) || {}; if (old && old.name) m.name = old.name; try { putMeta(slot, m); } catch (e) { PB.warn('saveslots', e); } }
     return r;
   };
   const origLoad = S.load;
   S.load = function (slot) {
     const G = origLoad.call(S, slot);
-    if (G) { const m = readMeta(slot || 1); if (m) { m.played = Date.now(); try { putMeta(slot || 1, m); } catch (e) { } } }
+    if (G) { const m = readMeta(slot || 1); if (m) { m.played = Date.now(); try { putMeta(slot || 1, m); } catch (e) { PB.warn('saveslots', e); } } }
     return G;
   };
   S.rename = (n, name) => { const m = readMeta(n); if (!m) return false; m.name = String(name || '').trim().slice(0, 30); putMeta(n, m); return true; };
@@ -39,7 +39,7 @@
   // ---------- UI ----------
   const modeName = m => m.mode === 'fantasy' ? 'Fantasy' : m.mode === 'franchise' ? 'Franchise' : 'Main';
   const kb = n => { const b = S.size(n); return b ? Math.round(b / 1024) + ' KB' : ''; };
-  const usage = () => { let t = 0; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); t += k.length + (localStorage.getItem(k) || '').length; } } catch (e) { } return t * 2; };   // UTF-16, about 5 MB budget
+  const usage = () => { let t = 0; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); t += k.length + (localStorage.getItem(k) || '').length; } } catch (e) { PB.warn('saveslots', e); } return t * 2; };   // UTF-16, about 5 MB budget
   UI.saveManagerHtml = function (ctx) {
     const inGame = ctx === 'game';
     const rows = []; for (let n = 1; n <= N; n++) {
@@ -84,6 +84,7 @@
 
   // the in-game Save / Load tab uses the manager too
   UI.hubTabs.save = function (G) {
+    if (PB.Net && PB.Net.onlineLeague && PB.Net.onlineLeague()) return UI.onlineSaveTab(G, G.league);
     return `${UI.saveManagerHtml('game')}<div class="col" style="max-width:760px;margin-top:8px"><div class="dim" style="font-size:12px">Seed ${G.seed}</div><label><input type="checkbox" ${G.settings.autosave === false ? '' : 'checked'} data-change="toggleAuto"> Autosave to slot 1 after each game / sim</label></div>`;
   };
 })(window.PB);

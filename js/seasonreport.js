@@ -6,8 +6,7 @@
   const LINK = 'https://poke82-beta.vercel.app/';
   const ROUNDS = (po, n) => po && po.conf ? (n === po.nRounds ? 'the Finals' : n === po.nRounds - 1 ? 'the conference finals' : n === po.nRounds - 2 ? 'the conference semifinals' : 'round ' + n) : po && po.single ? (n === po.nRounds ? 'the Finals' : n === po.nRounds - 1 && po.nRounds > 2 ? 'the semifinals' : n === 1 ? 'the first round' : 'round ' + n) : (['the first round', 'the semifinals', 'the conference finals', 'the Finals'][n - 1] || 'round ' + n);
   R.ROUNDS = ROUNDS;
-  const gsc = s => (s.pts + 0.4 * s.fgm - 0.7 * s.fga - 0.4 * (s.fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov) / Math.max(1, s.gp);
-  const LET = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'];
+  const gsc = PB.gameScorePG;
 
   R.build = function (G) {
     const lg = G.league, ut = G.userTeam, T = G.teams[ut], rec = lg.rec[ut], n = G.teams.length;
@@ -30,8 +29,7 @@
     const lead = (k) => L.leaders(G, k, 1, false)[0];
     const leaders = { ppg: lead('ppg'), rpg: lead('rpg'), apg: lead('apg') };
     // moments from your games
-    const boxes = lg.userBoxes.filter(b => !b.po), poBoxes = lg.userBoxes.filter(b => b.po);
-    const marg = b => (b.h === ut ? b.sc[0] - b.sc[1] : b.sc[1] - b.sc[0]);
+        const marg = b => (b.h === ut ? b.sc[0] - b.sc[1] : b.sc[1] - b.sc[0]);
     const withM = lg.userBoxes.map(b => ({ b, m: marg(b) }));
     const bigWin = withM.filter(x => x.m > 0).sort((a, b) => b.m - a.m)[0], bigLoss = withM.filter(x => x.m < 0).sort((a, b) => a.m - b.m)[0];
     let streak = 0, best = 0; for (const x of withM.filter(x => !x.b.po)) { streak = x.m > 0 ? streak + 1 : 0; best = Math.max(best, streak); }
@@ -63,7 +61,6 @@
 
   const tag = (G, id) => `${UI.spr(PB.BYID[id], 22)} ${esc(PB.BYID[id].dispName)}`;
   const line = (s, gp) => `${(s.pts / gp).toFixed(1)} pts · ${((s.oreb + s.dreb) / gp).toFixed(1)} reb · ${(s.ast / gp).toFixed(1)} ast`;
-  const gdate = (b) => L.dateStr(b.day);
   const oppOf = (G, b) => G.teams[b.h === G.userTeam ? b.a : b.h];
   const color = l => GR ? GR.color(l) : '#ffcb05';
   R.html = function (G) {

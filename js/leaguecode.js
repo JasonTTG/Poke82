@@ -23,7 +23,7 @@
   const pipe = async (bytes, Ctor, fmt) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new Ctor(fmt))).arrayBuffer());
   LC.encode = async function (obj) {
     const raw = new TextEncoder().encode(JSON.stringify(obj));
-    if (window.CompressionStream) { try { return 'PH1z' + b64(await pipe(raw, CompressionStream, 'deflate-raw')); } catch (e) { } }
+    if (window.CompressionStream) { try { return 'PH1z' + b64(await pipe(raw, CompressionStream, 'deflate-raw')); } catch (e) { PB.warn('leaguecode', e); } }
     return 'PH1p' + b64(raw);
   };
   LC.decode = async function (code) {

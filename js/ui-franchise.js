@@ -3,11 +3,9 @@
   const UI = PB.UI, esc = UI.esc, S = UI.screens, A = UI.actions, L = PB.League, F = PB.Franchise, O = PB.Ops;
   const TAB = UI.hubTabs;
   const view = { prot: {}, faQ: '', faSort: 'bst', faType: 'ALL', faPos: 'ALL', faLeg: 'ALL', tTeam: null, tA: [], tB: [], offers: null, dQ: '', dSort: 'bst', dType: 'ALL', histTab: 'seasons' };
-  const BKEYS = ['bst', 'hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 
-  function autosave() { const G = PB.G; if (G.settings.autosave !== false && !(PB.Net && PB.Net.active && PB.Net.active())) PB.Save.save(G, 1); }
+  const autosave = () => UI.autosave();
   function run(name, args, after) { O.run(name, args, (err, res) => { if (err) { PB.toast(err, 3800); UI.refresh(); return; } autosave(); if (after) after(res); UI.refresh(); }); }
-  UI.frRun = run;
 
   // ---------- small components ----------
   function evoLine(m) {
@@ -19,6 +17,16 @@
     return stages.map(st => st.length > 3 ? st.slice(0, 3).map(nm).join(' / ') + ' +' + (st.length - 3) : st.map(nm).join(' / ')).join(' → ');
   }
   UI.evoLine = evoLine;
+  // an injured player's timeline: where he is in recovery and roughly when he is back (counting the team's remaining games)
+  function injRow(G, id) {
+    const i = G.fr.inj[id], lg = G.league, t = G.claimed[id];
+    let back = '';
+    if (lg && lg.sched && i.g > 0) { const rest = lg.sched.filter(g => !g.done && (g.h === t || g.a === t)).sort((a, b) => a.day - b.day); const g = rest[Math.min(i.g, rest.length) - 1]; back = rest.length >= i.g && g ? ' · back around ' + L.dateStr(g.day + 1) : ' · out into the next season'; }
+    const done = Math.max(0, Math.round(100 * (i.n - i.g) / Math.max(1, i.n)));
+    return `<div style="padding:4px 0"><div class="row between"><span data-act="inspect" data-id="${id}" tabindex="0" style="cursor:pointer">${UI.spr(PB.BYID[id], 26)} ${esc(PB.BYID[id].dispName)}</span><span class="tag bad">${esc(i.k)}</span></div>
+      <div style="background:var(--bg2);border-radius:3px;height:6px;margin-top:3px"><div style="width:${done}%;height:6px;border-radius:3px;background:#4aa3ff"></div></div>
+      <div class="dim" style="font-size:11px">${i.g} more game${i.g === 1 ? '' : 's'} of ${i.n}${back}${i.sb ? ' · setback' + (i.sb > 1 ? 's ×' + i.sb : '') : ''}</div></div>`;
+  }
   function injTag(G, id) { const i = G.fr.inj[id]; return i && i.g > 0 ? `<span class="tag bad" title="${esc(i.k)}">🩹 ${esc(i.k)} · ${i.g}g</span>` : ''; }
   function devCell(G, id) {
     const m = PB.BYID[id], dev = Math.round(G.fr.dev[id] || 0);
@@ -33,7 +41,16 @@
     return v.R ? [m.r.three, m.r.dunk, m.r.pass, m.r.handle, m.r.speed, m.r.intD, m.r.perD, m.r.dreb].map(x => `<td class="n">${x}</td>`).join('') : [m.hp, m.atk, m.def, m.spa, m.spd, m.spe].map(x => `<td class="n">${x}</td>`).join('') + `<td class="n"><b>${m.bst}</b></td>`;
   }
   const BASE_TIP = { HP: 'Stamina and durability', ATK: 'Dunking, strength and finishing', DEF: 'Interior defense, rebounding and strength', SPA: 'Shooting (three, mid-range, free throws) and IQ', SPD: 'Passing, IQ and perimeter defense', SPE: 'Speed, handling and steals', BST: 'Total of the six base stats: tracks overall rating closely' };
-  function baseHead(v) { return (v.R ? ['3PT', 'DNK', 'PAS', 'HDL', 'SPD', 'INT', 'PER', 'REB'] : ['HP', 'ATK', 'DEF', 'SPA', 'SPD', 'SPE', 'BST']).map(l => `<th class="n" ${BASE_TIP[l] && !v.R ? `title="${BASE_TIP[l]}"` : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}</th>`).join(''); }
+  const COLKEY = { HP: 'hp', ATK: 'atk', DEF: 'def', SPA: 'spa', SPD: 'spd', SPE: 'spe', BST: 'bst', '3PT': 'three', DNK: 'dunk', PAS: 'pass', HDL: 'handle', INT: 'intD', PER: 'perD', REB: 'dreb', OVR: 'ovr', POT: 'pot' };
+  // column headers; with `w` ('d' draft / 'fa' free agents) they sort the table when clicked
+  function baseHead(v, w) {
+    const cur = w === 'd' ? view.dSort : view.faSort;
+    return (v.R ? ['3PT', 'DNK', 'PAS', 'HDL', 'SPD', 'INT', 'PER', 'REB'] : ['HP', 'ATK', 'DEF', 'SPA', 'SPD', 'SPE', 'BST']).map((l, i) => {
+      const key = v.R && l === 'SPD' ? 'speed' : COLKEY[l], tip = BASE_TIP[l] && !v.R ? `title="${BASE_TIP[l]}"` : '';
+      return `<th class="n ${w && cur === key ? 'sorted' : ''}" ${tip} ${w ? `data-act="frSortCol" data-w="${w}" data-k="${key}" style="cursor:pointer"` : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}${w && cur === key ? ' ▼' : ''}</th>`;
+    }).join('');
+  }
+  A.frSortCol = (el, d) => { view[d.w === 'd' ? 'dSort' : 'faSort'] = d.k; UI.refresh(); };
   function monCell(m) { return `<span data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer">${UI.spr(m, 28)} <b>${esc(m.dispName)}</b></span>${m.leg || m.myth ? ' <span class="tag leg">' + (m.myth ? 'MYTH' : 'LEG') + '</span>' : ''} ${UI.abilTagSmall ? UI.abilTagSmall(m.id) : ''}${PB.G.fr && PB.G.fr.rookie && PB.G.fr.rookie[m.id] === PB.G.fr.year ? ' <span class="tag good">ROOKIE</span>' : ''}`; }
   function filterMons(list, f) {
     const hide = f.hide;
@@ -150,7 +167,7 @@
     const banner = `<div class="panel row between wrap" style="margin-bottom:12px"><div><b>Season ${fr.year}</b> <span class="dim">· ${fr.mixed ? 'Mixed generations' : fr.gens.map(g => PB.REGIONS[g]).join(', ')} · ${G.teams.length} teams · ${lg.games} games each · ${lg.poN} make the playoffs</span></div><div class="dim">${next != null ? 'Next draft class: <b>' + F.nextLabel(G) + '</b>' + (fr.next ? ' <span class="dim">(' + fr.next.size + ' prospects, ' + fr.next.nLeg + ' legendary) · scout them in the Scouting tab</span>' : '') : '<b class="gold">Final season</b> — there are no regions left to draft'}</div></div>`;
     const inj = G.teams[G.userTeam].roster.filter(id => F.isInj(G, id));
     const news = fr.news.slice(0, 8);
-    const extra = `<div class="layout2" style="--side:360px;margin-top:14px"><div class="panel"><h3>Injury report</h3>${inj.length ? inj.map(id => `<div class="row between"><span data-act="inspect" data-id="${id}" tabindex="0" style="cursor:pointer">${UI.spr(PB.BYID[id], 26)} ${esc(PB.BYID[id].dispName)}</span>${injTag(G, id)}</div>`).join('') : '<div class="dim">Everyone is healthy.</div>'}</div>
+    const extra = `<div class="layout2" style="--side:360px;margin-top:14px"><div class="panel"><h3>Injury report</h3>${inj.length ? inj.map(id => injRow(G, id)).join('') : '<div class="dim">Everyone is healthy.</div>'}</div>
       <div class="panel"><h3>League news</h3>${news.map(n => `<div style="font-size:12px;padding:2px 0;${UI.newsMine(G, n) ? 'color:var(--gold)' : ''}"><span class="dim">S${n.y}</span> ${esc(n.txt)}</div>`).join('') || '<div class="dim">Nothing yet.</div>'}</div></div>`;
     return banner + origHome(G, lg, p) + extra;
   };
@@ -226,7 +243,7 @@
       <div class="layout2" style="--side:340px"><div class="panel">
         <div class="row wrap" style="margin-bottom:8px"><select data-change="frDFilter" data-k="type"><option value="ALL">All types</option>${PB.TYPES.map(t => `<option ${view.dType === t ? 'selected' : ''}>${t}</option>`).join('')}</select>${sortSelect(view.dSort, 'frDFilter', true)}
           <input type="text" id="frdq" placeholder="search name…" value="${esc(view.dQ)}" oninput="PB.UI.frDSearch(this.value)"></div>
-        <div class="scroll" id="frdtable"><table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.A ? '<th>Archetype</th>' : ''}${v.O ? '<th class="n">OVR</th><th class="n">POT</th>' : ''}${baseHead(v)}<th>Ability</th><th>Scouting</th><th>Evolution line</th>${mine ? '<th></th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div></div>
+        <div class="scroll" id="frdtable"><table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.A ? '<th>Archetype</th>' : ''}${v.O ? '<th class="n">OVR</th><th class="n">POT</th>' : ''}${baseHead(v, 'd')}<th>Ability</th><th>Scouting</th><th>Evolution line</th>${mine ? '<th></th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div></div>
         <div class="col">
           <div class="panel"><h3>Your roster (${T.roster.length}/${fr.cfg.rosterMax})</h3><div class="dim" style="font-size:12px">${myCount} drafted · ${myLeft} picks left</div>
             <div class="slots" style="margin-top:6px;max-height:260px;overflow:auto">${T.roster.map(id => { const m = PB.BYID[id]; const nw = D.history.some(h => h.mon === id); return `<div class="slot fill" data-act="inspect" data-id="${id}" tabindex="0">${UI.spr(m, 30)}<b class="grow">${esc(m.dispName)}</b>${nw ? '<span class="tag good">NEW</span>' : ''}</div>`; }).join('')}</div></div>
@@ -310,10 +327,10 @@
       <div class="panel">${rosterTable(G, T, true)}</div>`;
   };
   A.frFocus = (el, d) => run('focus', { tid: PB.G.userTeam, id: +d.id });
+  A.frSuggest = (el, d) => { const id = F.isPick(d.id) ? d.id : +d.id; if (d.t === 'add') view.tA.push(id); else view.tB = view.tB.filter(x => x !== id); UI.refresh(); };
   A.frRelease = (el, d) => {
     const m = PB.BYID[+d.id];
-    if (!confirm('Release ' + m.dispName + ' to free agency?')) return;
-    run('release', { tid: PB.G.userTeam, id: +d.id });
+    UI.confirm('Release ' + m.dispName + ' to free agency?', () => run('release', { tid: PB.G.userTeam, id: +d.id }), { yesLabel: 'Release' });
   };
 
   // ---------- free agents ----------
@@ -331,7 +348,7 @@
         <select data-change="frFaFilter" data-k="faLeg"><option value="ALL">All</option><option value="LEG" ${view.faLeg === 'LEG' ? 'selected' : ''}>Legendary/Mythical</option><option value="NON" ${view.faLeg === 'NON' ? 'selected' : ''}>Non-legendary</option></select>
         ${sortSelect(view.faSort, 'frFaFilter')}
         <input type="text" id="frfq" placeholder="search name…" value="${esc(view.faQ)}" oninput="PB.UI.frFaSearch(this.value)"></div>
-      <div class="scroll"><table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? '<th class="n">OVR</th><th class="n">POT</th>' : ''}${baseHead(v)}<th>Evolution line</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+      <div class="scroll"><table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? '<th class="n">OVR</th><th class="n">POT</th>' : ''}${baseHead(v, 'fa')}<th>Evolution line</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   };
   UI.frFaSearch = function (q) { view.faQ = q; UI.refresh(); const el = document.getElementById('frfq'); if (el) { el.focus(); el.setSelectionRange(q.length, q.length); } };
   A.frFaFilter = (el, d) => { view[d.k === 'sort' ? 'faSort' : d.k] = el.value; UI.refresh(); };
@@ -363,7 +380,13 @@
     if (view.tA.length || view.tB.length) {
       const ev = F.evalTrade(G, me.id, other.id, view.tA, view.tB, view.prot);
       if (other.user) { canGo = !ev.reason || ev.vin != null; verdict = canGo ? 'Send this offer to ' + esc(other.name) + '.' : esc(ev.reason); }
-      else { canGo = ev.ok; verdict = ev.ok ? `<span class="good">${esc(other.name)} would accept.</span>` : `<span class="bad">${esc(ev.reason)}</span>`; }
+      else {
+        canGo = ev.ok; verdict = ev.ok ? `<span class="good">${esc(other.name)} would accept.</span>` : `<span class="bad">${esc(ev.reason)}</span>`;
+        if (!ev.ok && ev.vin != null) {
+          const sg = F.suggestAdd(G, me.id, other.id, view.tA, view.tB, view.prot), nmOf = x => F.isPick(x) ? esc(F.pickLabel(G, x)) : esc(PB.BYID[x].dispName);
+          if (sg) verdict += `<div style="margin-top:6px">${sg.type === 'add' ? `They would say yes if you added <b>${nmOf(sg.asset)}</b>. <button class="small" data-act="frSuggest" data-t="add" data-id="${sg.asset}">Add it</button>` : `They would say yes if you asked for less: drop <b>${nmOf(sg.asset)}</b>. <button class="small" data-act="frSuggest" data-t="remove" data-id="${sg.asset}">Drop it</button>`}</div>`;
+        }
+      }
     }
     const incoming = (fr.offers || []).filter(o => o.b === me.id);
     const out = (fr.offers || []).filter(o => o.a === me.id);
@@ -416,6 +439,11 @@
   };
 
   // franchise saves
-  UI.frActive = G => G && G.mode === 'franchise';
   UI.frH = { monCell, baseCells, baseHead, evoLine, filterMons, sortSelect, scoutCell };
+  // a banner on Home while trade offers are waiting
+  { const homeT = UI.hubTabs.home;
+    UI.hubTabs.home = function (G, lg, p) {
+      const h = homeT(G, lg, p), n = G.fr ? (G.fr.offers || []).filter(o => o.b === G.userTeam).length : 0;
+      return n ? `<div class="panel row between wrap" style="border-color:var(--gold);margin-bottom:12px"><b class="gold">${n} trade offer${n > 1 ? 's' : ''} waiting</b><button class="small gold" data-act="hubTab" data-tab="trades">View</button></div>` + h : h;
+    }; }
 })(window.PB);

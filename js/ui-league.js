@@ -9,7 +9,7 @@
     if (G.mode !== 'franchise') return tabs;
     const lg = G.league, base = [['home', 'Home'], ['schedule', 'Schedule'], ['standings', 'Standings'], ['stats', 'Stats'], ['playoffs', 'Playoffs'], ['awards', 'Awards'], ['boxes', 'Box Scores'], ['roster', 'Roster'], ['fa', 'Free Agents'], ['trades', 'Trades']];
     if (lg.phase === 'done') base.splice(1, 0, ['offseason', G.fr.stage === 'over' ? 'Final' : 'Offseason']);
-    base.push(['records', 'Records'], ['history', 'History'], ['rules', 'Rules'], ['save', 'Save / Load']);
+    base.push(['records', 'Record Book'], ['history', 'History'], ['rules', 'Rules'], ['save', 'Save / Load']);
     return base;
   };
   const recStr = r => r.w + '-' + r.l;
@@ -152,10 +152,13 @@
   A.standMode = (el, d) => { view.standMode = d.m; UI.refresh(); };
 
   // ---------------- STATS ----------------
+  // the Stats tab is one page with a row of views; other modules add theirs here (Advanced, Milestones) and supply the Players table
+  UI.statViews = UI.statViews || [];
+  UI.statsPO = () => !!view.statsPO;
   const LEAD = [['ppg', 'Points', v => v.toFixed(1)], ['rpg', 'Rebounds', v => v.toFixed(1)], ['apg', 'Assists', v => v.toFixed(1)], ['spg', 'Steals', v => v.toFixed(2)], ['bpg', 'Blocks', v => v.toFixed(2)], ['fg', 'FG%', v => (v * 100).toFixed(1)], ['tp', '3P%', v => (v * 100).toFixed(1)]];
   TAB.stats = function (G, lg) {
     const sub = view.statsTab;
-    const nav = `<div class="row wrap" style="margin-bottom:10px">${[['leaders', 'League leaders'], ['players', 'All players'], ['teams', 'Team stats']].map(([k, l]) => `<button class="${sub === k ? 'primary' : ''}" data-act="statsTab" data-t="${k}">${l}</button>`).join('')}
+    const nav = `<div class="row wrap" style="margin-bottom:10px">${[['leaders', 'League leaders'], ['players', 'Players'], ['teams', 'Team stats']].concat((UI.statViews || []).map(v => [v.key, v.label])).map(([k, l]) => `<button class="${sub === k ? 'primary' : ''}" data-act="statsTab" data-t="${k}">${l}</button>`).join('')}
       <label class="dim"><input type="checkbox" ${view.statsPO ? 'checked' : ''} data-change="statsPO"> Playoffs</label></div>`;
     if (sub === 'leaders') {
       return nav + `<div class="cards" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${LEAD.map(([k, lbl, f]) => {
@@ -163,25 +166,32 @@
         return `<div class="panel"><h3>${lbl}</h3>${rows.map((r, i) => { const m = PB.BYID[r.id]; const tid = L.teamOf(G, r.id); return `<div class="row between" data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer"><span>${i + 1}. ${UI.spr(m, 24)} ${esc(m.dispName)} <span class="dim">${esc(G.teams[tid].abbr)}</span></span><b>${f(r.v)}</b></div>`; }).join('') || '<div class="dim">No data yet.</div>'}</div>`;
       }).join('')}</div>`;
     }
-    if (sub === 'players') {
-      const map = view.statsPO ? lg.pstatsPO : lg.pstats;
-      let rows = Object.keys(map).map(id => ({ id: +id, s: map[id] })).filter(r => r.s.gp > 0);
-      const key = view.rosterSort;
-      const val = r => { const s = r.s; return key === 'ppg' ? s.pts / s.gp : key === 'rpg' ? (s.oreb + s.dreb) / s.gp : key === 'apg' ? s.ast / s.gp : key === 'mpg' ? s.sec / s.gp : key === 'spg' ? s.stl / s.gp : key === 'bpg' ? s.blk / s.gp : key === 'pm' ? s.pm / s.gp : s.gp; };
-      rows.sort((a, b) => val(b) - val(a));
-      return nav + `<div class="panel"><div class="row" style="margin-bottom:6px"><span class="dim">Sort by</span><select data-change="rosterSort">${['ppg', 'rpg', 'apg', 'spg', 'bpg', 'mpg', 'pm', 'gp'].map(k => `<option ${key === k ? 'selected' : ''}>${k}</option>`).join('')}</select></div>
-        <div class="scroll"><table class="t"><thead><tr><th>#</th><th>Pokémon</th><th>Team</th>${UI.vis().P ? '<th>Pos</th>' : ''}<th class="n">GP</th><th class="n">MPG</th><th class="n">PPG</th><th class="n">RPG</th><th class="n">APG</th><th class="n">SPG</th><th class="n">BPG</th><th class="n">TOV</th><th class="n">FG%</th><th class="n">3P%</th><th class="n">FT%</th><th class="n">+/-</th></tr></thead><tbody>
-        ${rows.slice(0, 120).map((r, i) => { const m = PB.BYID[r.id], s = r.s, g = s.gp; const tid = L.teamOf(G, r.id); return `<tr class="${tid === G.userTeam ? 'me' : ''}"><td class="dim">${i + 1}</td><td>${UI.spr(m, 24)} <span data-act="inspect" data-id="${m.id}" tabindex="0" style="cursor:pointer">${esc(m.dispName)}</span></td><td>${esc(G.teams[tid].abbr)}</td>${UI.vis().P ? `<td>${m.pos[0]}</td>` : ''}<td class="n">${g}</td><td class="n">${(s.sec / g / 60).toFixed(1)}</td><td class="n">${(s.pts / g).toFixed(1)}</td><td class="n">${((s.oreb + s.dreb) / g).toFixed(1)}</td><td class="n">${(s.ast / g).toFixed(1)}</td><td class="n">${(s.stl / g).toFixed(1)}</td><td class="n">${(s.blk / g).toFixed(1)}</td><td class="n">${(s.tov / g).toFixed(1)}</td><td class="n">${UI.pct(s.fgm, s.fga)}</td><td class="n">${UI.pct(s.tpm, s.tpa)}</td><td class="n">${UI.pct(s.ftm, s.fta)}</td><td class="n">${(s.pm / g).toFixed(1)}</td></tr>`; }).join('')}</tbody></table></div></div>`;
-    }
+    if (sub === 'players') return nav + UI.playersView(G, lg, view.statsPO);
+    const ex = (UI.statViews || []).find(v => v.key === sub); if (ex) return nav + ex.fn(G, lg);
     const rows = G.teams.map(t => ({ t, s: lg.tstats[t.id], g: lg.tgp[t.id], r: lg.rec[t.id] })).filter(r => r.g > 0).sort((a, b) => b.s.pts / b.g - a.s.pts / a.g);
     return nav + `<div class="panel"><table class="t"><thead><tr><th>Team</th><th class="n">W-L</th><th class="n">PPG</th><th class="n">FG%</th><th class="n">3P%</th><th class="n">FT%</th><th class="n">3PA</th><th class="n">REB</th><th class="n">AST</th><th class="n">STL</th><th class="n">BLK</th><th class="n">TOV</th></tr></thead><tbody>
       ${rows.map(({ t, s, g, r }) => `<tr class="${t.id === G.userTeam ? 'me' : ''}"><td>${UI.teamLabel(G, t.id)}</td><td class="n">${r.w}-${r.l}</td><td class="n">${(s.pts / g).toFixed(1)}</td><td class="n">${UI.pct(s.fgm, s.fga)}</td><td class="n">${UI.pct(s.tpm, s.tpa)}</td><td class="n">${UI.pct(s.ftm, s.fta)}</td><td class="n">${(s.tpa / g).toFixed(1)}</td><td class="n">${((s.oreb + s.dreb) / g).toFixed(1)}</td><td class="n">${(s.ast / g).toFixed(1)}</td><td class="n">${(s.stl / g).toFixed(1)}</td><td class="n">${(s.blk / g).toFixed(1)}</td><td class="n">${(s.tov / g).toFixed(1)}</td></tr>`).join('')}</tbody></table></div>`;
   };
   A.statsTab = (el, d) => { view.statsTab = d.t; UI.refresh(); };
   A.statsPO = el => { view.statsPO = el.checked; UI.refresh(); };
-  A.rosterSort = el => { view.rosterSort = el.value; UI.refresh(); };
 
   // ---------------- PLAYOFFS ----------------
+  // the playoff bracket (shared by the Playoffs tab and the Daily / Endless result screen); o.compact shows team abbreviations only
+  UI.bracket = function (G, po, o) {
+    o = o || {};
+    const tm = id => id == null ? '?' : o.compact ? `<span style="${id === G.userTeam ? 'color:var(--gold);font-weight:800' : ''}">${esc(G.teams[id].abbr)}</span>` : UI.teamLabel(G, id);
+    const need = s => s.need || 4;
+    const ser = s => {
+      const hiWin = s.w[0] === need(s), loWin = s.w[1] === need(s);
+      const line = (id, seed, w, win) => `<div class="row between ${win ? 'w' : (hiWin || loWin) ? 'l' : ''}"><span>${seed ? '(' + seed + ') ' : ''}${tm(id)}</span><b>${w}</b></div>`;
+      return `<div class="series">${line(s.hi, s.hiSeed, s.w[0], hiWin)}${line(s.lo, s.loSeed, s.w[1], loWin)}${!o.compact && s.games.length ? `<div class="dim" style="font-size:10px;margin-top:2px">${s.games.map(g => `${g.sc[0]}-${g.sc[1]}`).join(' · ')}</div>` : ''}</div>`;
+    };
+    const n = po.rounds.length;
+    const roundName = po.single ? po.rounds.map((_, i) => { const left = n - 1 - i; if (po.conf) return left === 0 ? 'Finals' : left === 1 ? 'Conference Finals' : left === 2 ? 'Conference Semifinals' : 'Round ' + (i + 1); return left === 0 ? 'Finals' : left === 1 ? 'Semifinals' : left === 2 ? 'Quarterfinals' : 'Round ' + (i + 1); }) : ['First Round', 'Conference Semifinals', 'Conference Finals', 'Finals'];
+    const cols = roundName.map((nm, i) => `<div><h3>${nm}</h3>${(po.rounds[i] || []).map(ser).join('') || '<div class="dim">TBD</div>'}</div>`).join('');
+    return `<div class="bracket" style="grid-template-columns:repeat(${roundName.length},1fr)${o.compact ? ';margin-top:10px' : ''}">${cols}</div>`;
+  };
+
   TAB.playoffs = function (G, lg) {
     if (!lg.po) {
       const list = (n, a) => `<div class="panel"><h3>${n} </h3>${a.map((id, i) => `<div class="row between"><span>${i + 1}. ${UI.teamLabel(G, id)}</span><span class="dim">${recStr(lg.rec[id])}</span></div>`).join('')}</div>`;
@@ -190,17 +200,7 @@
       const e = L.confStandings(G, 'East').slice(0, 8), w = L.confStandings(G, 'West').slice(0, 8);
       return `<div class="layout2" style="--side:1fr">${list('East', e)}${list('West', w)}</div>`;
     }
-    const po = lg.po;
-    const need = s => s.need || 4;
-    const ser = s => {
-      const hiWin = s.w[0] === need(s), loWin = s.w[1] === need(s);
-      const line = (id, seed, w, win) => `<div class="row between ${win ? 'w' : (hiWin || loWin) ? 'l' : ''}"><span>${seed ? '(' + seed + ') ' : ''}${UI.teamLabel(G, id)}</span><b>${w}</b></div>`;
-      return `<div class="series">${line(s.hi, s.hiSeed, s.w[0], hiWin)}${line(s.lo, s.loSeed, s.w[1], loWin)}${s.games.length ? `<div class="dim" style="font-size:10px;margin-top:2px">${s.games.map(g => `${g.sc[0]}-${g.sc[1]}`).join(' · ')}</div>` : ''}</div>`;
-    };
-    const n = po.rounds.length;
-    const roundName = po.single ? po.rounds.map((_, i) => { const left = n - 1 - i; if (po.conf) return left === 0 ? 'Finals' : left === 1 ? 'Conference Finals' : left === 2 ? 'Conference Semifinals' : 'Round ' + (i + 1); return left === 0 ? 'Finals' : left === 1 ? 'Semifinals' : left === 2 ? 'Quarterfinals' : 'Round ' + (i + 1); }) : ['First Round', 'Conference Semifinals', 'Conference Finals', 'Finals'];
-    const cols = roundName.map((nm, i) => `<div><h3>${nm}</h3>${(po.rounds[i] || []).map(ser).join('') || '<div class="dim">TBD</div>'}</div>`).join('');
-    return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">🏆 ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel"><div class="bracket" style="grid-template-columns:repeat(${roundName.length},1fr)">${cols}</div></div>`;
+    return `${lg.champion != null ? `<div class="panel center" style="border-color:var(--gold);margin-bottom:10px"><h2 class="gold">🏆 ${esc(G.teams[lg.champion].name)} are champions!</h2></div>` : ''}<div class="panel">${UI.bracket(G, lg.po)}</div>`;
   };
 
   // ---------------- AWARDS ----------------
@@ -225,14 +225,17 @@
         ${a.game && a.game.mvp ? `<div style="margin-bottom:8px"><b>All-Star MVP</b> ${who(a.game.mvp)}</div>` : ''}
         <div class="layout2" style="--side:1fr">${['East', 'West'].map(c => `<div><h3>${(a.names || {})[c] || c}</h3><div class="dim" style="font-size:11px">Starters</div>${list(a.squads[c].starters)}<div class="dim" style="font-size:11px;margin-top:6px">Reserves</div>${list(a.squads[c].reserves)}</div>`).join('')}</div></div>`;
     }
-    return html || '<div class="panel dim">No awards yet.</div>';
+    if (!html) {
+      const race = L.mvpRace ? L.mvpRace(G, 5) : [];
+      return `<div class="panel"><h3>MVP race</h3>${race.length ? race.map((r, i) => `<div class="row between"><span><span class="dim" style="display:inline-block;width:18px">${i + 1}</span>${who(r.id)}</span><span>${line(r.id)} <b>${r.share}%</b></span></div>`).join('') : '<div class="dim">Appears after a few games.</div>'}</div>`;
+    }
+    return html;
   };
 
   // ---------------- BOX SCORES ----------------
   // ---- box score: players (with efficiency), team comparison, shot chart ----
-  const gmsc = s => s.pts + 0.4 * s.fgm - 0.7 * s.fga - 0.4 * (s.fta - s.ftm) + 0.7 * s.oreb + 0.3 * s.dreb + s.stl + 0.7 * s.ast + 0.7 * s.blk - 0.4 * s.pf - s.tov;
+  const gmsc = PB.gameScore;
   const efg = s => s.fga ? (s.fgm + 0.5 * s.tpm) / s.fga : 0;
-  const tsp = s => (s.fga + 0.44 * s.fta) ? s.pts / (2 * (s.fga + 0.44 * s.fta)) : 0;
   const rowsOf = boxArr => Object.keys(boxArr).map(id => ({ id: +id, s: Array.isArray(boxArr[id]) ? L.unpackBox(boxArr[id]) : boxArr[id] })).sort((a, b) => b.s.sec - a.s.sec);
   const totalsOf = boxArr => { const tot = PB.newStat(); rowsOf(boxArr).forEach(r => PB.STAT_KEYS.forEach(k => tot[k] += r.s[k])); return tot; };
   function boxTable(G, tid, boxArr) {
@@ -324,14 +327,8 @@
   A.editLineup = () => UI.go('lineup', { ctx: 'hub' });
 
   // ---------------- SAVE ----------------
-  TAB.save = function (G) {
-    const slot = n => { const m = PB.Save.meta(n); return `<div class="panel row between"><div><b>Slot ${n}</b><div class="dim" style="font-size:12px">${m ? esc(m.team) + ' · ' + esc(m.phase) + ' ' + esc(m.rec || '') + ' · ' + new Date(m.t).toLocaleString() : 'Empty'}</div></div><div class="row"><button data-act="doSave" data-slot="${n}">Save here</button><button data-act="loadSlot" data-slot="${n}" ${m ? '' : 'disabled'}>Load</button></div></div>`; };
-    return `<div class="col" style="max-width:700px">${slot(1)}${slot(2)}<div class="dim" style="font-size:12px">Seed ${G.seed}</div>
-      <label><input type="checkbox" ${G.settings.autosave === false ? '' : 'checked'} data-change="toggleAuto"> Autosave to slot 1 after each game / sim</label></div>`;
-  };
-  A.doSave = (el, d) => { const r = PB.Save.save(PB.G, +d.slot); PB.toast(r.ok ? 'Saved to slot ' + d.slot + ' (' + Math.round(r.bytes / 1024) + ' KB)' : 'Save failed: ' + r.error, 3000); UI.refresh(); };
   A.toggleAuto = el => { PB.G.settings.autosave = el.checked; };
-  const autosave = () => { if (PB.G.settings.autosave !== false) PB.Save.save(PB.G, 1); };
+  const autosave = () => UI.autosave();
 
   // ---------------- SIM CONTROLS ----------------
   let simming = false;
@@ -341,7 +338,8 @@
     const G = PB.G, lg = G.league;
     const speed = +(PB.settings.simSpeed != null ? PB.settings.simSpeed : 1);
     UI.stopSim = false;
-    UI.modal(`<div class="center"><h2>${esc(label)}</h2><div id="simprog" class="dim">Starting…</div><div class="meter" style="margin:12px 0"><i id="simbar" style="width:0%"></i></div><button data-act="stopSim">Stop</button></div>`);
+    let shown = false;
+    const showT = setTimeout(() => { shown = true; UI.modal(`<div class="center"><h2>${esc(label)}</h2><div id="simprog" class="dim">Starting…</div><div class="meter" style="margin:12px 0"><i id="simbar" style="width:0%"></i></div><button data-act="stopSim">Stop</button></div>`); }, 400);      // a quick sim just happens; the progress window only appears if it takes a moment
     const per = speed === 0 ? 40 : speed === 1 ? 6 : 1, delay = speed === 0 ? 0 : speed === 1 ? 16 : speed === 2 ? 60 : 200;
     let guard = 0;
     try {
@@ -355,11 +353,10 @@
         await sleep(delay);
       }
     } catch (e) { console.error(e); PB.toast('Simulation error: ' + e.message, 5000); }
-    simming = false;
-    if (UI.modalOpen()) UI.closeModal();
+    simming = false; clearTimeout(showT);
+    if (shown && UI.modalOpen()) UI.closeModal();
     autosave();
     UI.refresh();
-    if (lg.phase === 'done') PB.toast('Season complete!', 3000);
   }
   A.stopSim = () => { UI.stopSim = true; };
   A.simDays = (el, d) => {
@@ -390,7 +387,6 @@
     const b = lg.userBoxes[lg.userBoxes.length - 1];
     UI.refresh();
     if (b) UI.boxModal(b);
-    if (lg.phase === 'done') PB.toast('Season complete!', 3000);
   };
   A.playGame = () => {
     const G = PB.G, ug = L.userGameToday(G);
@@ -407,6 +403,5 @@
     UI.go('hub', { tab: 'home' }, true);
     const b = lg.userBoxes[lg.userBoxes.length - 1];
     if (b) UI.boxModal(b);
-    if (lg.phase === 'done') PB.toast('Season complete!', 3000);
   };
 })(window.PB);

@@ -18,6 +18,7 @@
     list.sort((a, b) => (val(b) - val(a)) || a.id - b.id);
     return list;
   }
+  UI.actions.fSortCol = (el, d) => { flt.sort = d.k; UI.refresh(); };
   const BKEYS = ['bst', 'hp', 'atk', 'def', 'spa', 'spd', 'spe'];
   const RKEYS = ['three', 'dunk', 'pass', 'handle', 'speed', 'intD', 'perD', 'dreb', 'stamina'];
   function tableHtml(G) {
@@ -33,7 +34,7 @@
       ${v.P ? `<td>${UI.posBadges(m)}</td>` : ''}${v.O ? `<td class="n"><b>${m.ovr}</b></td>` : ''}${v.A ? `<td class="dim" style="font-size:11px">${m.archOff}</td>` : ''}
       ${cols.map(([, k]) => `<td class="n">${k === 'bst' && !v.R ? '<b>' + m[k] + '</b>' : v.R ? m.r[k] : m[k]}</td>`).join('')}
       <td><button class="small ${mine ? 'primary' : ''}" data-act="fDraft" data-id="${m.id}" ${mine ? '' : 'disabled'}>Draft</button></td></tr>`).join('');
-    return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? '<th class="n">OVR</th>' : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l]) => `<th class="n" ${!v.R && TIP[l] ? 'title="' + TIP[l] + '"' : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    return `<table class="t"><thead><tr><th>Pokémon</th><th>Type</th>${v.P ? '<th>Pos</th>' : ''}${v.O ? `<th class="n ${flt.sort === 'ovr' ? 'sorted' : ''}" data-act="fSortCol" data-k="ovr" style="cursor:pointer">OVR${flt.sort === 'ovr' ? ' ▼' : ''}</th>` : ''}${v.A ? '<th>Archetype</th>' : ''}${cols.map(([l, k]) => `<th class="n ${flt.sort === k ? 'sorted' : ''}" data-act="fSortCol" data-k="${k}" style="cursor:pointer" ${!v.R && TIP[l] ? 'title="' + TIP[l] + '"' : ''}>${l === 'BST' && !v.R ? '<b>Total</b>' : l}${flt.sort === k ? ' ▼' : ''}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   function sortOptions() {
     const v = UI.vis(true);

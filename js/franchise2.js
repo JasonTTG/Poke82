@@ -1,13 +1,13 @@
 // Franchise extras: hidden talent variance and scouting, draft lottery and tradable picks, in-season evolution,
-// rookies, records and career stats, league rules.
+// rookies, league rules.
 (function (PB) {
   const F = PB.Franchise, { clamp } = PB;
-  const isHuman = (G, tid) => !!G.teams[tid].user;
+  const isHuman = F.isHuman;
   F.DEFAULTS.variance = 1;          // 0 off, 0.5 low, 1 normal, 2 high
 
   // ---------- talent variance: every Pokemon has a hidden talent (and a form that changes each season) ----------
   const V = PB.Var = { snap: false };
-  const hash = (a, b) => { let h = (a ^ 0x9e3779b9) >>> 0; h = Math.imul(h ^ b, 0x85ebca6b) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 0xc2b2ae35) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const hash = PB.hash2;
   const gauss = (seed, id) => (hash(seed, id * 2 + 1) + hash(seed, id * 2 + 2) - 1) * 2.45;
   V.talent = (G, id) => clamp(gauss(G.seed >>> 0, id), -2, 2);          // roughly -2 .. +2
   V.form = (G, id) => clamp(gauss((G.seed ^ Math.imul(G.fr.year, 7919)) >>> 0, id + 5000), -2, 2);
@@ -154,7 +154,7 @@
     T.roster = rep(T.roster); T.starters = rep(T.starters); T.bench = rep(T.bench);
     delete G.claimed[id]; G.claimed[toId] = tid;
     fr.dev[toId] = Math.max(0, (fr.dev[id] || 0) - opt.need); delete fr.dev[id];
-    for (const mp of [fr.inj, fr.focus, fr.rookie, fr.career]) if (mp && mp[id] != null) { mp[toId] = mp[id]; delete mp[id]; }
+    for (const mp of [fr.inj, fr.focus, fr.rookie]) if (mp && mp[id] != null) { mp[toId] = mp[id]; delete mp[id]; }
     if (lg) {
       if (lg.honors && lg.honors[id]) lg.honors[toId] = (lg.honors[toId] || []).concat(lg.honors[id]);
       for (const key of ['pstats', 'pstatsPO']) if (lg[key] && lg[key][id]) { lg[key][toId] = lg[key][id]; delete lg[key][id]; }
@@ -231,49 +231,11 @@
     return best != null ? best : d.prospects[0];
   };
 
-  // ---------- records, career stats, rookie of the year ----------
-  const GAME_KEYS = [['pts', 'Points', b => b.pts], ['reb', 'Rebounds', b => b.oreb + b.dreb], ['ast', 'Assists', b => b.ast], ['stl', 'Steals', b => b.stl], ['blk', 'Blocks', b => b.blk], ['tpm', 'Threes made', b => b.tpm]];
-  F.GAME_KEYS = GAME_KEYS;
-  const origAfter = F.afterGame;
-  F.afterGame = function (G, game, result) {
-    origAfter(G, game, result);
-    const fr = G.fr, lg = G.league;
-    fr.records = fr.records || { game: {}, team: {}, season: {} };
-    const R = fr.records; R.team = R.team || {}; R.game = R.game || {};
-    for (let s = 0; s < 2; s++) {
-      const tid = s === 0 ? game.h : game.a;
-      for (const id in result.box[s]) {
-        const b = result.box[s][id]; if (b.sec <= 0) continue;
-        for (const [k, , f] of GAME_KEYS) { const v = f(b); if (v > ((R.game[k] && R.game[k].v) || 0)) R.game[k] = { v, id: +id, t: tid, y: fr.year, day: game.day, opp: s === 0 ? game.a : game.h }; }
-      }
-      const sc = result.score[s], margin = sc - result.score[1 - s];
-      if (sc > ((R.team.pts && R.team.pts.v) || 0)) R.team.pts = { v: sc, t: tid, y: fr.year };
-      if (margin > ((R.team.margin && R.team.margin.v) || 0)) R.team.margin = { v: margin, t: tid, y: fr.year, opp: s === 0 ? game.a : game.h };
-      if (lg.phase === 'regular') { const st = lg.rec[tid].strk; if (st > ((R.team.streak && R.team.streak.v) || 0)) R.team.streak = { v: st, t: tid, y: fr.year }; }
-    }
-  };
-  const origEnd = F.onSeasonEnd;
-  F.onSeasonEnd = function (G) {
-    origEnd(G);
-    const fr = G.fr, lg = G.league, R = fr.records = fr.records || { game: {}, team: {} };
-    R.season = R.season || {}; R.team = R.team || {}; R.game = R.game || {};
-    fr.career = fr.career || {};
-    for (const id in lg.pstats) {
-      const s = lg.pstats[id], c = fr.career[id] = fr.career[id] || { gp: 0, pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, tpm: 0, seasons: 0, mvp: 0, titles: 0 };
-      c.gp += s.gp; c.pts += s.pts; c.reb += s.oreb + s.dreb; c.ast += s.ast; c.stl += s.stl; c.blk += s.blk; c.tpm += s.tpm; c.seasons++;
-    }
-    if (lg.awards && lg.awards.mvp != null) { const c = fr.career[lg.awards.mvp]; if (c) c.mvp++; }
-    if (lg.champion != null) for (const id of G.teams[lg.champion].roster) { const c = fr.career[id]; if (c) c.titles++; }
-    const best = PB.League.sortTeams(G, G.teams.map(t => t.id))[0], br = lg.rec[best];
-    const cur = R.team.record;
-    if (!cur || PB.League.pct(br) > cur.pct) R.team.record = { w: br.w, l: br.l, pct: PB.League.pct(br), t: best, y: fr.year };
-    const sc = {}; for (const id in lg.pstats) { const s = lg.pstats[id]; if (s.gp >= lg.games * 0.5) { const g = s.pts / s.gp; if (g > ((R.season.ppg && R.season.ppg.v) || 0)) R.season.ppg = { v: g, id: +id, y: fr.year }; const rb = (s.oreb + s.dreb) / s.gp; if (rb > ((R.season.rpg && R.season.rpg.v) || 0)) R.season.rpg = { v: rb, id: +id, y: fr.year }; const ap = s.ast / s.gp; if (ap > ((R.season.apg && R.season.apg.v) || 0)) R.season.apg = { v: ap, id: +id, y: fr.year }; } }
-  };
-  // R.season exists from the start
+  // ---------- rookies ----------
   const origCreate = F.create;
   F.create = function (seed, cfg, humans) {
     const G = origCreate(seed, cfg, humans);
-    G.fr.records = { game: {}, team: {}, season: {} }; G.fr.career = {}; G.fr.rookie = {}; G.fr.pk = {};
+    G.fr.rookie = {}; G.fr.pk = {};
     G.rules = G.rules || { legCap: (cfg && cfg.legCap) || 0 };
     F.ensurePicks(G);
     PB.G = G;
@@ -315,5 +277,41 @@
     }
     if (changes.variance != null) PB.Var.apply(G);
     F.news(G, 'League rules were updated.');
+  };
+  // ---------- helping the user make a deal ----------
+  // when the AI says no on value, what small change would make it say yes: add one of your assets, or ask for less
+  F.suggestAdd = function (G, a, b, giveA, giveB, prot) {
+    const base = F.evalTrade(G, a, b, giveA, giveB, prot); if (base.ok || base.vin == null) return null;
+    const mine = G.teams[a].roster.filter(x => !giveA.includes(x)).concat(F.ownedPicks(G, a).filter(x => !giveA.includes(x)));
+    let best = null;
+    for (const x of mine) { const ev = F.evalTrade(G, a, b, giveA.concat([x]), giveB, prot); if (ev.ok && (!best || ev.ratio < best.ratio)) best = { asset: x, ratio: ev.ratio }; }
+    if (best) return { type: 'add', asset: best.asset };
+    for (const x of giveB) { const rest = giveB.filter(y => y !== x); if (!rest.length) continue; if (F.evalTrade(G, a, b, giveA, rest, prot).ok) return { type: 'remove', asset: x }; }
+    return null;
+  };
+  // AI teams send you offers: about once a week in season, a team asks for one of your better players and offers the most it would pay for him
+  F.aiOffers = function (G, day) {
+    const fr = G.fr, lg = G.league; if (F.tradeBlocked(G)) return;
+    fr.offers = fr.offers || [];
+    fr.offers = fr.offers.filter(o => (o.ai ? day - (o.day || 0) <= 14 : true) && o.giveA.every(x => owns(G, o.a, x)) && o.giveB.every(x => owns(G, o.b, x)));
+    const rng = new PB.RNG((lg.seed * 17 + day * 131 + fr.year * 7) >>> 0);
+    for (const me of G.teams.filter(t => t.user)) {
+      if (fr.offers.filter(o => o.b === me.id).length >= 2 || !rng.chance(0.5)) continue;
+      const ai = rng.pick(G.teams.filter(t => !t.user && t.id !== me.id));
+      const want = rng.pick(me.roster.slice().sort((x, y) => F.tval(G, y) - F.tval(G, x)).slice(0, 8));
+      const pool = ai.roster.concat(F.ownedPicks(G, ai.id));
+      let best = null;
+      for (const x of pool) { const ev = F.evalTrade(G, me.id, ai.id, [want], [x], {}); if (ev.ok && (!best || ev.vout > best.vout)) best = { asset: x, vout: ev.vout }; }
+      if (!best) continue;
+      fr.offers = fr.offers.filter(o => !(o.a === ai.id && o.b === me.id));
+      fr.offers.push({ id: (fr.offerSeq = (fr.offerSeq || 0) + 1), a: ai.id, b: me.id, giveA: [best.asset], giveB: [want], prot: {}, ai: true, day });
+      F.news(G, ai.abbr + ' sent a trade offer for ' + PB.BYID[want].dispName + '.', true);
+    }
+  };
+  const origAfterGame = F.afterGame;
+  F.afterGame = function (G, game, result) {
+    origAfterGame(G, game, result);
+    const fr = G.fr, lg = G.league;
+    if (lg.phase === 'regular' && game.day % 7 === 0 && fr.offerDay !== fr.year * 1000 + game.day) { fr.offerDay = fr.year * 1000 + game.day; F.aiOffers(G, game.day); }
   };
 })(window.PB);

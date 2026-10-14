@@ -1,7 +1,7 @@
 // Online play UI: connect, rooms and lobbies, online exhibition, online leagues (franchise / fantasy draft), live matches between people.
 (function (PB) {
   const UI = PB.UI, esc = UI.esc, S = UI.screens, A = UI.actions, N = PB.Net, L = PB.League, F = PB.Franchise, O = PB.Ops;
-  const view = { modes: Object.keys({ exhibition: 1, coop: 1, franchise: 1, fantasy: 1 }), url: '', status: '', rooms: null, code: '', ex: { picks: {}, qMin: 5 }, fOpts: { teams: 12 } };
+  const view = { modes: Object.keys({ exhibition: 1, coop: 1, franchise: 1, fantasy: 1 }), status: '', code: '', ex: { picks: {}, qMin: 5 }, fOpts: { teams: 12 } };
   const MODES = { exhibition: 'Exhibition (2 players)', coop: 'Co-op vs AI (2 players, one team)', franchise: 'Franchise league', fantasy: 'Fantasy draft league' };
 
   // ---------- connect / browse ----------
@@ -15,7 +15,7 @@
         <div class="col">
           <label>Your name <input type="text" id="ol-name" maxlength="20" value="${esc(N.name || '')}" placeholder="Trainer"></label>
           <div class="dim" style="font-size:12px">The host's browser runs the game room; friends join with the code. Uses a free public matchmaking service and needs internet; very strict networks can block it.</div>
-          <div class="row wrap"><button class="primary" data-act="olConnect" ${connected ? 'disabled' : ''} autofocus>${connected ? 'Connected ✓' : 'Connect'}</button>${connected ? '<button data-act="olDisconnect">Disconnect</button>' : ''}<span class="dim">${esc(view.status)}</span></div>
+          <div class="row wrap"><button class="primary" data-act="olConnect" ${connected ? 'disabled' : ''} autofocus>${connected ? 'Connected ✓' : 'Connect'}</button>${connected ? '<button data-act="olDisconnect">Disconnect</button>' : ''}<span class="dim">${esc(view.status)}</span><button class="small" data-act="diagCopy" title="Copies recent connection events for troubleshooting">Copy problem report</button></div>
         </div>
         ${connected ? `<hr style="border-color:var(--line);margin:16px 0">
         ${leagueKind ? `<h3>Resume a saved league (you host)</h3>
@@ -41,8 +41,7 @@
     catch (e) { view.status = e.message; }
     UI.refresh();
   };
-  A.olDisconnect = () => { N.disconnect(); view.rooms = null; UI.refresh(); };
-  A.olRefresh = () => N.list();
+  A.olDisconnect = () => { N.disconnect(); UI.refresh(); };
   A.olHost = (el, d) => {
     N.name = nameVal() || N.name || 'Trainer';
     const mode = d.mode; view.resume = null;
@@ -51,11 +50,10 @@
   };
   A.olWatchCode = () => { view.code = document.getElementById('ol-code').value.trim().toUpperCase(); N.name = nameVal() || N.name || 'Trainer'; if (view.code.length !== 4) { PB.toast('Enter the 4-letter room code'); return; } N.p2pJoin(view.code, false, true); };
   A.olJoinCode = () => { view.code = document.getElementById('ol-code').value.trim().toUpperCase(); N.name = nameVal() || N.name || 'Trainer'; PB.toast('Joining ' + view.code + '…', 2500); N.join(view.code); };
-  A.olJoin = (el, d) => { N.name = nameVal() || N.name || 'Trainer'; N.join(d.code); };
 
-  N.on('rooms', list => { view.rooms = list; if (UI.cur === 'online') UI.refresh(); });
   N.on('error', err => PB.toast(err, 3500));
   N.on('status', msg => PB.toast(msg, 2500));
+  N.on('conn', st => { PB.toast(st === 'lost' ? 'Connection lost. Waiting for the host…' : 'Connection restored', 3500); });
   N.on('room', room => {
     if (UI.cur === 'online' && room) UI.go('lobby', {}, true);
     else if (UI.cur === 'lobby') UI.refresh();
@@ -142,7 +140,7 @@
     PB.G = G; PB.settings = G.settings;
     N.session = { league: true, mode: start.mode || start.kind, teams: start.teams, names: Object.assign({}, start.names) };
     N.lastCode = N.room ? N.room.code : N.lastCode;
-    try { if (!N.isHost()) localStorage.setItem('poke82_lastroom', JSON.stringify({ code: N.lastCode, name: N.name, t: Date.now() })); } catch (e) { }
+    try { if (!N.isHost()) localStorage.setItem('poke82_lastroom', JSON.stringify({ code: N.lastCode, name: N.name, t: Date.now() })); } catch (e) { PB.warn('ui-online', e); }
     N.seq = 0; N.lastSeq = 0;
     UI.stack = [];
   }
@@ -201,7 +199,7 @@
   // ---------- online exhibition: choose teams ----------
   S.extpick = {
     back() { },
-    top() { return `<div class="logo">POKÉ<b>HOOPS</b> 82</div><div class="spacer"></div><span class="tag good">ONLINE ${N.room ? esc(N.room.code) : ''}</span><button class="small" data-act="exLeave">Leave</button>`; },
+    top() { return `<div class="logo">POKÉ<b>HOOPS</b> 82</div><div class="spacer"></div><span class="tag good">ONLINE ${N.room ? esc(N.room.code) : ''}</span><span class="tag netpill good">…</span><button class="small" data-act="exLeave">Leave</button>`; },
     render() {
       const G = PB.G, picks = view.ex.picks;
       const mine = picks[N.id];
@@ -290,16 +288,33 @@
   function reconnect() {
     if (rc || N.spectator || !N.session || !N.session.league || N.isHost() || !N.lastCode) return false;
     rc = { n: 0, timer: null };
-    UI.modal(`<div class="center"><h2>Connection lost</h2><div class="dim" id="rc-msg">Trying to get you back in…</div><div class="row center" style="margin-top:12px"><button data-act="rcGiveUp">Give up</button></div></div>`);
+    UI.modal(`<div class="center"><h2>Connection lost</h2><div class="dim" id="rc-msg">Trying to get you back in…</div><div class="row center wrap" style="margin-top:12px" id="rc-btns"><button data-act="rcGiveUp">Give up</button></div></div>`);
     const attempt = () => {
       if (!rc) return;
       rc.n++; const el = document.getElementById('rc-msg'); if (el) el.textContent = 'Reconnecting… attempt ' + rc.n + ' of 12';
+      if (rc.n === 3) { const b = document.getElementById('rc-btns'); if (b) b.innerHTML = '<button class="gold" data-act="olTakeOver">Host it myself</button><button data-act="olSaveCopy">Save a copy</button><button data-act="rcGiveUp">Give up</button>'; }
       N.p2pJoin(N.lastCode, true);
       rc.timer = setTimeout(() => { if (!rc) return; if (rc.n >= 12) { A.rcGiveUp(); return; } attempt(); }, 6000);
     };
     attempt();
     return true;
   }
+  // the host is gone: any player can carry the league on from their own copy (the others rejoin with the new room code), or just keep a file
+  const copyOfLeague = () => {
+    const G = PB.G, ses = N.session; if (!G || !ses) return null;
+    const humans = Object.entries(ses.teams).map(([pid, t]) => ({ team: t, teamName: G.teams[t].name, name: (ses.names && ses.names[pid]) || 'Player' }));
+    return { v: 1, kind: ses.mode, t: Date.now(), label: 'Rescued league', humans, G: PB.Save.serialize(G) };
+  };
+  A.olSaveCopy = () => {
+    const d = copyOfLeague(); if (!d) return;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(d)], { type: 'application/json' })); a.download = 'pokehoops-online-league.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000); PB.toast('League file saved. Resume it from Play Online.');
+  };
+  A.olTakeOver = async () => {
+    const d = copyOfLeague(); if (!d) return;
+    if (rc) { clearTimeout(rc.timer); rc = null; } UI.closeModal();
+    try { await N.connectP2P(N.name); N.session = null; UI.stack = []; UI.go('online', {}, true); hostResume(d); } catch (e) { PB.toast(e.message || 'Could not open a room', 4000); }
+  };
   A.rcGiveUp = () => { if (rc) { clearTimeout(rc.timer); rc = null; } UI.closeModal(); N.session = null; UI.stack = []; UI.go('menu', {}, true); PB.toast('Could not rejoin. Open Play Online → Rejoin to try again.', 5000); };
   N.on('rejoin', d => {
     if (rc) { clearTimeout(rc.timer); rc = null; UI.closeModal(); }
@@ -308,12 +323,11 @@
     G.userTeam = d.teams[N.id]; G.settings = Object.assign(PB.defaultSettings(), PB.settings || {}, { difficulty: 'normal', autosave: false });
     PB.G = G; PB.settings = G.settings; N.lastSeq = d.seq; N.seq = d.seq;
     UI.stack = []; if (G.league) UI.go('hub', { tab: 'home' }, true); else if (G.fdraft && G.fdraft.pick < G.fdraft.total) UI.go('fantasy', {}, true); else UI.go('lineup', { ctx: 'fantasyPost' }, true);
-    PB.toast('Back in the game');
   });
   N.on('teams', d => { if (N.session) { N.session.teams = d.teams; N.session.names = d.names; } });
   N.on('error', () => { if (rc) { /* the next attempt is already scheduled */ } });
   A.olRejoin = async () => {
-    let last = null; try { last = JSON.parse(localStorage.getItem('poke82_lastroom')); } catch (e) { }
+    let last = null; try { last = JSON.parse(localStorage.getItem('poke82_lastroom')); } catch (e) { PB.warn('ui-online', e); }
     if (!last) return;
     N.name = last.name; view.status = 'Connecting…'; UI.refresh();
     try { await N.connectP2P(last.name); view.status = ''; N.session = { league: true, teams: {}, names: {} }; N.p2pJoin(last.code, true); }
@@ -350,7 +364,7 @@
   wrap('frStartDraft', hostOnly(() => run('startDraft', {})));
   wrap('frNextSeason', hostOnly(() => run('startNextSeason', {}, () => { UI.stack = []; UI.go('hub', { tab: 'home' }, true); })));
   wrap('frDraftRest', hostOnly(() => run('draftRest', {})));
-  wrap('goMenu', () => { if (!confirm('Leave the online game?')) return; N.leave(); N.session = null; UI.stack = []; UI.go('menu', {}, true); });
+  wrap('goMenu', () => UI.confirm('Leave the online game?', () => { N.leave(); N.session = null; UI.stack = []; UI.go('menu', {}, true); }, { yesLabel: 'Leave' }));
 
   const origFinish = UI.finishPlayed;
   UI.finishPlayed = function (G, ug, result) {
@@ -437,7 +451,7 @@
   const hubTop = S.hub.top;
   S.hub.top = function (p) {
     let h = hubTop(p);
-    if (isOn()) h = h.replace('<div class="spacer"></div>', `<div class="spacer"></div><span class="tag good">${N.spectator ? '👁 WATCHING' : 'ONLINE'} ${N.room ? esc(N.room.code) : ''}${N.room && N.room.spectators && !N.spectator ? ' · 👁 ' + N.room.spectators : ''}</span>`);
+    if (isOn()) h = h.replace('<div class="spacer"></div>', `<div class="spacer"></div><span class="tag good">${N.spectator ? '👁 WATCHING' : 'ONLINE'} ${N.room ? esc(N.room.code) : ''}${N.room && N.room.spectators && !N.spectator ? ' · 👁 ' + N.room.spectators : ''}</span><span class="tag netpill good">…</span>`);
     return h;
   };
 
@@ -478,9 +492,8 @@
     r.onload = () => { try { hostResume(JSON.parse(r.result)); } catch (e) { PB.toast('Could not read that file'); } };
     r.readAsText(f);
   };
-  const origSave = TAB.save;
-  TAB.save = function (G, lg) {
-    if (!isOn()) return origSave(G, lg);
+  // the Save tab of an online league (saveslots.js hands over to this while online)
+  UI.onlineSaveTab = function (G, lg) {
     const host = N.isHost();
     const slot = n => { const m = saveMeta(n); return `<div class="panel row between"><div><b>Online slot ${n}</b><div class="dim" style="font-size:12px">${m ? esc(m.label) + ' · ' + new Date(m.t).toLocaleString() : 'Empty'}</div></div><button data-act="olSaveSlot" data-slot="${n}" ${host ? '' : 'disabled'}>Save here</button></div>`; };
     return `<div class="col" style="max-width:700px"><div class="panel" style="border-color:var(--blue)"><h3>Online league</h3><div class="dim" style="font-size:12px;margin-bottom:6px">${host ? 'You are the host. Saves live in this browser (or a file); resume from Play Online → Resume. The league also autosaves to slot 1 as it progresses.' : 'Only the host can save this league.'}</div>${slot(1)}${slot(2)}<div class="row" style="margin-top:8px"><button data-act="olSaveFile" ${host ? '' : 'disabled'}>Download save file</button></div></div></div>`;

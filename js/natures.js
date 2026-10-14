@@ -19,7 +19,7 @@
     ['Modest', 'spa', 'atk'], ['Mild', 'spa', 'def'], ['Quiet', 'spa', 'spe'], ['Bashful'], ['Rash', 'spa', 'spd'],
     ['Calm', 'spd', 'atk'], ['Gentle', 'spd', 'def'], ['Sassy', 'spd', 'spe'], ['Careful', 'spd', 'spa'], ['Quirky'],
   ].map(([name, up, down]) => ({ name, up, down }));
-  const hash = (a, b) => { let h = (a ^ 0x7f4a7c15) >>> 0; h = Math.imul(h ^ b, 0x85ebca6b) >>> 0; h = (h ^ (h >>> 13)) >>> 0; h = Math.imul(h, 0xc2b2ae35) >>> 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  const hash = (a, b) => PB.hash2(a, b, 0x7f4a7c15);
   const root = id => { let m = PB.BYID[id], g = 0; while (m && m.from_ && PB.BYID[m.from_] && g++ < 6) m = PB.BYID[m.from_]; return m ? m.id : id; };
   N.on = G => !!(G && G.fr && G.fr.cfg && G.fr.cfg.natures);
   N.of = (G, id) => N.LIST[Math.floor(hash(G.seed >>> 0, root(id) * 17 + 3) * N.LIST.length) % N.LIST.length];

@@ -19,10 +19,8 @@
     const st = STI(G), a = st[monId] || (st[monId] = []);
     a.push(newStint(teamId, yearOf(G)));
   };
-  const gameScore = b => b.pts + 0.4 * b.fgm - 0.7 * b.fga - 0.4 * (b.fta - b.ftm) + 0.7 * b.oreb + 0.3 * b.dreb + b.stl + 0.7 * b.ast + 0.7 * b.blk - 0.4 * b.pf - b.tov;
-  const origRecord = L2.record;
-  L2.record = function (G, game, result, playoff) {
-    origRecord(G, game, result, playoff);
+  const gameScore = PB.gameScore;
+  L2.hooks.afterRecord.push(function (G, game, result, playoff) {
     ver++;
     const st = STI(G), gps = G.league.games || 82, y = yearOf(G), tid = [game.h, game.a];
     for (let s = 0; s < 2; s++) for (const id in result.box[s]) {
@@ -35,7 +33,7 @@
       if (sti.h) sti.h.push(+sti.v.toFixed(2));                           // a game-by-game running total, kept only for traded players and draftees
       if (playoff) sti.pg++; else { sti.g++; sti.e += 1 / gps; }
     }
-  };
+  });
 
   // ---------- logging ----------
   PB.logPick = function (G, kind, key, label, pick) {
@@ -69,7 +67,24 @@
   // ---------- valuation ----------
   const resolve = (G, id) => { let cur = id; const log = G.fr ? G.fr.evoLog : []; for (let i = 0; i < 6; i++) { const e = log.find(x => x.from === cur); if (!e) break; cur = e.to; } return cur; };
   GR.val = (G, id) => { const cur = resolve(G, id), m = PB.BYID[cur]; return G.fr ? F.mval(m) : m.ovr; };
-  GR.proj = (G, id) => clamp((GR.val(G, id) - 60) * 0.5, -1, 18);       // expected value above replacement per season, from today's rating
+  // expected value above replacement per season from today's rating: a line fitted to this league's own results (players with at least most of a season
+  // on one team), pulled toward a default until there is enough data, so it stays right if ratings are rebalanced
+  let calib = null, calibKey = '';
+  const prior = x => -30 + 0.5 * x;                       // default: 0 at a rating of 60, +5 for every 10 points above
+  const fitCurve = G => {
+    const key = ver + ':' + (G.seed || 0);
+    if (calib && calibKey === key) return calib;
+    const bins = Array.from({ length: 13 }, () => ({ w: 0, y: 0 }));          // 5-point rating bins from 40 to 100
+    const st = STI(G);
+    for (const id in st) { const x = GR.val(G, +id), b = bins[clamp(Math.round((x - 40) / 5), 0, 12)]; for (const s of st[id]) { if (s.e < 0.8) continue; b.w += s.e; b.y += s.v; } }
+    // each bin's average value per season, pulled toward the default until it holds a few seasons of data (so the curve follows the league's real results)
+    const est = bins.map((b, k) => (b.y + 3 * prior(40 + 5 * k)) / (b.w + 3));
+    calibKey = key; return (calib = est);
+  };
+  GR.proj = (G, id) => {
+    const est = fitCurve(G), x = clamp(GR.val(G, id), 40, 100), f = (x - 40) / 5, k = Math.min(11, Math.floor(f));
+    return clamp(est[k] + (est[k + 1] - est[k]) * (f - k), -1, 18);
+  };
   const LET = [['A+', 4.3], ['A', 4.0], ['A-', 3.7], ['B+', 3.3], ['B', 3.0], ['B-', 2.7], ['C+', 2.3], ['C', 2.0], ['C-', 1.7], ['D', 1.0], ['F', 0]];
   GR.letter = pts => { for (const [l, p] of LET) if (pts >= p - 0.15) return l; return 'F'; };
   GR.points = l => (LET.find(x => x[0] === l) || [0, 0])[1];

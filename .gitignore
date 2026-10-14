@@ -1,1 +1,4 @@
 /tools/cache
+# single sprite files are rebuilt by tools/fetch_data.py; the game uses the sheets in sprites/atlas
+/sprites/*.png
+/data/pokemon.json
