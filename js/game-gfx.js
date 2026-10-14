@@ -352,10 +352,9 @@
         fillPoly(g, [[x0 + 0.3, -3.6, 0.3], [x0 + L - 0.3, -3.6, 0.3], [x0 + L - 0.3, -3.6, 1.1], [x0 + 0.3, -3.6, 1.1]], tc);
         strokeLine(g, [[x0, -5.1, 1.5], [x0, -5.1, 3.2], [x0 + L, -5.1, 3.2], [x0 + L, -5.1, 1.5]], '#3a4766', 0.25);
         const n = Math.min(7, sd.bench.length), gap = L / 7;
-        // seated back to front by size so the big ones never hide the small ones
-        const seats = sd.bench.slice(0, 7).map((pl, i) => ({ pl, i })).sort((a, b) => a.pl.mon.r.sH - b.pl.mon.r.sH);
-        for (const { pl, i } of seats) {
-          const q = proj(x0 + gap * (i + 0.5), -4.4, 1.5); if (!q) continue;
+        // seated back to front by distance from the camera, so a player in front always covers the ones behind
+        const seats = sd.bench.slice(0, 7).map((pl, i) => ({ pl, i, q: proj(x0 + gap * (i + 0.5), -4.4, 1.5) })).filter(o => o.q).sort((a, b) => b.q[2] - a.q[2]);
+        for (const { pl, i, q } of seats) {
           const dh = Math.min(4.1, 2.4 + 2.2 * pl.mon.r.sH) * cam.F / q[2];
           const hop = crowd.hype * 0.5 * Math.abs(Math.sin(m.t * 9 + i)) * cam.F / q[2];
           drawSprite(g, pl.mon, q[0], q[1] - hop, dh, s === 0);
