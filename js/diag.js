@@ -17,11 +17,12 @@
     window.requestAnimationFrame = f => rAF(guard(f));
     window.setTimeout = (f, ...a) => sT(guard(f), ...a);
     window.setInterval = (f, ...a) => sI(guard(f), ...a);
+    for (const K of ['MutationObserver', 'ResizeObserver', 'IntersectionObserver']) { const O = window[K]; if (O) window[K] = class extends O { constructor(cb, ...r) { super(guard(cb), ...r); } }; }
     const add = EventTarget.prototype.addEventListener, rem = EventTarget.prototype.removeEventListener;
     EventTarget.prototype.addEventListener = function (t, f, o) { return add.call(this, t, guard(f), o); };
     EventTarget.prototype.removeEventListener = function (t, f, o) { return rem.call(this, t, f && f.__w ? f.__w : f, o); };
   } catch (e) { }
-  window.addEventListener('error', e => e.message === 'Script error.' && !e.filename ? D.err('Script error (no details from the browser)', '') : D.err(e.message, (e.filename || '').split('/').pop() + ':' + e.lineno));
+  window.addEventListener('error', e => e.message === 'Script error.' && !e.filename ? D.log('warn', 'opaque script error (a browser extension or injected script; the game code reports its own errors with details)') : D.err(e.message, (e.filename || '').split('/').pop() + ':' + e.lineno));
   window.addEventListener('unhandledrejection', e => { const r = e.reason; D.err('Unhandled: ' + ((r && r.message) || r), r && r.stack ? String(r.stack).split('\n').slice(0, 2).join(' < ').replace(/https?:\/\/[^/]*\//g, '') : ''); });
   D.report = () => {
     const N = PB.Net || {}, G = PB.G, t = x => new Date(x).toISOString().slice(11, 19);

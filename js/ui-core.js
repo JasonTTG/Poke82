@@ -145,6 +145,13 @@
     const f = $('#scr').querySelector('[autofocus]') || $('#scr').querySelector('.mcard, button:not([disabled]), [data-act]');
     if (f && !sc.game && !sc.noFocus && document.body.classList.contains('padnav')) f.focus({ preventScroll: true });      // only when a keyboard / controller is in use
   };
+  // run a redraw of part of a screen without losing how far the player had scrolled any box inside it (or the page)
+  UI.keepScroll = function (el, redraw) {
+    const boxes = () => [el].concat([...el.querySelectorAll('.bracket, .scroll, .panel, .subtabs')], [...(function* () { for (let p = el.parentElement; p && p.id !== 'screen'; p = p.parentElement) yield p; })()]), keep = boxes().map(e => [e.scrollLeft, e.scrollTop]), scr = document.getElementById('scr'), sy = scr ? scr.scrollTop : 0;
+    redraw();
+    boxes().forEach((e, i) => { const k = keep[i]; if (k && (k[0] || k[1])) { e.scrollLeft = k[0]; e.scrollTop = k[1]; } });
+    if (scr) scr.scrollTop = sy;
+  };
   UI.refresh = function () { const y = $('#scr') ? $('#scr').scrollTop : 0; UI.render(); const s = $('#scr'); if (s) s.scrollTop = y; };
   UI.defaultTop = () => `<div class="logo">POKÉ<b>HOOPS</b> 82</div><div class="spacer"></div>
     ${PB.G ? `<button class="small" data-act="goMenu">Main Menu</button>` : ''}`;

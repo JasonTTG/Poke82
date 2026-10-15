@@ -278,7 +278,7 @@
       foot = `<div class="panel" style="margin-top:10px;white-space:pre-line;font-family:monospace">${esc(dailyCode(G.daily.date, runRes(G, r, res)))}</div>
         <div class="row" style="margin-top:10px"><button class="primary" data-act="dailyCopyRun" autofocus>Copy result</button><button data-act="teamCard" data-tid="${G.userTeam}" data-daily="1" data-title="${esc(r.w + '-' + r.l + ' · ' + res)}" data-foot="${G.daily.endless ? 'Endless Draft' : 'Daily ' + G.daily.date}">${PB.I('image')} Team card</button><button data-act="dailyLeague">View the league</button>${G.daily.endless ? '<button class="gold" data-act="goEndless">Draft again</button>' : ''}<button data-act="goMenu">Back to menu</button></div>`;
     }
-    el.innerHTML = `<div style="font-size:34px;font-weight:900;margin:4px 0">${mine}</div>${head}<div style="margin-top:8px">${chartSvg()}</div>${D.stage === 'reg' ? '' : bracketHtml()}${foot}`;
+    UI.keepScroll(el, () => { el.innerHTML = `<div style="font-size:34px;font-weight:900;margin:4px 0">${mine}</div>${head}<div style="margin-top:8px">${chartSvg()}</div>${D.stage === 'reg' ? '' : bracketHtml()}${foot}`; });
   }
   function dailyTick() {
     if (UI.cur !== 'dailysim') { clearInterval(D.iv); return; }
